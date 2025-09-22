@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "assma express",
-    "slug": "assma-express",
+    "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -29,6 +29,7 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "owner": "askia1"
   }
 }
