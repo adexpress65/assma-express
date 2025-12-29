@@ -1,0 +1,17 @@
+// ✅ Fichier compatible avec React Native 0.76+
+def isWindows = System.properties['os.name'].toLowerCase().contains('windows')
+
+// Répertoire de React Native
+def reactNativeDir = isWindows
+    ? file('node_modules/react-native')
+    : file('../node_modules/react-native')
+
+// ⚠️ Depuis RN 0.76, le fichier se trouve dans "packages/react-native-gradle-plugin"
+def nativeModulesGradle = new File(reactNativeDir, 'packages/react-native-gradle-plugin/src/main/resources/native_modules.gradle')
+
+// Vérifie que le fichier existe avant de l’appliquer
+if (nativeModulesGradle.exists()) {
+    apply from: nativeModulesGradle
+} else {
+    println "⚠️ Impossible de trouver native_modules.gradle à l'emplacement attendu : ${nativeModulesGradle}"
+}

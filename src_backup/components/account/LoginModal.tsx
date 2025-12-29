@@ -1,0 +1,392 @@
+// apps/mobile/src/components/account/LoginModal.tsx
+import React, { useState } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, db } from '../../config/firebase';
+
+interface LoginModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onLoginSuccess?: () => void;
+}
+
+export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginModalProps) {
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const resetForm = () => {
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setLoading(false);
+  };
+
+  const handleAuth = async () => {
+    if (!email || !password) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      return;
+    }
+
+    if (!isLogin && password !== confirmPassword) {
+      Alert.alert('Erreur', 'Les mots de passe ne correspondent pas');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Erreur', 'Le mot de passe doit contenir au moins 6 caractères');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        // CONNEXION
+        console.log('Tentative de connexion avec:', email);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        console.log('✅ Connexion réussie:', userCredential.user.email);
+        Alert.alert('Succès', 'Connexion réussie !');
+        resetForm();
+        onClose();
+        onLoginSuccess?.();
+      } else {
+        // INSCRIPTION
+        console.log('Tentative d\'inscription avec:', email);
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        
+        // Créer le document utilisateur dans Firestore
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
+          displayName: userCredential.user.email?.split('@')[0] || 'Utilisateur',
+          role: 'customer',
+          createdAt: new Date(),
+          isActive: true
+        });
+
+        console.log('✅ Inscription réussie:', userCredential.user.email);
+        Alert.alert('Succès', 'Compte créé avec succès !');
+        resetForm();
+        onClose();
+        onLoginSuccess?.();
+      }
+    } catch (error: any) {
+      console.error('❌ Erreur auth:', error);
+      
+      let errorMessage = 'Une erreur est survenue';
+      
+      switch (error.code) {
+        case 'auth/email-already-in-use':
+          errorMessage = 'Cette adresse email est déjà utilisée';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = 'Adresse email invalide';
+          break;
+        case 'auth/user-not-found':
+          errorMessage = 'Aucun compte trouvé avec cette adresse email';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = 'Mot de passe incorrect';
+          break;
+        case 'auth/weak-password':
+          errorMessage = 'Le mot de passe est trop faible';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Erreur de réseau. Vérifie ta connexion internet';
+          break;
+        default:
+          errorMessage = error.message || 'Erreur inconnue';
+      }
+      
+      Alert.alert('Erreur', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={handleClose}
+    >
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          {/* EN-TÊTE */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+            <Text style={styles.title}>
+              {isLogin ? 'Connexion' : 'Créer un compte'}
+            </Text>
+            <View style={styles.placeholder} />
+          </View>
+
+          {/* FORMULAIRE */}
+          <View style={styles.form}>
+            <Text style={styles.subtitle}>
+              {isLogin 
+                ? 'Connectez-vous à votre compte' 
+                : 'Rejoignez ASMA Express'
+              }
+            </Text>
+
+            {/* EMAIL */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="votre@email.com"
+                placeholderTextColor="#999"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+              />
+            </View>
+
+            {/* MOT DE PASSE */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Mot de passe</Text>
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={[styles.input, styles.passwordInput]}
+                  placeholder="Votre mot de passe"
+                  placeholderTextColor="#999"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoComplete="password"
+                />
+                <TouchableOpacity 
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeButton}
+                >
+                  <Ionicons 
+                    name={showPassword ? "eye-off" : "eye"} 
+                    size={20} 
+                    color="#666" 
+                  />
+                </TouchableOpacity>
+              </View>
+              {!isLogin && (
+                <Text style={styles.passwordHint}>
+                  Minimum 6 caractères
+                </Text>
+              )}
+            </View>
+
+            {/* CONFIRMATION MOT DE PASSE (INSCRIPTION) */}
+            {!isLogin && (
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Confirmer le mot de passe</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Confirmer votre mot de passe"
+                  placeholderTextColor="#999"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showPassword}
+                  autoComplete="password"
+                />
+              </View>
+            )}
+
+            {/* BOUTON PRINCIPAL */}
+            <TouchableOpacity 
+              style={[
+                styles.authButton,
+                loading && styles.authButtonDisabled
+              ]}
+              onPress={handleAuth}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.authButtonText}>
+                  {isLogin ? 'Se connecter' : 'Créer mon compte'}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* SWITCH LOGIN/INSCRIPTION */}
+            <TouchableOpacity 
+              style={styles.switchContainer}
+              onPress={() => setIsLogin(!isLogin)}
+            >
+              <Text style={styles.switchText}>
+                {isLogin 
+                  ? "Pas de compte ? S'inscrire" 
+                  : "Déjà un compte ? Se connecter"
+                }
+              </Text>
+            </TouchableOpacity>
+
+            {/* COMPTES DE TEST */}
+            <View style={styles.testAccounts}>
+              <Text style={styles.testTitle}>Comptes de test :</Text>
+              <Text style={styles.testAccount}>superadmin@asmaexpress.com</Text>
+              <Text style={styles.testAccount}>admin@asmaexpress.com</Text>
+              <Text style={styles.testAccount}>techworld@example.com</Text>
+              <Text style={styles.testHint}>Mot de passe : password123</Text>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1a1a1a',
+  },
+  placeholder: {
+    width: 32,
+  },
+  form: {
+    flex: 1,
+    padding: 20,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 30,
+  },
+  inputContainer: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#fafafa',
+  },
+  passwordContainer: {
+    position: 'relative',
+  },
+  passwordInput: {
+    paddingRight: 50,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 16,
+    top: 12,
+  },
+  passwordHint: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  authButton: {
+    backgroundColor: '#ff6a00',
+    borderRadius: 8,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  authButtonDisabled: {
+    opacity: 0.6,
+  },
+  authButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  switchContainer: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  switchText: {
+    color: '#ff6a00',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  testAccounts: {
+    marginTop: 30,
+    padding: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  testTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  testAccount: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 2,
+  },
+  testHint: {
+    fontSize: 12,
+    color: '#ff6a00',
+    fontWeight: '600',
+    marginTop: 8,
+  },
+});

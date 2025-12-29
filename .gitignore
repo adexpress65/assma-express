@@ -63,3 +63,32 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+# === PROTECTION SUPPLÉMENTAIRE ===
+
+# Tous les fichiers .env
+.env
+.env.*
+!*.env.example
+
+# Configuration Firebase (si vous l'utilisez)
+google-services.json
+GoogleService-Info.plist
+firebase-config.json
+
+# Clés API
+api-keys.json
+secrets.json
+keys/
+credentials/
+
+# Fichiers IDE spécifiques
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fichiers temporaires
+tmp/
+temp/
+*.tmp
+*.temp

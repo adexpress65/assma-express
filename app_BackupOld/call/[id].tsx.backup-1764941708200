@@ -1,0 +1,19 @@
+// app/call/[id].tsx
+import React from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { useLocalSearchParams } from "expo-router";
+
+export default function CallScreen() {
+  const { id } = useLocalSearchParams();
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.text}>Appel en cours avec l’ID : {id}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, alignItems: "center", justifyContent: "center" },
+  text: { fontSize: 18, fontWeight: "600" },
+});

@@ -1,7 +1,14 @@
 ﻿// apps/mobile/src/components/SearchBar.tsx
 import React from "react";
-import { View, TextInput, StyleSheet } from "react-native";
+import {
+  View,
+  TextInput,
+  StyleSheet,
+  TouchableOpacity,
+  Keyboard,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 
 type Props = {
   value: string;
@@ -16,16 +23,37 @@ export default function SearchBar({
   onSubmit,
   placeholder,
 }: Props) {
+  const router = useRouter();
+
+  const openCamera = () => {
+    Keyboard.dismiss(); // 🔑 évite tout resize parasite
+    router.push("/camera"); // caméra interne
+  };
+
   return (
     <View style={styles.container}>
-      <Ionicons name="search" size={20} color="#888" style={{ marginRight: 5 }} />
+      {/* Icône recherche */}
+      <Ionicons
+        name="search"
+        size={20}
+        color="#888"
+        style={{ marginRight: 8 }}
+      />
+
+      {/* Input */}
       <TextInput
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         onSubmitEditing={onSubmit}
         placeholder={placeholder || "Rechercher..."}
+        returnKeyType="search"
       />
+
+      {/* Icône caméra (REMPLACEMENT de l'icône image) */}
+      <TouchableOpacity onPress={openCamera} style={styles.cameraButton}>
+        <Ionicons name="camera-outline" size={22} color="#666" />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -44,5 +72,8 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 16,
+  },
+  cameraButton: {
+    marginLeft: 8,
   },
 });

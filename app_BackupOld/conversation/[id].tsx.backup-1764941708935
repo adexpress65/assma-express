@@ -1,0 +1,642 @@
+import React, { useState, useRef, useEffect, useCallback, memo } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  SafeAreaView,
+  Keyboard,
+  Dimensions,
+  ActivityIndicator,
+  Alert
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMessages } from "../../src/contexts/MessagesContext";
+import { useAuth } from "../../src/contexts/AuthContext";
+
+const { height: screenHeight } = Dimensions.get("window");
+
+// Fonction utilitaire pour formater l'heure
+const formatTime = (timestamp: any): string => {
+  if (!timestamp) return '';
+  
+  try {
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  } catch (error) {
+    return '';
+  }
+};
+
+// COMPOSANT MESSAGE OPTIMISÉ - CORRIGÉ
+const MessageItem = memo(({ 
+  item, 
+  index, 
+  allMessages,
+  userId 
+}: { 
+  item: any; 
+  index: number;
+  allMessages: any[];
+  userId: string;
+}) => {
+  const isMe = item.senderId === userId;
+  const isSystem = item.type === "system";
+  
+  const showTime = index === allMessages.length - 1 || 
+    (index < allMessages.length - 1 && (
+      item.senderId !== (allMessages[index + 1]?.senderId || "") ||
+      formatTime(item.timestamp) !== formatTime(allMessages[index + 1]?.timestamp || "")
+    ));
+
+  if (isSystem) {
+    return (
+      <View style={styles.systemMessage}>
+        <Text style={styles.systemText}>{item.text}</Text>
+        <Text style={styles.systemTime}>{formatTime(item.timestamp)}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.messageContainer, { 
+      justifyContent: isMe ? "flex-end" : "flex-start" 
+    }]}>
+      <View style={[styles.messageBubble, isMe ? styles.myMessage : styles.theirMessage]}>
+        <Text style={[styles.messageText, isMe && styles.myMessageText]}>
+          {item.text}
+        </Text>
+        
+        {showTime && (
+          <View style={styles.messageFooter}>
+            <Text style={[
+              styles.messageTime, 
+              isMe ? styles.myMessageTime : styles.theirMessageTime
+            ]}>
+              {formatTime(item.timestamp)}
+            </Text>
+            {isMe && (
+              <View style={styles.messageStatus}>
+                <Ionicons 
+                  name={item.read ? "checkmark-done" : "checkmark"} 
+                  size={12} 
+                  color={item.read ? "#007AFF" : "rgba(255,255,255,0.5)"} 
+                />
+              </View>
+            )}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+});
+
+// COMPOSANT HEADER OPTIMISÉ
+const ConversationHeader = memo(({ 
+  conversation, 
+  onBack 
+}: { 
+  conversation?: any; 
+  onBack: () => void;
+}) => {
+  const getAvatar = (conv: any) => {
+    if (conv.type === 'support') return '🛒';
+    if (conv.type === 'order') return '📦';
+    return conv.participantAvatars?.[Object.keys(conv.participantAvatars || {})[0]] || '👤';
+  };
+
+  const getStatus = (conv: any) => {
+    if (conv.type === 'support') return 'Support en ligne';
+    if (conv.type === 'order') return 'Commande active';
+    return 'En ligne';
+  };
+
+  return (
+    <View style={styles.header}>
+      <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <Ionicons name="arrow-back" size={24} color="#000" />
+      </TouchableOpacity>
+
+      {conversation ? (
+        <TouchableOpacity style={styles.headerCenter}>
+          <View style={styles.avatarContainer}>
+            <Text style={styles.headerAvatar}>{getAvatar(conversation)}</Text>
+            <View style={styles.onlineDot} />
+          </View>
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerTitle}>{conversation.title}</Text>
+            <Text style={styles.headerSubtitle}>
+              {getStatus(conversation)} • {conversation.type}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <Text style={styles.headerTitle}>Conversation</Text>
+      )}
+
+      <View style={styles.headerActions}>
+        <TouchableOpacity style={styles.headerAction}>
+          <Ionicons name="videocam" size={22} color="#007AFF" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.headerAction}>
+          <Ionicons name="call" size={22} color="#007AFF" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+});
+
+// COMPOSANT INPUT OPTIMISÉ
+const MessageInput = memo(({
+  newMessage,
+  onMessageChange,
+  onSendMessage,
+  onAttachPress,
+}: {
+  newMessage: string;
+  onMessageChange: (text: string) => void;
+  onSendMessage: () => void;
+  onAttachPress: () => void;
+}) => {
+  const textInputRef = useRef<TextInput>(null);
+
+  return (
+    <View style={styles.inputContainer}>
+      <View style={styles.inputWrapper}>
+        <TouchableOpacity style={styles.plusButton} onPress={onAttachPress}>
+          <Ionicons name="add" size={24} color="#007AFF" />
+        </TouchableOpacity>
+        
+        <TextInput
+          ref={textInputRef}
+          style={styles.textInput}
+          placeholder="Écrivez un message..."
+          placeholderTextColor="#999"
+          multiline
+          value={newMessage}
+          onChangeText={onMessageChange}
+        />
+        
+        <View style={styles.inputActions}>
+          <TouchableOpacity style={styles.actionButton}>
+            <Ionicons name="camera-outline" size={22} color="#666" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton}>
+            <Ionicons name="image-outline" size={22} color="#666" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <TouchableOpacity
+        style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
+        disabled={!newMessage.trim()}
+        onPress={onSendMessage}
+      >
+        <Ionicons
+          name="send"
+          size={20}
+          color={newMessage.trim() ? "#FFF" : "#AAA"}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
+export default function ConversationDetailScreen() {
+  const { id } = useLocalSearchParams();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { 
+    conversations, 
+    messages, 
+    sendMessage, 
+    currentConversation, 
+    setCurrentConversation,
+    markAsRead 
+  } = useMessages();
+
+  const conversationId = Array.isArray(id) ? id[0] : id;
+  
+  const [newMessage, setNewMessage] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  
+  const flatListRef = useRef<FlatList>(null);
+
+  // Trouver la conversation actuelle
+  const conversation = conversations.find(conv => conv.id === conversationId) || currentConversation;
+
+  // Définir la conversation courante
+  useEffect(() => {
+    if (conversationId && conversations.length > 0) {
+      const foundConversation = conversations.find(conv => conv.id === conversationId);
+      if (foundConversation) {
+        setCurrentConversation(foundConversation);
+      }
+    }
+  }, [conversationId, conversations]);
+
+  // Marquer les messages comme lus
+  useEffect(() => {
+    if (conversationId && user) {
+      markAsRead(conversationId);
+    }
+  }, [conversationId, user, messages.length]);
+
+  // Gestion du clavier optimisée
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(e.endCoordinates.height);
+        
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
+  // Scroll vers le bas quand de nouveaux messages arrivent
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages.length]);
+
+  // Callbacks mémoïsés
+  const handleSendMessage = useCallback(async () => {
+    if (!newMessage.trim() || !conversationId || !user || isSending) return;
+
+    setIsSending(true);
+    
+    try {
+      await sendMessage(conversationId, newMessage);
+      setNewMessage("");
+      
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    } catch (error) {
+      console.error('Erreur envoi message:', error);
+      Alert.alert('Erreur', 'Impossible d\'envoyer le message');
+    } finally {
+      setIsSending(false);
+    }
+  }, [newMessage, conversationId, user, isSending, sendMessage]);
+
+  const handleMessageChange = useCallback((text: string) => {
+    setNewMessage(text);
+  }, []);
+
+  const handleBack = useCallback(() => {
+    setCurrentConversation(null);
+    router.back();
+  }, [router, setCurrentConversation]);
+
+  const handleAttachPress = useCallback(() => {
+    Alert.alert('Pièces jointes', 'Cette fonctionnalité sera disponible bientôt!');
+  }, []);
+
+  const dismissKeyboard = useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
+
+  const renderMessage = useCallback(({ item, index }: { item: any; index: number }) => (
+    <MessageItem 
+      item={item} 
+      index={index} 
+      allMessages={messages}
+      userId={user?.uid || ''}
+    />
+  ), [messages, user]);
+
+  const keyExtractor = useCallback((item: any) => item.id, []);
+
+  const getItemLayout = useCallback((
+    data: ArrayLike<any> | null | undefined, 
+    index: number
+  ) => ({
+    length: 80,
+    offset: 80 * index,
+    index,
+  }), []);
+
+  if (!conversation) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Chargement de la conversation...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFF" />
+      
+      <ConversationHeader 
+        conversation={conversation} 
+        onBack={handleBack}
+      />
+
+      <TouchableOpacity 
+        style={styles.messagesArea} 
+        activeOpacity={1}
+        onPress={dismissKeyboard}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={keyExtractor}
+          renderItem={renderMessage}
+          getItemLayout={getItemLayout}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={10}
+          maxToRenderPerBatch={5}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === 'android'}
+          contentContainerStyle={[
+            styles.messagesContent,
+            { 
+              paddingBottom: 100 + insets.bottom + (isKeyboardVisible ? keyboardHeight : 0)
+            }
+          ]}
+          onScrollBeginDrag={dismissKeyboard}
+        />
+      </TouchableOpacity>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        style={styles.keyboardAvoidingView}
+      >
+        <MessageInput
+          newMessage={newMessage}
+          onMessageChange={handleMessageChange}
+          onSendMessage={handleSendMessage}
+          onAttachPress={handleAttachPress}
+        />
+      </KeyboardAvoidingView>
+
+      {isSending && (
+        <View style={styles.sendingOverlay}>
+          <ActivityIndicator size="small" color="#007AFF" />
+          <Text style={styles.sendingText}>Envoi...</Text>
+        </View>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: { 
+    flex: 1, 
+    backgroundColor: "#FFF",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#666',
+  },
+  messagesArea: {
+    flex: 1,
+    backgroundColor: "#F8F9FA",
+  },
+  keyboardAvoidingView: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFF",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEE",
+    backgroundColor: "#FFF",
+  },
+  backButton: { 
+    padding: 8,
+    marginRight: 8 
+  },
+  headerCenter: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    flex: 1 
+  },
+  avatarContainer: { 
+    position: "relative",
+    marginRight: 12 
+  },
+  headerAvatar: { 
+    fontSize: 32,
+    width: 40,
+    height: 40,
+    textAlign: "center",
+    lineHeight: 40 
+  },
+  onlineDot: {
+    position: "absolute",
+    right: 2,
+    bottom: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#4CAF50",
+    borderWidth: 2,
+    borderColor: "#FFF",
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  headerTitle: { 
+    fontSize: 17, 
+    fontWeight: "600", 
+    color: "#000" 
+  },
+  headerSubtitle: { 
+    fontSize: 13, 
+    color: "#666",
+    marginTop: 2 
+  },
+  headerActions: { 
+    flexDirection: "row", 
+    gap: 4 
+  },
+  headerAction: {
+    padding: 8,
+  },
+
+  messagesContent: { 
+    padding: 16,
+    paddingBottom: 120, // Augmenté pour plus d'espace en bas
+  },
+  messageContainer: { 
+    flexDirection: "row", 
+    marginBottom: 8 
+  },
+  messageBubble: {
+    maxWidth: "80%",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+  },
+  myMessage: {
+    backgroundColor: "#007AFF",
+    borderBottomRightRadius: 6,
+  },
+  theirMessage: {
+    backgroundColor: "#E9E9EB",
+    borderBottomLeftRadius: 6,
+  },
+  messageText: { 
+    fontSize: 16, 
+    color: "#000",
+    lineHeight: 20 
+  },
+  myMessageText: { 
+    color: "#FFF" 
+  },
+  messageFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    marginTop: 4,
+    gap: 4,
+  },
+  messageTime: { 
+    fontSize: 11, 
+  },
+  myMessageTime: { 
+    color: "rgba(255,255,255,0.7)" 
+  },
+  theirMessageTime: { 
+    color: "#666" 
+  },
+  messageStatus: {
+    flexDirection: "row",
+  },
+  systemMessage: {
+    alignItems: "center",
+    padding: 12,
+    marginVertical: 8,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: 12,
+    alignSelf: "center",
+    maxWidth: "90%",
+  },
+  systemText: { 
+    fontSize: 14, 
+    color: "#666",
+    textAlign: "center" 
+  },
+  systemTime: { 
+    fontSize: 11, 
+    color: "#999", 
+    marginTop: 4 
+  },
+
+  inputContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    backgroundColor: "#FFF",
+    borderTopWidth: 1,
+    borderTopColor: "#EEE",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24, // Augmenté pour éviter le chevauchement avec la barre de navigation
+  },
+  inputWrapper: {
+    flex: 1,
+    backgroundColor: "#F3F3F3",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    borderRadius: 24,
+    marginRight: 12,
+    minHeight: 44,
+    maxHeight: 100,
+  },
+  plusButton: {
+    padding: 10,
+    marginLeft: 4,
+  },
+  textInput: { 
+    flex: 1, 
+    fontSize: 16, 
+    color: "#000", 
+    paddingVertical: 12,
+    maxHeight: 84,
+  },
+  inputActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: 8,
+  },
+  actionButton: {
+    padding: 8,
+  },
+  sendButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 22,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  sendButtonDisabled: { 
+    backgroundColor: "#E0E0E0",
+  },
+  sendingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  sendingText: {
+    fontSize: 14,
+    color: '#666',
+  },
+});

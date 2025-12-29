@@ -1,0 +1,270 @@
+// app/stories/[id].tsx
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useState, useEffect } from 'react';
+
+export default function StoryViewer() {
+  const { id } = useLocalSearchParams();
+  const router = useRouter();
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
+
+  // Données de démonstration pour les stories
+  const storiesData = [
+    {
+      id: '1',
+      user: {
+        name: 'Tech News',
+        avatar: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=150&h=150&fit=crop&crop=face'
+      },
+      stories: [
+        {
+          id: '1-1',
+          type: 'image',
+          url: 'https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=400&h=800&fit=crop',
+          duration: 5000
+        },
+        {
+          id: '1-2', 
+          type: 'image',
+          url: 'https://images.unsplash.com/photo-1517077304055-6e89abbf09b0?w=400&h=800&fit=crop',
+          duration: 5000
+        }
+      ]
+    },
+    {
+      id: '2',
+      user: {
+        name: 'Gaming',
+        avatar: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150&h=150&fit=crop&crop=face'
+      },
+      stories: [
+        {
+          id: '2-1',
+          type: 'image',
+          url: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=400&h=800&fit=crop',
+          duration: 5000
+        }
+      ]
+    }
+  ];
+
+  const currentStory = storiesData.find(story => story.id === id);
+  const currentStoryItem = currentStory?.stories[currentStoryIndex];
+
+  useEffect(() => {
+    if (!currentStoryItem) return;
+
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 100) {
+          // Passer à la story suivante
+          if (currentStory && currentStoryIndex < currentStory.stories.length - 1) {
+            setCurrentStoryIndex(prev => prev + 1);
+            return 0;
+          } else {
+            // Fin des stories, retourner à l'écran précédent
+            router.back();
+            return 0;
+          }
+        }
+        return prev + 1;
+      });
+    }, currentStoryItem.duration / 100);
+
+    return () => clearInterval(interval);
+  }, [currentStoryIndex, currentStoryItem, currentStory]);
+
+  const handleNext = () => {
+    if (currentStory && currentStoryIndex < currentStory.stories.length - 1) {
+      setCurrentStoryIndex(prev => prev + 1);
+      setProgress(0);
+    } else {
+      router.back();
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStoryIndex > 0) {
+      setCurrentStoryIndex(prev => prev - 1);
+      setProgress(0);
+    } else {
+      router.back();
+    }
+  };
+
+  if (!currentStory) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>Story non trouvée</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>Retour</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Barre de progression */}
+      <View style={styles.progressContainer}>
+        {currentStory.stories.map((_, index) => (
+          <View key={index} style={styles.progressBarContainer}>
+            <View 
+              style={[
+                styles.progressBar,
+                { width: index === currentStoryIndex ? `${progress}%` : index < currentStoryIndex ? '100%' : '0%' }
+              ]} 
+            />
+          </View>
+        ))}
+      </View>
+
+      {/* En-tête */}
+      <View style={styles.header}>
+        <View style={styles.userInfo}>
+          <Image source={{ uri: currentStory.user.avatar }} style={styles.avatar} />
+          <Text style={styles.userName}>{currentStory.user.name}</Text>
+          <Text style={styles.timestamp}>il y a 2h</Text>
+        </View>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
+          <Ionicons name="close" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Contenu de la story */}
+      <View style={styles.storyContent}>
+        {currentStoryItem?.type === 'image' && (
+          <Image 
+            source={{ uri: currentStoryItem.url }} 
+            style={styles.storyImage}
+            resizeMode="cover"
+          />
+        )}
+        
+        {/* Zones cliquables pour navigation */}
+        <TouchableOpacity style={styles.leftTouchArea} onPress={handlePrevious} />
+        <TouchableOpacity style={styles.rightTouchArea} onPress={handleNext} />
+      </View>
+
+      {/* Actions */}
+      <View style={styles.actions}>
+        <TouchableOpacity style={styles.actionButton}>
+          <Ionicons name="heart-outline" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton}>
+          <Ionicons name="chatbubble-outline" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton}>
+          <Ionicons name="paper-plane-outline" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    gap: 4,
+  },
+  progressBarContainer: {
+    flex: 1,
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 1,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  userName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  timestamp: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+  },
+  closeButton: {
+    padding: 5,
+  },
+  storyContent: {
+    flex: 1,
+    position: 'relative',
+  },
+  storyImage: {
+    width: '100%',
+    height: '100%',
+  },
+  leftTouchArea: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: '30%',
+  },
+  rightTouchArea: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: '70%',
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 20,
+    paddingHorizontal: 50,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  actionButton: {
+    padding: 10,
+  },
+  errorText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: 100,
+  },
+  backButton: {
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginTop: 20,
+  },
+  backButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+});
