@@ -1,20 +1,16 @@
 {
-  "name": "assma-api",
+  "name": "desktop",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "",
+  "main": "test-fedapay.js",
   "scripts": {
-    "dev": "ts-node src/index.ts",
-    "seed": "ts-node prisma/seed.ts"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
-  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
   "dependencies": {
-    "@prisma/client": "^6.16.2"
-  },
-  "devDependencies": {
-    "prisma": "^6.16.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.4.0"
+    "axios": "^1.13.2"
   }
 }
