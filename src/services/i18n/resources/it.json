@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "Cerca prodotti, fornitori, categorie...",
+    "suppliers": "Fornitori",
+    "products": "Prodotti",
+    "countries": "Paesi",
+    "seeAll": "Vedi tutto"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "MERCATO"
+  }
+}

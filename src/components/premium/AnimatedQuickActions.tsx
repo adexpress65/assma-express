@@ -1,5 +1,5 @@
-// src/components/premium/AnimatedQuickActions.tsx - VERSION 100% CORRIGÉE
-import React from 'react';
+// src/components/premium/AnimatedQuickActions.tsx
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,90 +7,114 @@ import {
   StyleSheet,
   ScrollView,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
 const { width } = Dimensions.get('window');
 
+const SparkleEffect = ({ isActive }: { isActive: boolean }) => {
+  const sparkleAnim = new Animated.Value(0);
+  
+  useEffect(() => {
+    const animateSparkles = () => {
+      Animated.sequence([
+        Animated.timing(sparkleAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sparkleAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        if (isActive) {
+          setTimeout(animateSparkles, Math.random() * 1000 + 500);
+        }
+      });
+    };
+    
+    animateSparkles();
+    
+    return () => {
+      sparkleAnim.stopAnimation();
+    };
+  }, [isActive]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.sparkle,
+        {
+          opacity: sparkleAnim,
+          transform: [
+            { scale: sparkleAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1.2] }) },
+            { rotate: sparkleAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }
+          ],
+        }
+      ]}
+    >
+      <Ionicons name="star" size={8} color="#FFD700" />
+    </Animated.View>
+  );
+};
+
+// ACTIONS CONSERVÉES : Flash Deal, Tendances, Fournisseurs, Grossiste
 const QUICK_ACTIONS = [
   {
     id: '1',
     icon: 'flash-outline',
-    label: 'Flash Deal',
+    label: 'quickActions.flashDeal',
     color: ['#ff4444', '#ff6a00'],
-    badge: 'Nouveau',
+    badge: 'quickActions.new',
   },
   {
     id: '2',
     icon: 'trending-up-outline',
-    label: 'Tendance',
+    label: 'quickActions.trending',
     color: ['#2196F3', '#21CBF3'],
-  },
-  {
-    id: '3',
-    icon: 'star-outline',
-    label: 'Premium',
-    color: ['#FFD700', '#FFA000'],
   },
   {
     id: '4',
     icon: 'business-outline',
-    label: 'Fournisseurs',
+    label: 'quickActions.suppliers',
     color: ['#4CAF50', '#66BB6A'],
   },
   {
     id: '5',
-    icon: 'cube-outline',
-    label: 'Grossiste',
+    icon: 'storefront-outline',
+    label: 'quickActions.wholesale',
     color: ['#9C27B0', '#BA68C8'],
-  },
-  {
-    id: '6',
-    icon: 'shield-checkmark-outline',
-    label: 'Verifié',
-    color: ['#607D8B', '#78909C'],
-  },
-  {
-    id: '7',
-    icon: 'rocket-outline',
-    label: 'Express',
-    color: ['#FF9800', '#FFB74D'],
-  },
-  {
-    id: '8',
-    icon: 'earth-outline',
-    label: 'Global',
-    color: ['#00BCD4', '#26C6DA'],
+    badge: 'quickActions.new',
   },
 ];
 
 export default function AnimatedQuickActions() {
+  const { t } = useTranslation();
   const router = useRouter();
+  const [activeButton, setActiveButton] = useState<string | null>(null);
 
-  // ✅ FONCTION CORRIGÉE - SYNTAXE CORRECTE
   const handleActionPress = (action: any) => {
-    console.log('🔄 Navigation action rapide:', action.label);
+    setActiveButton(action.id);
+    setTimeout(() => setActiveButton(null), 200);
     
-    // ✅ CORRECTION CRITIQUE : switch() avec accolades
+    console.log(t('quickActions.navigationLog'), action.label);
+    
     switch(action.label) {
-      case 'Flash Deal':
-        // ✅ Route vers la page flash deals
+      case 'quickActions.flashDeal':
         router.push('/flash-deals');
         break;
         
-      case 'Tendance':
-  // ✅ Navigation directe vers l'écran dédié
-  router.push('/trending');
-  break;
+      case 'quickActions.trending':
+        router.push('/trending');
+        break;
         
-case 'Premium':
-  // ✅ Navigation vers les Offres Spéciales
-  router.push('/special-offers');
-  break;
-        
-      case 'Fournisseurs':
+      case 'quickActions.suppliers':
         router.push({
           pathname: "/suppliers",
           params: { 
@@ -99,44 +123,8 @@ case 'Premium':
         });
         break;
         
-      case 'Grossiste':
-        router.push({
-          pathname: "/category-products",
-          params: { 
-            id: "wholesale", 
-            name: encodeURIComponent("Grossiste")
-          },
-        });
-        break;
-        
-      case 'Verifié':
-        router.push({
-          pathname: "/category-products",
-          params: { 
-            id: "verified",
-            name: encodeURIComponent("Produits Vérifiés")
-          },
-        });
-        break;
-        
-      case 'Express':
-        router.push({
-          pathname: "/category-products",
-          params: { 
-            id: "express",
-            name: encodeURIComponent("Livraison Express")
-          },
-        });
-        break;
-        
-      case 'Global':
-        router.push({
-          pathname: "/category-products",
-          params: { 
-            id: "global",
-            name: encodeURIComponent("Produits Globaux")
-          },
-        });
+      case 'quickActions.wholesale':
+        router.push('/grossiste');
         break;
         
       default:
@@ -153,28 +141,39 @@ case 'Premium':
         contentContainerStyle={styles.scrollContent}
       >
         {QUICK_ACTIONS.map((action, index) => (
-          <TouchableOpacity
-            key={action.id}
-            style={styles.actionItem}
-            activeOpacity={0.8}
-            onPress={() => handleActionPress(action)}
-          >
-            <LinearGradient
-              colors={action.color}
-              style={styles.actionGradient}
+          <View key={action.id} style={[
+            styles.actionWrapper,
+            index === QUICK_ACTIONS.length - 1 && styles.lastActionWrapper
+          ]}>
+            <SparkleEffect isActive={activeButton === action.id} />
+            <SparkleEffect isActive={activeButton === action.id} />
+            <SparkleEffect isActive={activeButton === action.id} />
+            
+            <TouchableOpacity
+              style={styles.actionItem}
+              activeOpacity={0.7}
+              onPress={() => handleActionPress(action)}
             >
-              <Ionicons name={action.icon as any} size={22} color="#fff" />
-              {action.badge && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{action.badge}</Text>
-                </View>
-              )}
-            </LinearGradient>
-            <Text style={styles.actionLabel} numberOfLines={1}>
-              {action.label}
-            </Text>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={action.color}
+                style={styles.actionGradient}
+              >
+                <Ionicons name={action.icon as any} size={22} color="#fff" />
+                {action.badge && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{t(action.badge)}</Text>
+                  </View>
+                )}
+              </LinearGradient>
+              <Text style={styles.actionLabel} numberOfLines={1}>
+                {t(action.label)}
+              </Text>
+            </TouchableOpacity>
+          </View>
         ))}
+        
+        {/* Espacement pour un meilleur équilibre visuel */}
+        <View style={styles.rightSpacer} />
       </ScrollView>
     </View>
   );
@@ -183,23 +182,45 @@ case 'Premium':
 const styles = StyleSheet.create({
   container: {
     backgroundColor: '#fff',
-    paddingVertical: 12,
+    marginTop: 30,
+    marginBottom: 15,
+    paddingVertical: 15,
+    paddingHorizontal: 0, // MODIFIÉ: padding horizontal enlevé pour mieux centrer
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
   scrollContent: {
     paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'space-around', // AJOUTÉ: meilleure répartition
+    flexGrow: 1,
+  },
+  actionWrapper: {
+    position: 'relative',
+    alignItems: 'center',
+    marginRight: 20, // AUGMENTÉ: plus d'espace entre les icônes
+    minWidth: 60, // AJOUTÉ: largeur minimum uniforme
+  },
+  lastActionWrapper: {
+    marginRight: 0, // Pas de marge à droite pour le dernier élément
+  },
+  rightSpacer: {
+    width: 16, // Espacement à droite pour l'équilibre visuel
+    height: 1,
+  },
+  sparkle: {
+    position: 'absolute',
+    zIndex: 1,
   },
   actionItem: {
     alignItems: 'center',
-    marginRight: 16,
-    minWidth: 60,
+    width: 60, // AJOUTÉ: largeur fixe pour uniformité
+    zIndex: 2,
   },
   actionGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
+    width: 48, // AUGMENTÉ: de 42 à 48
+    height: 48, // AUGMENTÉ: de 42 à 48
+    borderRadius: 16, // MODIFIÉ: de 12 à 16 pour un style plus moderne
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
@@ -207,11 +228,11 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 3,
+      height: 3, // AUGMENTÉ: ombre plus prononcée
     },
     shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 6,
+    shadowRadius: 5,
+    elevation: 5,
   },
   badge: {
     position: 'absolute',
@@ -221,6 +242,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 4,
     paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#fff',
   },
   badgeText: {
     color: '#fff',
@@ -228,9 +251,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   actionLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
+    marginTop: 4,
   },
 });

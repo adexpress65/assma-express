@@ -19,10 +19,20 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
-  UserCredential
+  UserCredential,
+  GoogleAuthProvider,
+  signInWithCredential,
+  FacebookAuthProvider,
+  OAuthProvider
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../config/firebase';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import * as Facebook from 'expo-auth-session/providers/facebook';
+import * as AppleAuthentication from 'expo-apple-authentication';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -30,14 +40,6 @@ interface LoginModalProps {
   visible: boolean;
   onClose: () => void;
   onLoginSuccess?: () => void;
-}
-
-interface TestAccount {
-  email: string;
-  password: string;
-  role: string;
-  color: string;
-  icon: string;
 }
 
 interface UserData {
@@ -64,7 +66,7 @@ type FirebaseError = {
 
 // Constantes pour éviter les magic strings
 const USER_ROLES = {
-  CLIENT: 'client',      // ✅ CORRECTION : "client" pour correspondre à Firestore
+  CLIENT: 'client',
   ADMIN: 'admin',
   SUPER_ADMIN: 'super_admin',
   SELLER: 'seller'
@@ -97,7 +99,7 @@ const ERROR_MESSAGES = {
   }
 } as const;
 
-// Fonctions utilitaires séparées pour une meilleure modularité
+// Fonctions utilitaires
 const createUserProfile = async (userCredential: UserCredential): Promise<void> => {
   const { user } = userCredential;
   const userDocRef = doc(db, 'users', user.uid);
@@ -105,8 +107,8 @@ const createUserProfile = async (userCredential: UserCredential): Promise<void> 
   const userData: UserData = {
     uid: user.uid,
     email: user.email,
-    displayName: user.email?.split('@')[0] || 'Utilisateur',
-    role: USER_ROLES.CLIENT, // ✅ CORRECTION : Utilise "client"
+    displayName: user.displayName || user.email?.split('@')[0] || 'Utilisateur',
+    role: USER_ROLES.CLIENT,
     createdAt: new Date(),
     updatedAt: new Date(),
     isActive: true,
@@ -122,31 +124,19 @@ const createUserProfile = async (userCredential: UserCredential): Promise<void> 
   console.log('✅ Nouveau profil créé avec rôle: client');
 };
 
-// 🔥 CORRECTION ULTIME : Ne RIEN faire si le document existe
-// 🔥 CORRECTION ULTIME : Ne RIEN faire si le document existe
 const ensureUserProfile = async (userId: string): Promise<void> => {
   console.log(`🔍 ensureUserProfile pour: ${userId}`);
   
   try {
     const userDocRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef); // ✅ CORRECTION : userDocRef
+    const userDoc = await getDoc(userDocRef);
 
     if (userDoc.exists()) {
-      // 🔥 DOCUMENT EXISTANT : NE RIEN FAIRE DU TOUT
       const data = userDoc.data();
-      const currentRole = data.role || 'non défini';
-      
       console.log(`📋 DOCUMENT EXISTANT DÉTECTÉ`);
-      console.log(`🎭 Rôle Firestore: "${currentRole}"`);
-      console.log(`📧 Email: ${data.email}`);
-      console.log(`👤 DisplayName: ${data.displayName}`);
-      
-      // 🔥 CRITIQUE : AUCUNE ÉCRITURE, AUCUNE MODIFICATION
-      // 🔥 JUSTE LOGGER ET SORTIR
+      console.log(`🎭 Rôle Firestore: "${data.role || 'non défini'}"`);
       return;
-      
     } else {
-      // CAS 2: NOUVEAU UTILISATEUR seulement
       console.log(`🆕 NOUVEAU UTILISATEUR - création profil`);
       
       const currentUser = auth.currentUser;
@@ -154,7 +144,7 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
         uid: userId,
         email: currentUser?.email || '',
         displayName: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Utilisateur',
-        role: 'client', // 🔥 Uniquement pour les NOUVEAUX
+        role: 'client',
         createdAt: new Date(),
         updatedAt: new Date(),
         isActive: true,
@@ -165,7 +155,6 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
         emailVerified: currentUser?.emailVerified || false
       };
       
-      // 🔥 NETTOYER les undefined avant écriture
       const cleanData: Record<string, any> = {};
       for (const [key, value] of Object.entries(userData)) {
         if (value !== undefined && value !== null) {
@@ -179,7 +168,6 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
     
   } catch (error) {
     console.error(`❌ Erreur ensureUserProfile:`, error);
-    // 🔥 NE PAS PROPAGER L'ERREUR
   }
 };
 
@@ -220,8 +208,21 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
   const [password, setPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [socialLoading, setSocialLoading] = useState<'google' | 'facebook' | 'apple' | null>(null);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [slideAnim] = useState<Animated.Value>(new Animated.Value(0));
+
+  // Configuration des providers d'authentification sociale
+  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
+    expoClientId: 'VOTRE_CLIENT_ID_EXPO_GOOGLE',
+    iosClientId: 'VOTRE_CLIENT_ID_IOS_GOOGLE',
+    androidClientId: 'VOTRE_CLIENT_ID_ANDROID_GOOGLE',
+    webClientId: 'VOTRE_CLIENT_ID_WEB_GOOGLE',
+  });
+
+  const [facebookRequest, facebookResponse, facebookPromptAsync] = Facebook.useAuthRequest({
+    clientId: 'VOTRE_CLIENT_ID_FACEBOOK',
+  });
 
   React.useEffect(() => {
     if (visible) {
@@ -234,6 +235,20 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       slideAnim.setValue(0);
     }
   }, [visible, slideAnim]);
+
+  // Gestion de la réponse Google
+  React.useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      handleGoogleSignIn(googleResponse.authentication?.accessToken);
+    }
+  }, [googleResponse]);
+
+  // Gestion de la réponse Facebook
+  React.useEffect(() => {
+    if (facebookResponse?.type === 'success') {
+      handleFacebookSignIn(facebookResponse.authentication?.accessToken);
+    }
+  }, [facebookResponse]);
 
   const slideUp = {
     transform: [{
@@ -250,6 +265,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     setPassword('');
     setConfirmPassword('');
     setLoading(false);
+    setSocialLoading(null);
   };
 
   const validateForm = (): boolean => {
@@ -271,24 +287,92 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     return true;
   };
 
+  const handleGoogleSignIn = async (accessToken: string | undefined) => {
+    if (!accessToken) return;
+    
+    try {
+      const credential = GoogleAuthProvider.credential(accessToken);
+      const userCredential = await signInWithCredential(auth, credential);
+      
+      await ensureUserProfile(userCredential.user.uid);
+      handleAuthSuccess(userCredential, 'Google');
+    } catch (error: any) {
+      console.error('❌ Erreur Google Sign-In:', error);
+      Alert.alert('Erreur', 'Échec de la connexion avec Google');
+      setSocialLoading(null);
+    }
+  };
+
+  const handleFacebookSignIn = async (accessToken: string | undefined) => {
+    if (!accessToken) return;
+    
+    try {
+      const credential = FacebookAuthProvider.credential(accessToken);
+      const userCredential = await signInWithCredential(auth, credential);
+      
+      await ensureUserProfile(userCredential.user.uid);
+      handleAuthSuccess(userCredential, 'Facebook');
+    } catch (error: any) {
+      console.error('❌ Erreur Facebook Sign-In:', error);
+      Alert.alert('Erreur', 'Échec de la connexion avec Facebook');
+      setSocialLoading(null);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      const appleCredential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      const { identityToken } = appleCredential;
+      
+      if (identityToken) {
+        const provider = new OAuthProvider('apple.com');
+        const credential = provider.credential({
+          idToken: identityToken,
+        });
+
+        const userCredential = await signInWithCredential(auth, credential);
+        
+        await ensureUserProfile(userCredential.user.uid);
+        handleAuthSuccess(userCredential, 'Apple');
+      }
+    } catch (error: any) {
+      if (error.code === 'ERR_CANCELED') {
+        // L'utilisateur a annulé la connexion
+        console.log('Connexion Apple annulée');
+      } else {
+        console.error('❌ Erreur Apple Sign-In:', error);
+        Alert.alert('Erreur', 'Échec de la connexion avec Apple');
+      }
+      setSocialLoading(null);
+    }
+  };
+
+  const handleAuthSuccess = (userCredential: UserCredential, provider: string) => {
+    console.log(`✅ Connexion réussie avec ${provider}:`, userCredential.user.email);
+    Alert.alert('🎉 Connexion réussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
+    resetForm();
+    onClose();
+    onLoginSuccess?.();
+  };
+
   const handleLogin = async (): Promise<void> => {
     console.log('🔍 Tentative de connexion:', email);
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      console.log('✅ Connexion réussie:', userCredential.user.email);
-
-      // 🔥 CORRECTION : ensureUserProfile ne fait RIEN si document existe
       await ensureUserProfile(userCredential.user.uid);
-
-      Alert.alert('🎉 Connexion réussie', `Bienvenue ${userCredential.user.email} !`);
-      resetForm();
-      onClose();
-      onLoginSuccess?.();
+      handleAuthSuccess(userCredential, 'Email');
     } catch (error: any) {
       console.error('❌ Erreur de connexion:', error);
       const { title, message } = getFirebaseErrorMessage(error);
       Alert.alert(title, message);
+      setLoading(false);
     }
   };
 
@@ -297,18 +381,13 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      console.log('✅ Inscription réussie:', userCredential.user.email);
-
       await createUserProfile(userCredential);
-
-      Alert.alert('🎉 Compte créé !', `Bienvenue ${userCredential.user.email} !`);
-      resetForm();
-      onClose();
-      onLoginSuccess?.();
+      handleAuthSuccess(userCredential, 'Email');
     } catch (error: any) {
       console.error('❌ Erreur d\'inscription:', error);
       const { title, message } = getFirebaseErrorMessage(error);
       Alert.alert(title, message);
+      setLoading(false);
     }
   };
 
@@ -341,45 +420,22 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     setConfirmPassword('');
   };
 
-  const quickLogin = (testEmail: string, testPassword: string = 'password123'): void => {
-    setEmail(testEmail);
-    setPassword(testPassword);
+  const handleSocialLogin = async (provider: 'google' | 'facebook' | 'apple') => {
+    setSocialLoading(provider);
     
-    setTimeout(() => {
-      handleAuth();
-    }, 500);
-  };
-
-  const testAccounts: TestAccount[] = [
-    { 
-      email: 'superadmin@asmaexpress.com', 
-      password: 'password123', 
-      role: 'Super Admin', 
-      color: '#FF4444',
-      icon: 'admin-panel-settings'
-    },
-    { 
-      email: 'admin@asmaexpress.com', 
-      password: 'password123', 
-      role: 'Admin', 
-      color: '#2196F3',
-      icon: 'security'
-    },
-    { 
-      email: 'vendeur@asmaexpress.com', 
-      password: 'password123', 
-      role: 'Vendeur', 
-      color: '#4CAF50',
-      icon: 'store'
-    },
-    { 
-      email: 'client@asmaexpress.com', 
-      password: 'password123', 
-      role: 'Client', 
-      color: '#FF9800',
-      icon: 'person'
+    try {
+      if (provider === 'google') {
+        await googlePromptAsync();
+      } else if (provider === 'facebook') {
+        await facebookPromptAsync();
+      } else if (provider === 'apple') {
+        await handleAppleSignIn();
+      }
+    } catch (error) {
+      console.error(`❌ Erreur ${provider} login:`, error);
+      setSocialLoading(null);
     }
-  ];
+  };
 
   return (
     <Modal
@@ -426,6 +482,63 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
 
           {/* FORMULAIRE */}
           <Animated.View style={[styles.form, slideUp]}>
+            {/* Boutons d'authentification sociale */}
+            <View style={styles.socialButtonsContainer}>
+              <TouchableOpacity 
+                style={[styles.socialButton, styles.googleButton]}
+                onPress={() => handleSocialLogin('google')}
+                disabled={socialLoading !== null}
+              >
+                {socialLoading === 'google' ? (
+                  <ActivityIndicator size="small" color="#DB4437" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-google" size={24} color="#DB4437" />
+                    <Text style={styles.socialButtonText}>Google</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.socialButton, styles.facebookButton]}
+                onPress={() => handleSocialLogin('facebook')}
+                disabled={socialLoading !== null}
+              >
+                {socialLoading === 'facebook' ? (
+                  <ActivityIndicator size="small" color="#4267B2" />
+                ) : (
+                  <>
+                    <Ionicons name="logo-facebook" size={24} color="#4267B2" />
+                    <Text style={styles.socialButtonText}>Facebook</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity 
+                  style={[styles.socialButton, styles.appleButton]}
+                  onPress={() => handleSocialLogin('apple')}
+                  disabled={socialLoading !== null}
+                >
+                  {socialLoading === 'apple' ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <>
+                      <Ionicons name="logo-apple" size={24} color="#000" />
+                      <Text style={styles.socialButtonText}>Apple</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Séparateur */}
+            <View style={styles.separator}>
+              <View style={styles.separatorLine} />
+              <Text style={styles.separatorText}>ou continuez avec</Text>
+              <View style={styles.separatorLine} />
+            </View>
+
             {/* EMAIL */}
             <View style={styles.inputContainer}>
               <Text style={styles.label}>
@@ -440,7 +553,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                 autoCapitalize="none"
                 keyboardType="email-address"
                 autoComplete="email"
-                editable={!loading}
+                editable={!loading && !socialLoading}
               />
             </View>
 
@@ -458,12 +571,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                   autoComplete="password"
-                  editable={!loading}
+                  editable={!loading && !socialLoading}
                 />
                 <TouchableOpacity 
                   onPress={() => setShowPassword(!showPassword)}
                   style={styles.eyeButton}
-                  disabled={loading}
+                  disabled={loading || socialLoading !== null}
                 >
                   <Ionicons 
                     name={showPassword ? "eye-off" : "eye"} 
@@ -493,7 +606,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                   onChangeText={setConfirmPassword}
                   secureTextEntry={!showPassword}
                   autoComplete="password"
-                  editable={!loading}
+                  editable={!loading && !socialLoading}
                 />
               </Animated.View>
             )}
@@ -502,11 +615,11 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
             <TouchableOpacity 
               style={[
                 styles.authButton,
-                loading && styles.authButtonDisabled,
+                (loading || socialLoading) && styles.authButtonDisabled,
                 !isLogin && styles.registerButton
               ]}
               onPress={handleAuth}
-              disabled={loading}
+              disabled={loading || socialLoading !== null}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -528,7 +641,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
             <TouchableOpacity 
               style={styles.switchContainer}
               onPress={switchMode}
-              disabled={loading}
+              disabled={loading || socialLoading !== null}
             >
               <Text style={styles.switchText}>
                 {isLogin 
@@ -540,28 +653,6 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                 </Text>
               </Text>
             </TouchableOpacity>
-
-            {/* COMPTES DE TEST RAPIDES */}
-            {isLogin && (
-              <View style={styles.testSection}>
-                <Text style={styles.testTitle}>🚀 Connexion rapide (Comptes de test)</Text>
-                <Text style={styles.testSubtitle}>Mot de passe pour tous : <Text style={styles.testPassword}>password123</Text></Text>
-                
-                <View style={styles.testButtons}>
-                  {testAccounts.map((account) => (
-                    <TouchableOpacity 
-                      key={account.email}
-                      style={[styles.testButton, { backgroundColor: account.color }]}
-                      onPress={() => quickLogin(account.email, account.password)}
-                      disabled={loading}
-                    >
-                      <MaterialIcons name={account.icon as any} size={16} color="#FFF" />
-                      <Text style={styles.testButtonText}>{account.role}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
 
             {/* INFORMATIONS DE SÉCURITÉ */}
             <View style={styles.securityInfo}>
@@ -654,6 +745,53 @@ const styles = StyleSheet.create({
     padding: 25,
     paddingTop: 30,
   },
+  socialButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  socialButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  googleButton: {
+    backgroundColor: '#FFF',
+    borderColor: '#E0E0E0',
+  },
+  facebookButton: {
+    backgroundColor: '#FFF',
+    borderColor: '#E0E0E0',
+  },
+  appleButton: {
+    backgroundColor: '#000',
+    borderColor: '#000',
+  },
+  socialButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  separator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
+  },
+  separatorText: {
+    paddingHorizontal: 15,
+    fontSize: 14,
+    color: '#666',
+  },
   inputContainer: {
     marginBottom: 20,
   },
@@ -735,49 +873,6 @@ const styles = StyleSheet.create({
   switchLink: {
     color: '#FF6B00',
     fontWeight: 'bold',
-  },
-  testSection: {
-    marginTop: 25,
-    padding: 20,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF6B00',
-  },
-  testTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 12,
-  },
-  testSubtitle: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 16,
-  },
-  testButtons: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  testButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-  },
-  testButtonText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  testPassword: {
-    fontWeight: 'bold',
-    color: '#FF6B00',
   },
   securityInfo: {
     flexDirection: 'row',

@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "상품, 공급업체, 카테고리 검색...",
+    "suppliers": "공급업체",
+    "products": "상품",
+    "countries": "국가",
+    "seeAll": "모두 보기"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "마켓"
+  }
+}

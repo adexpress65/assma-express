@@ -1,1277 +1,1646 @@
-// app/product/[id].tsx - VERSION COMPLÈTE CORRIGÉE
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
-  Text, 
   ScrollView, 
-  ActivityIndicator, 
-  TouchableOpacity, 
-  Image, 
-  Dimensions, 
+  StyleSheet, 
+  SafeAreaView, 
+  TouchableOpacity,
+  Text,
+  StatusBar,
+  Dimensions,
   Alert,
-  StyleSheet,
-  Linking 
+  ActivityIndicator,
+  Image,
+  FlatList
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCart } from '@/contexts/CartContext';
-import { useAuth } from '@/contexts/AuthContext';
-
-// ✅ CORRECTION : UTILISER LES ALIAS CONFIGURÉS
-import { db } from '@config/firebase';
+import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, collection, query, where, limit, getDocs } from 'firebase/firestore';
+import { db } from '../../src/config/firebase';
 
-// ✅ CORRECTION : UTILISER LES ALIAS POUR LES COMPOSANTS
-import ProductGallery from '@components/ProductGallery';
-import SellerCard from '@components/SellerCard';
-import ProductSpecifications from '@components/ProductSpecifications';
-import ReviewSummary from '@components/ReviewSummary';
-import ShippingCalculator from '@components/ShippingCalculator';
-import ProtectionBadges from '@components/ProtectionBadges';
-import ActionFooter from '@components/ActionFooter';
-
-// ✅ AJOUT : IMPORT DU COMPOSANT DEVIS
-import WholesaleQuoteForm from '@components/WholesaleQuoteForm';
+// Imports des composants
+import ShippingCalculator from '../../src/components/ShippingCalculator';
+import ActionFooter from '../../src/components/ActionFooter';
+import WholesaleQuoteForm from '../../src/components/WholesaleQuoteForm';
+import ProductGallery from '../../src/components/ProductGallery';
+import ProductVariants from '../../src/components/ProductVariants'; 
+import QuantityIncrementalSelector from '../../src/components/QuantityIncrementalSelector';
+import TrustBadges from '../../src/components/TrustBadges';
+import { useCart } from '../../src/contexts/CartContext';
+import { useCurrency } from '../../src/contexts/CurrencyContext';
 
 const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 32 - 12) / 2; // 2 colonnes avec espacement
 
-// 🎨 COULEURS THÈME PREMIUM
 const COLORS = {
   primary: '#FF6A00',
-  primaryLight: '#FFF0E6',
-  primaryDark: '#E55A00',
-  accent: '#FF4500',
-  background: '#FFFAF5',
-  success: '#28A745',
+  background: '#F8F8F8',
+  white: '#FFFFFF',
   text: '#2D3748',
-  textLight: '#718096',
-  border: '#E2E8F0',
-  white: '#FFFFFF'
+  lightGray: '#E2E8F0',
+  error: '#E53E3E',
+  success: '#00B517',
+  warning: '#D69E2E'
 };
 
-export default function ProductDetail() {
+// Interface exacte de ta structure Firestore
+interface FirebaseProduct {
+  id: string;
+  name: string;
+  description: string;
+  images: string[];
+  mainImage: string;
+  price: number;
+  originalPrice?: number;
+  minOrder: number;
+  currency: string;
+  inStock: boolean;
+  stockQuantity: number;
+  hasVariants: boolean;
+  variantAttributes?: Array<{
+    name: string;
+    values: string[];
+  }>;
+  variants?: Array<{
+    id: string;
+    color: string;
+    size: string;
+    price: number;
+    stock: number;
+    sku: string;
+    image?: string;
+    wholesalePrice?: number;
+  }>;
+  specifications?: {
+    dimensions?: string;
+    modelNumber?: string;
+    weight?: string;
+  };
+  deliveryTime: string;
+  shippingCost: number;
+  companyName: string;
+  supplier: string;
+  rating: number;
+  reviewCount: number;
+  soldCount: number;
+  categoryName: string;
+  status: string;
+  featured: boolean;
+  trending: boolean;
+  newArrival: boolean;
+  specialOffer: boolean;
+  // Champs supplémentaires de ta structure
+  categoryId?: string;
+  companyId?: string;
+  createdAt?: any;
+  createdBy?: string;
+  creatorId?: string;
+  isActive?: boolean;
+  isVerified?: boolean;
+  industrial?: boolean;
+  premiumSupplier?: boolean;
+  slug?: string;
+  nameLower?: string;
+  wholesalePrice?: number;
+}
+
+export default function ProductDetailScreen() {
   const params = useLocalSearchParams();
+const id = Array.isArray(params.id) ? params.id[0] : params.id;
+
   const router = useRouter();
   const { addToCart } = useCart();
-  const { user } = useAuth();
-  
-  // ✅ CORRECTION : Récupérer l'ID depuis les params
-  const id = params.id as string;
-  
+  const { currency } = useCurrency();
+
+  // --- ÉTATS ---
+  const [product, setProduct] = useState<FirebaseProduct | null>(null);
   const [loading, setLoading] = useState(true);
-  const [product, setProduct] = useState<any>(null);
-  const [similarProducts, setSimilarProducts] = useState<any[]>([]);
-  const [selectedOptions, setSelectedOptions] = useState({
-    quantity: 2
-  });
   const [error, setError] = useState<string | null>(null);
+  const [company, setCompany] = useState<any>(null);
+  const [loadingCompany, setLoadingCompany] = useState(false);
+  
+  const [quantity, setQuantity] = useState(1);
+  const [isQuoteVisible, setIsQuoteVisible] = useState(false);
+  const [selectedSize, setSelectedSize] = useState<string>('');
+  const [selectedColor, setSelectedColor] = useState<string>('');
+  const [selectedVariant, setSelectedVariant] = useState<any>(null);
   const [addingToCart, setAddingToCart] = useState(false);
-  const [quoteModalVisible, setQuoteModalVisible] = useState(false); // ✅ ÉTAT POUR LE MODAL
 
-  // ✅ FONCTION DE DEBUG AMÉLIORÉE
-  useEffect(() => {
-    console.log('🔍 DEBUG ProductDetail:');
-    console.log('📱 ID reçu:', id);
-    console.log('📱 Type ID:', typeof id);
-    console.log('📱 Tous les params:', params);
-    console.log('🔥 Firebase db:', db ? '✅ Initialisé' : '❌ NULL');
-    
-    if (!id || id === 'undefined' || id === 'null') {
-      console.log('❌ ID invalide ou manquant');
-      setError('ID de produit invalide');
-      setLoading(false);
-      return;
-    }
-    
-    if (!db) {
-      console.log('❌ Firebase non initialisé');
-      setError('Erreur de connexion à la base de données');
-      setLoading(false);
-      return;
-    }
-  }, [id]);
+  // --- ÉTATS POUR PRODUITS SIMILAIRES ---
+  const [similarProducts, setSimilarProducts] = useState<FirebaseProduct[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
 
-  // Fonction pour récupérer les produits similaires
-  const fetchSimilarProducts = async (currentProduct: any) => {
+  // --- FONCTION DE RÉCUPÉRATION DE L'ENTREPRISE ---
+  const fetchCompany = async (companyId: string) => {
     try {
-      console.log('🔄 Recherche de produits similaires...');
-      
-      let similarQuery;
+      const companyRef = doc(db, 'companies', companyId);
+      const companySnap = await getDoc(companyRef);
+      if (companySnap.exists()) {
+        return {
+          id: companySnap.id,
+          ...companySnap.data()
+        };
+      }
+    } catch (error) {
+      console.error("Erreur récupération entreprise:", error);
+    }
+    return null;
+  };
+
+  // --- FONCTION AMÉLIORÉE POUR RÉCUPÉRER LES PRODUITS SIMILAIRES ---
+  // PRIORITÉ AU MÊME FOURNISSEUR, PUIS COMPLÉTER AVEC D'AUTRES
+  const fetchSimilarProducts = async (categoryId: string, companyId: string, currentProductId: string) => {
+    if (!categoryId) return;
+    
+    setLoadingSimilar(true);
+    try {
       const productsRef = collection(db, 'products');
+      let products: FirebaseProduct[] = [];
       
-      // Essayer d'abord par catégorie
-      if (currentProduct.categoryId) {
-        similarQuery = query(
+      // 1. D'abord récupérer les produits du même fournisseur
+      if (companyId) {
+        const sameSupplierQuery = query(
           productsRef,
-          where('categoryId', '==', currentProduct.categoryId),
-          where('__name__', '!=', currentProduct.id),
-          limit(8)
+          where('categoryId', '==', categoryId),
+          where('companyId', '==', companyId),
+          where('isActive', '==', true),
+          where('status', '==', 'published'),
+          limit(4)
         );
-      } else {
-        // Fallback : récupérer les derniers produits
-        similarQuery = query(
-          productsRef,
-          where('__name__', '!=', currentProduct.id),
-          limit(6)
-        );
+        
+        const sameSupplierSnapshot = await getDocs(sameSupplierQuery);
+        
+        sameSupplierSnapshot.forEach((doc) => {
+          const productData = doc.data();
+          if (doc.id !== currentProductId) {
+            products.push({
+              ...productData,
+              id: doc.id,
+              price: Number(productData.price) || 0,
+              minOrder: Number(productData.minOrder) || 1,
+            } as FirebaseProduct);
+          }
+        });
       }
       
-      const similarSnap = await getDocs(similarQuery);
-      const similarData: any[] = [];
+      // 2. Si pas assez de produits (moins de 4), compléter avec d'autres fournisseurs
+      if (products.length < 4) {
+        const otherSuppliersQuery = query(
+          productsRef,
+          where('categoryId', '==', categoryId),
+          where('isActive', '==', true),
+          where('status', '==', 'published'),
+          limit(6 - products.length)
+        );
+        
+        const otherSuppliersSnapshot = await getDocs(otherSuppliersQuery);
+        
+        otherSuppliersSnapshot.forEach((doc) => {
+          const productData = doc.data();
+          // Éviter les doublons (même fournisseur ou produit actuel)
+          if (doc.id !== currentProductId && 
+              !products.some(p => p.id === doc.id) &&
+              (!companyId || productData.companyId !== companyId)) {
+            products.push({
+              ...productData,
+              id: doc.id,
+              price: Number(productData.price) || 0,
+              minOrder: Number(productData.minOrder) || 1,
+            } as FirebaseProduct);
+          }
+        });
+      }
       
-      similarSnap.forEach(doc => {
-        if (doc.exists()) {
-          const data = doc.data();
-          similarData.push({
-            id: doc.id,
-            name: data.name,
-            price: data.price,
-            originalPrice: data.originalPrice || data.price,
-            image: data.images?.[0] || data.imageUrl || 'https://via.placeholder.com/150x150/FF6A00/ffffff?text=Produit',
-            rating: data.rating || 0,
-            reviewCount: data.reviewCount || 0,
-            minOrder: data.minOrder || 1,
-            inStock: data.inStock !== undefined ? data.inStock : true
-          });
-        }
-      });
-      
-      console.log(`✅ ${similarData.length} produits similaires trouvés`);
-      setSimilarProducts(similarData);
-      
+      setSimilarProducts(products.slice(0, 6)); // Limiter à 6 produits max
     } catch (error) {
-      console.error('❌ Erreur chargement produits similaires:', error);
-      setSimilarProducts([]);
+      console.error("Erreur lors de la récupération des produits similaires:", error);
+    } finally {
+      setLoadingSimilar(false);
     }
   };
 
-  // ✅ MODIFICATION : Fonction pour ajouter au panier ET rediriger
-  const handleAddToCartAndRedirect = async () => {
-    if (!product) {
-      Alert.alert('Erreur', 'Produit non disponible');
-      return;
-    }
-    
-    // Vérifier si l'utilisateur est connecté
-    if (!user) {
-      Alert.alert('Connexion requise', 'Veuillez vous connecter pour ajouter au panier');
-      router.push('/login');
-      return;
-    }
-    
-    setAddingToCart(true);
-    try {
-      // Créer l'objet produit pour le panier
-      const productToAdd = {
-        id: product.id,
-        name: product.name,
-        price: product.price,
-        originalPrice: product.originalPrice || product.price,
-        imageUrl: product.images?.[0] || product.imageUrl || 'https://via.placeholder.com/150x150/FF6A00/ffffff?text=Produit',
-        seller: product.seller?.name || 'Fournisseur',
-        minOrder: product.minOrder || 2,
-        shipping: product.shipping?.estimatedDelivery || '7-14 jours',
-        inStock: product.inStock !== undefined ? product.inStock : true,
-        quantity: selectedOptions.quantity
-      };
-      
-      // Ajouter au panier via le contexte
-      await addToCart(productToAdd);
-      
-      // ✅ Redirection immédiate vers la page panier
-      router.push('/cart');
-      
-    } catch (error) {
-      console.error('❌ Erreur lors de l\'ajout au panier:', error);
-      Alert.alert('Erreur', 'Impossible d\'ajouter le produit au panier');
-      setAddingToCart(false);
-    }
-  };
-
+  // --- RÉCUPÉRATION DU PRODUIT DEPUIS FIRESTORE ---
   useEffect(() => {
-    let mounted = true;
-    
-    const fetchProductData = async () => {
+    const fetchProduct = async () => {
+      // 1. Normalisation de l'ID (gestion des cas array/object d'Expo)
+      const normalizedId = Array.isArray(id) ? id[0] : id;
+
+      if (!normalizedId) {
+        setError("ID produit manquant");
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
-        console.log('🛍️ Début chargement produit ID:', id);
         
-        // 1. Récupérer le produit depuis Firestore
-        const productRef = doc(db, 'products', id);
-        console.log('📄 Référence Firestore:', productRef.path);
-        
+        const productRef = doc(db, 'products', normalizedId);
         const productSnap = await getDoc(productRef);
-        console.log('📊 Snapshot obtenu:', productSnap.exists() ? '✅ Existe' : '❌ N\'existe pas');
         
         if (!productSnap.exists()) {
-          console.log('❌ Produit non trouvé dans Firestore');
-          setError('Ce produit n\'existe pas ou a été supprimé');
-          if (mounted) setLoading(false);
-          return;
-        }
-        
-        const productData = productSnap.data();
-        console.log('✅ Produit chargé:', {
-          id: productSnap.id,
-          nom: productData.name,
-          prix: productData.price,
-          catégorie: productData.categoryId
-        });
-        
-        // 2. Récupérer les informations du fournisseur depuis Firestore
-        let companyData = null;
-        if (productData.companyId) {
-          console.log('🏢 Chargement du fournisseur:', productData.companyId);
-          const companyRef = doc(db, 'companies', productData.companyId);
-          const companySnap = await getDoc(companyRef);
+          console.warn(`⚠️ Document ${normalizedId} introuvable dans la collection 'products'`);
+          setError("Produit non trouvé");
+          setProduct(null);
+        } else {
+          const productData = productSnap.data();
           
-          if (companySnap.exists()) {
-            companyData = companySnap.data();
-            console.log('✅ Fournisseur chargé:', companyData.name);
-          } else {
-            console.log('⚠️ Fournisseur non trouvé pour ID:', productData.companyId);
+          // 2. Validation plus souple (vérifie l'existence, pas la valeur falsy)
+          if (productData.name === undefined) {
+            setError("Ce produit n'a pas de nom valide");
+            setProduct(null);
+            return;
           }
-        }
-        
-        // 3. Préparer les spécifications RÉELLES du produit
-        const realSpecifications = {
-          material: productData.material || productData.specifications?.material || 'Non spécifié',
-          dimensions: productData.dimensions || productData.specifications?.dimensions || 'N/A',
-          weight: productData.weight || productData.specifications?.weight || 'N/A',
-          color: productData.color || productData.specifications?.color || 'N/A',
-          modelNumber: productData.modelNumber || productData.specifications?.modelNumber || 'N/A',
-          warranty: productData.warranty || productData.specifications?.warranty || 'Non spécifiée',
-          origin: productData.origin || productData.specifications?.origin || 'Non spécifiée',
-          certification: productData.certification || productData.specifications?.certification || 'N/A',
-          packaging: productData.packaging || productData.specifications?.packaging || 'N/A',
-          ...productData.specifications
-        };
-
-        // 4. Options de livraison RÉELLES pour grossistes
-        const realShippingOptions = [
-          {
-            id: 'express_air',
-            name: 'Livraison Express par Vol',
-            description: 'Envoi par vol express - Idéal pour commandes urgentes',
-            deliveryTime: '2 à 5 jours',
-            cost: 12000,
-            unit: 'FCFA/Kg',
-            type: 'express'
-          },
-          {
-            id: 'standard_air',
-            name: 'Livraison Standard par Cargo',
-            description: 'Envoi par vol cargo - Équilibre prix/délai',
-            deliveryTime: '7 à 15 jours',
-            cost: 10000,
-            unit: 'FCFA/Kg',
-            type: 'standard'
-          },
-          {
-            id: 'maritime',
-            name: 'Livraison Maritime',
-            description: 'Envoi par voie maritime - Économique pour gros volumes',
-            deliveryTime: '12 semaines',
-            cost: 295000,
-            unit: 'FCFA/CBM',
-            type: 'economy'
+          
+          // 3. Mapping sécurisé (conversion des types au cas où)
+          const productWithId: FirebaseProduct = {
+            ...productData,
+            id: productSnap.id,
+            price: Number(productData.price) || 0,
+            minOrder: Number(productData.minOrder) || 1,
+            stockQuantity: Number(productData.stockQuantity) || 0,
+            inStock: productData.inStock ?? (Number(productData.stockQuantity) > 0)
+          } as FirebaseProduct;
+          
+          setProduct(productWithId);
+          
+          // 4. Récupérer les produits similaires si categoryId existe
+          if (productWithId.categoryId) {
+            fetchSimilarProducts(
+              productWithId.categoryId, 
+              productWithId.companyId || '', 
+              productWithId.id
+            );
           }
-        ];
-
-        // 5. Livraison Grossiste Professionnelle
-        const wholesaleDelivery = [
-          {
-            id: 'wholesale_professional',
-            name: 'Livraison Grossiste Professionnelle',
-            description: 'Solution logistique complète pour grossistes et professionnels avec suivi dédié',
-            features: [
-              'Accompagnement personnalisé',
-              'Documents douaniers inclus',
-              'Assurance transport',
-              'Suivi en temps réel',
-              'Dédouanement inclus'
-            ],
-            deliveryTime: '7 à 21 jours selon volume',
-            minVolume: 'À partir de 1 CBM',
-            cost: 'Sur devis personnalisé',
-            contactRequired: true
+          
+          // 5. Initialisation des variantes
+          if (productWithId.hasVariants && productWithId.variants?.length) {
+            const firstAvailable = productWithId.variants.find(v => v.stock > 0) || productWithId.variants[0];
+            setSelectedSize(firstAvailable.size || '');
+            setSelectedColor(firstAvailable.color || '');
+            setSelectedVariant(firstAvailable);
           }
-        ];
-
-        const completeProduct = { 
-          id: productSnap.id, 
-          ...productData,
           
-          seller: companyData ? {
-            id: productData.companyId,
-            name: companyData.name || 'Fournisseur',
-            type: companyData.businessType || 'Manufacturer',
-            rating: companyData.rating || 0,
-            yearsOnPlatform: companyData.yearsOnPlatform || 0,
-            country: companyData.address?.country || 'CN',
-            responseTime: companyData.responseTime || '24-48h',
-            deliveryRate: companyData.responseRate || 0,
-            logo: companyData.logo || 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO',
-            verified: companyData.verified || false,
-            location: companyData.location || companyData.address?.city || 'Localisation inconnue',
-            description: companyData.description,
-            totalOrders: companyData.totalOrders || 0,
-            goldSupplier: companyData.goldSupplier || false,
-            employees: companyData.employees,
-            annualRevenue: companyData.annualRevenue,
-            certifications: companyData.certifications
-          } : {
-            id: 'unknown',
-            name: productData.companyName || 'Fournisseur non spécifié',
-            type: 'Unknown',
-            rating: 0,
-            yearsOnPlatform: 0,
-            country: 'Unknown',
-            responseTime: '24-48h',
-            deliveryRate: 0,
-            logo: 'https://via.placeholder.com/100x100/CCCCCC/ffffff?text=ND',
-            verified: false,
-            location: 'Localisation inconnue'
-          },
-          
-          images: productData.images || [productData.imageUrl] || [
-            'https://via.placeholder.com/400x400/FF6A00/ffffff?text=Produit'
-          ],
-          
-          specifications: realSpecifications,
-          
-          shippingOptions: realShippingOptions,
-          
-          wholesaleDelivery: wholesaleDelivery,
-          
-          reviews: productData.reviews || {
-            product: { 
-              count: productData.reviewCount || 0, 
-              rating: productData.rating || 0 
-            },
-            shop: { 
-              count: companyData?.totalOrders || 0, 
-              rating: companyData?.rating || 0 
-            }
-          },
-          
-          shipping: productData.shipping || {
-            cost: productData.shippingCost || 0,
-            estimatedDelivery: productData.deliveryTime || '7-14 jours',
-            options: realShippingOptions.length
-          },
-          
-          price: productData.price || 0,
-          originalPrice: productData.originalPrice || productData.price || 0,
-          minOrder: productData.minOrder || 1,
-          inStock: productData.inStock !== undefined ? productData.inStock : true,
-          soldCount: productData.soldCount || Math.floor(Math.random() * 1000),
-          categoryId: productData.categoryId,
-          
-          fullDescription: productData.fullDescription || productData.description || 'Description du produit non disponible.'
-        };
-        
-        if (mounted) {
-          setProduct(completeProduct);
-          await fetchSimilarProducts(completeProduct);
-          console.log('✅ Produit complètement chargé');
+          setQuantity(productWithId.minOrder || 1);
         }
-        
-      } catch (error: any) {
-        console.error('❌ Erreur détaillée chargement produit:', {
-          message: error.message,
-          code: error.code,
-          stack: error.stack
-        });
-        
-        setError(`Erreur: ${error.message || 'Impossible de charger le produit'}`);
-        
+      } catch (err: any) {
+        console.error("🔥 Erreur critique Firestore:", err);
+        setError(`Erreur réseau: ${err.message}`);
       } finally {
-        if (mounted) {
-          setLoading(false);
-          console.log('🏁 Chargement terminé');
-        }
+        setLoading(false);
       }
     };
 
-    // Vérifier que l'ID est valide avant de charger
-    if (id && id !== 'undefined' && id !== 'null' && db) {
-      fetchProductData();
-    } else {
-      setLoading(false);
-      setError('ID de produit invalide');
-    }
-    
-    return () => { 
-      mounted = false; 
-    };
+    fetchProduct();
   }, [id]);
 
-  // Handlers pour la navigation
-  const handleViewCompany = () => {
-    Alert.alert('Information', 'Page fournisseur à venir');
-  };
+  // --- RÉCUPÉRATION DES DONNÉES DE L'ENTREPRISE ---
+  useEffect(() => {
+    const fetchCompanyData = async () => {
+      if (product?.companyId) {
+        setLoadingCompany(true);
+        const companyData = await fetchCompany(product.companyId);
+        setCompany(companyData);
+        setLoadingCompany(false);
+      }
+    };
 
-  const handleViewSimilar = () => {
-    Alert.alert('Information', 'Produits similaires à venir');
-  };
+    fetchCompanyData();
+  }, [product?.companyId]);
 
-  const handleViewProductReviews = () => {
-    Alert.alert('Information', 'Avis du produit à venir');
-  };
+  // --- EXTRACTION DES ATTRIBUTS DE VARIANTES ---
+  const variantAttributes = useMemo(() => {
+    if (!product || !product.hasVariants) {
+      return {
+        sizes: [] as string[],
+        colors: [] as string[]
+      };
+    }
 
-  const handleViewShopReviews = () => {
-    Alert.alert('Information', 'Avis du fournisseur à venir');
-  };
+    const sizes: string[] = [];
+    const colors: string[] = [];
 
-  const handleShippingOptions = () => {
-    Alert.alert('Information', 'Options de livraison à venir');
-  };
+    // Extraire depuis variantAttributes si disponible
+    if (product.variantAttributes && product.variantAttributes.length > 0) {
+      product.variantAttributes.forEach(attr => {
+        if (attr.name === 'Size' || attr.name === 'Taille' || attr.name === 'size') {
+          sizes.push(...attr.values);
+        } else if (attr.name === 'Color' || attr.name === 'Couleur' || attr.name === 'color') {
+          colors.push(...attr.values);
+        }
+      });
+    }
 
-  // ✅ MODIFICATION : Ouvrir le modal au lieu de l'alerte
-  const handleWholesaleDelivery = () => {
-    setQuoteModalVisible(true);
-  };
+    // Extraire depuis variants si variantAttributes vide
+    if ((sizes.length === 0 || colors.length === 0) && product.variants && product.variants.length > 0) {
+      const sizeSet = new Set<string>();
+      const colorSet = new Set<string>();
+      
+      product.variants.forEach(variant => {
+        if (variant.size) sizeSet.add(variant.size);
+        if (variant.color) colorSet.add(variant.color);
+      });
+      
+      if (sizes.length === 0) sizes.push(...Array.from(sizeSet).sort());
+      if (colors.length === 0) colors.push(...Array.from(colorSet).sort());
+    }
 
-  const handleChat = () => {
-    if (!user) {
-      Alert.alert('Connexion requise', 'Veuillez vous connecter pour chatter');
-      router.push('/login');
+    return { sizes, colors };
+  }, [product]);
+
+  // --- TROUVER LA VARIANTE SÉLECTIONNÉE ---
+  useEffect(() => {
+    if (!product || !product.hasVariants || !product.variants || product.variants.length === 0) return;
+
+    const foundVariant = product.variants.find(v => 
+      v.size === selectedSize && v.color === selectedColor
+    );
+    
+    setSelectedVariant(foundVariant || null);
+    
+  }, [selectedSize, selectedColor, product]);
+
+  // --- PRIX ACTUEL ---
+  const currentUnitPrice = useMemo(() => {
+    if (!product) return 0;
+    
+    if (selectedVariant?.price) {
+      return selectedVariant.price;
+    }
+    
+    return product.price;
+  }, [product, selectedVariant]);
+
+  // --- STOCK ACTUEL ---
+  const currentStock = useMemo(() => {
+    if (!product) return 0;
+    
+    if (selectedVariant?.stock !== undefined) {
+      return selectedVariant.stock;
+    }
+    
+    return product.stockQuantity || 0;
+  }, [product, selectedVariant]);
+  
+  const isWholesale = useMemo(() => {
+    return quantity >= minimumOrder;
+  }, [quantity, minimumOrder]);
+
+const retailPrice = useMemo(() => {
+  // On s'assure de prendre le prix de la variante si elle existe
+  return Number(selectedVariant?.price || product?.price || 0);
+}, [product, selectedVariant]);
+
+const wholesalePrice = useMemo(() => {
+  return Number(
+    selectedVariant?.wholesalePrice || 
+    product?.wholesalePrice || 
+    retailPrice // Si pas de prix de gros spécifique, on garde le prix de détail
+  );
+}, [selectedVariant, product, retailPrice]);
+
+const effectiveUnitPrice = useMemo(() => {
+  return isWholesale ? wholesalePrice : retailPrice;
+}, [isWholesale, wholesalePrice, retailPrice]);
+
+  // --- IMAGES POUR LA GALERIE ---
+  const galleryImages = useMemo(() => {
+    if (!product) return [];
+    
+    const images: string[] = [];
+    
+    // Ajouter l'image de la variante si elle existe et est différente
+    if (selectedVariant?.image && !product.images?.includes(selectedVariant.image)) {
+      images.push(selectedVariant.image);
+    }
+    
+    // Ajouter les images principales
+    if (product.images && product.images.length > 0) {
+      images.push(...product.images);
+    }
+    
+    // Fallback sur mainImage
+    if (images.length === 0 && product.mainImage) {
+      images.push(product.mainImage);
+    }
+    
+    return images;
+  }, [product, selectedVariant]);
+
+  // --- MINIMUM DE COMMANDE ---
+  const minimumOrder = useMemo(() => {
+    if (!product) return 1;
+    return product.minOrder || 1;
+  }, [product]);
+
+  // --- FONCTION AJOUT AU PANIER CORRIGÉE ---
+// Dans ProductDetailScreen.tsx - Fonction handleAddToCart CORRIGÉE (lignes 412-443)
+const handleAddToCart = () => {
+  if (!product) {
+    Alert.alert("Erreur", "Produit non chargé");
+    return;
+  }
+
+  // Validation stock
+  if (!product.inStock || currentStock <= 0) {
+    Alert.alert("Rupture de stock", "Ce produit n'est plus disponible.");
+    return;
+  }
+
+  // Validation variantes si nécessaire
+  if (product.hasVariants) {
+    if (!selectedSize || !selectedColor) {
+      Alert.alert("Sélection requise", "Veuillez sélectionner une taille et une couleur.");
       return;
     }
-    Alert.alert('Information', 'Messagerie à venir');
+    
+    if (!selectedVariant) {
+      Alert.alert("Combinaison invalide", "Cette combinaison taille/couleur n'est pas disponible.");
+      return;
+    }
+    
+    if (selectedVariant.stock <= 0) {
+      Alert.alert("Stock épuisé", "Cette variante est en rupture de stock.");
+      return;
+    }
+  }
+
+  // Validation quantité vs stock
+  if (quantity > currentStock) {
+    Alert.alert("Stock insuffisant", `Stock disponible: ${currentStock} pièce(s)`);
+    return;
+  }
+
+  setAddingToCart(true);
+
+  // ✅ PRIX CORRECT (selon variante ou produit)
+  const finalPrice = selectedVariant?.price || product.price || 0;
+  
+  // ✅ CONSTRUCTION DE L'OBJET PRODUIT POUR LE PANIER
+// Dans product/[id].tsx - handleAddToCart
+// --- DÉBUT DU BLOC CORRIGÉ ---
+// ✅ REMPLACE TON BLOC D'ASSEMBLAGE PAR CELUI-CI
+// ✅ BLOC FINAL CORRIGÉ POUR GARANTIR LE PRIX AFFICHÉ
+const productForCart = (() => {
+  // 1. On récupère le prix "effectif" calculé dans tes useMemo (Retail vs Wholesale)
+  // C'est ce montant en XOF qui correspond aux 18,56 $ de ton écran
+  const finalPriceToStore = Number(effectiveUnitPrice) || 
+                            Number(selectedVariant?.price) || 
+                            Number(product.price) || 0;
+
+  // 2. On s'assure que l'image correspond bien à la variante choisie ou à l'image principale
+  const finalImage = selectedVariant?.image || product.mainImage || product.imageUrl;
+
+  return {
+    id: product.id,
+    // ID unique : crucial pour différencier les variantes dans le panier
+    cartId: `${product.id}-${selectedSize || 'NS'}-${selectedColor || 'NS'}`, 
+    name: product.name,
+    price: finalPriceToStore, // ✅ Toujours stocké en XOF (ex: 12064 pour donner 18,56 $)
+    quantity: quantity || 1,
+    selectedSize: selectedSize || null,
+    selectedColor: selectedColor || null,
+    image: finalImage,
+    seller: product.companyName || product.supplier || "Kissgroup88",
+    minOrder: Number(product.minOrder) || 1,
+    inStock: product.inStock ?? true,
+    originalCurrency: 'XOF' // On garde la monnaie pivot pour les calculs de taxes/totaux
+  };
+})();
+
+// Log de contrôle (à vérifier dans ton terminal au moment du clic)
+console.log("💰 PRIX ENVOYÉ AU PANIER :", productForCart.price, "XOF");
+
+// Envoi au contexte du panier
+addToCart(productForCart);
+
+// Log de contrôle pour être sûr du montant en XOF avant conversion
+console.log("💰 PRIX ENVOYÉ AU PANIER (XOF):", productForCart.price);
+
+addToCart(productForCart);
+
+// Log de sécurité pour voir exactement ce qui part dans le panier
+console.log("🚀 ENVOI FINAL AU PANIER:", {
+  nom: productForCart.name,
+  prixEnvoyé: productForCart.price,
+  quantité: productForCart.quantity
+});
+
+// Appel de la fonction
+addToCart(productForCart);
+// --- FIN DU BLOC CORRIGÉ ---
+  // Appeler la fonction addToCart du contexte
+  try {
+    addToCart(productForCart);
+    
+    // Afficher l'alerte de confirmation
+    setTimeout(() => {
+      setAddingToCart(false);
+      Alert.alert(
+        "✅ Produit ajouté",
+        `${quantity} × ${product.name}${
+          selectedSize ? ` (Taille ${selectedSize})` : ''
+        }${
+          selectedColor ? ` - ${selectedColor}` : ''
+        } a été ajouté à votre panier.`,
+        [
+          { 
+            text: "Continuer vos achats", 
+            style: "cancel" 
+          },
+          { 
+            text: "Voir le panier", 
+            onPress: () => router.push('/cart') 
+          }
+        ]
+      );
+    }, 500);
+  } catch (error) {
+    console.error("❌ Erreur lors de l'ajout au panier:", error);
+    setAddingToCart(false);
+    Alert.alert("Erreur", "Impossible d'ajouter le produit au panier");
+  }
+};
+
+// Dans ProductDetailScreen.tsx - Fonction handleChat CORRIGÉE
+console.log("🔥 PRODUCT COMPLET DETAIL:", product);
+
+const handleChat = () => {
+  if (!product || !product.companyId) return;
+  
+  // Récupérer l'image principale (avec fallback)
+  const mainImage = product.images?.[0] || product.mainImage || product.imageUrl || '';
+  
+  // Formater le prix correctement
+  const formattedPrice = `${product.price.toLocaleString()} ${product.currency || 'FCFA'}`;
+  
+  // Log pour debug
+  console.log("📤 Envoi vers chat:", {
+    companyId: product.companyId,
+    productId: product.id,
+    productName: product.name,
+    productImage: mainImage ? mainImage.substring(0, 50) + '...' : null,
+    productPrice: formattedPrice,
+    sellerName: product.companyName || product.supplier
+  });
+  
+  // Navigation avec tous les paramètres
+  router.push({
+    pathname: '/conversation/[id]',
+    params: { 
+      id: product.companyId,  // L'ID du vendeur est obligatoire
+      productId: product.id,
+      productName: product.name,
+      productImage: mainImage,
+      productPrice: formattedPrice,
+      sellerId: product.companyId,
+      sellerName: product.companyName || product.supplier || 'Vendeur'
+    }
+  });
+};
+
+  const handleCompanyPress = () => {
+    if (company?.id) {
+      router.push({
+        pathname: '/company/[id]',
+        params: { id: company.id }
+      });
+    }
   };
 
-  // Composant pour afficher les options de livraison
-  const ShippingOptionsPreview = () => {
-    if (!product?.shippingOptions) return null;
+  // --- COMPOSANT POUR LA CARTE PRODUIT SIMILAIRE ---
+  const SimilarProductCard = ({ product }: { product: FirebaseProduct }) => {
+    const handlePress = () => {
+      router.push({
+        pathname: '/product/[id]',
+        params: { id: product.id }
+      });
+    };
 
     return (
-      <View style={styles.shippingPreviewSection}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Options de Livraison</Text>
-          <TouchableOpacity onPress={handleShippingOptions}>
-            <Text style={styles.seeAllText}>Voir détails</Text>
-          </TouchableOpacity>
+      <TouchableOpacity 
+        style={styles.similarProductCard}
+        onPress={handlePress}
+        activeOpacity={0.9}
+      >
+        <View style={styles.similarProductImageContainer}>
+          <Image 
+            source={{ uri: product.mainImage || (product.images?.[0]) || 'https://via.placeholder.com/300' }}
+            style={styles.similarProductImage}
+            resizeMode="cover"
+          />
+          {product.premiumSupplier && (
+            <View style={styles.premiumBadgeSmall}>
+              <Ionicons name="star" size={10} color="#FFF" />
+            </View>
+          )}
         </View>
         
-        <View style={styles.shippingOptionsContainer}>
-          {product.shippingOptions.map((option: any, index: number) => (
-            <View key={option.id} style={styles.shippingOptionCard}>
-              <View style={styles.shippingOptionHeader}>
-                <Text style={styles.shippingOptionName}>{option.name}</Text>
-                <View style={[
-                  styles.deliveryBadge,
-                  option.type === 'express' && styles.expressBadge,
-                  option.type === 'standard' && styles.standardBadge,
-                  option.type === 'economy' && styles.economyBadge
-                ]}>
-                  <Text style={styles.deliveryBadgeText}>
-                    {option.deliveryTime}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.shippingOptionDescription}>
-                {option.description}
-              </Text>
-              <View style={styles.shippingOptionPrice}>
-                <Text style={styles.shippingCost}>
-                  {option.cost.toLocaleString()} {option.unit}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  };
-
-  // Composant pour Livraison Grossiste Professionnelle
-  const WholesaleDeliverySection = () => {
-    if (!product?.wholesaleDelivery) return null;
-
-    return (
-      <View style={styles.wholesaleDeliverySection}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Livraison Grossiste Professionnelle</Text>
-        </View>
-        
-        <View style={styles.wholesaleDeliveryCard}>
-          <View style={styles.wholesaleHeader}>
-            <Text style={styles.wholesaleTitle}>
-              {product.wholesaleDelivery[0].name}
-            </Text>
-            <View style={styles.professionalBadge}>
-              <Text style={styles.professionalBadgeText}>PRO</Text>
-            </View>
-          </View>
-          
-          <Text style={styles.wholesaleDescription}>
-            {product.wholesaleDelivery[0].description}
+        <View style={styles.similarProductInfo}>
+          <Text style={styles.similarProductName} numberOfLines={2}>
+            {product.name}
           </Text>
           
-          <View style={styles.wholesaleFeatures}>
-            {product.wholesaleDelivery[0].features.map((feature: string, index: number) => (
-              <View key={index} style={styles.wholesaleFeatureItem}>
-                <Text style={styles.wholesaleFeatureIcon}>✓</Text>
-                <Text style={styles.wholesaleFeatureText}>{feature}</Text>
-              </View>
-            ))}
-          </View>
+<View style={styles.similarProductPriceContainer}>
+  <Text style={styles.similarProductCurrency}>{product.currency || 'FCFA'}</Text>
+  <Text style={styles.similarProductPrice}>
+    {product.price.toLocaleString()}
+  </Text>
+</View>
           
-          <View style={styles.wholesaleDetails}>
-            <View style={styles.wholesaleDetailItem}>
-              <Text style={styles.wholesaleDetailLabel}>Délai de livraison:</Text>
-              <Text style={styles.wholesaleDetailValue}>
-                {product.wholesaleDelivery[0].deliveryTime}
-              </Text>
-            </View>
-            
-            <View style={styles.wholesaleDetailItem}>
-              <Text style={styles.wholesaleDetailLabel}>Volume minimum:</Text>
-              <Text style={styles.wholesaleDetailValue}>
-                {product.wholesaleDelivery[0].minVolume}
-              </Text>
-            </View>
-            
-            <View style={styles.wholesaleDetailItem}>
-              <Text style={styles.wholesaleDetailLabel}>Coût:</Text>
-              <Text style={[styles.wholesaleDetailValue, styles.wholesaleCost]}>
-                {product.wholesaleDelivery[0].cost}
-              </Text>
-            </View>
-          </View>
-          
-          {/* ✅ MODIFICATION : BOUTON QUI OUVRE LE MODAL */}
-          <TouchableOpacity 
-            style={styles.wholesaleContactButton}
-            onPress={handleWholesaleDelivery}
-          >
-            <Text style={styles.wholesaleContactButtonText}>
-              Demander un devis personnalisé
+          <View style={styles.similarProductMOQ}>
+            <Ionicons name="cube-outline" size={12} color="#666" />
+            <Text style={styles.similarProductMOQText}>
+              {product.minOrder || 1} pièce (MOQ)
             </Text>
-          </TouchableOpacity>
+          </View>
+          
+          {product.soldCount > 0 && (
+            <Text style={styles.similarProductSold}>
+              {product.soldCount}+ vendus
+            </Text>
+          )}
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
+  
+  // ✅ Ajoute cette fonction de formatage
+const formatDisplayPrice = (priceInXOF: number) => {
+  const converted = priceInXOF * currency.rate;
+  
+  if (currency.code === 'XOF') {
+    return Math.round(converted).toLocaleString('fr-FR') + ' CFA';
+  }
+  
+  return `${currency.symbol}${converted.toLocaleString(undefined, { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  })}`;
+};
 
-  // ✅ CORRECTION : ÉCRAN DE CHARGEMENT
+  // --- ÉCRAN DE CHARGEMENT ---
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Chargement du produit...</Text>
-        <Text style={styles.loadingSubtext}>ID: {id}</Text>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Chargement du produit...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  // ✅ CORRECTION : ÉCRAN D'ERREUR
-  if (error) {
+  // --- ÉCRAN D'ERREUR ---
+  if (error || !product) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>❌ Erreur</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        <Text style={styles.errorSubtext}>ID du produit: {id}</Text>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>Retour aux produits</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ✅ CORRECTION : PRODUIT INTROUVABLE
-  if (!product) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorTitle}>Produit introuvable</Text>
-        <Text style={styles.errorText}>Le produit demandé n'existe pas</Text>
-        <Text style={styles.errorSubtext}>ID: {id}</Text>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>Retour aux produits</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={60} color={COLORS.error} />
+          <Text style={styles.errorTitle}>Produit non disponible</Text>
+          <Text style={styles.errorText}>{error || "Ce produit n'existe pas ou a été supprimé."}</Text>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonText}>Retour aux produits</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" />
+      
       <ScrollView 
+        style={styles.container} 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Galerie d'images */}
+        {/* GALERIE D'IMAGES */}
         <ProductGallery 
-          images={product.images}
+          images={galleryImages}
           productName={product.name}
         />
 
-        {/* Badges Premium */}
-        <View style={styles.badgesContainer}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>🚚 {product.shipping.estimatedDelivery}</Text>
-          </View>
-          {product.inStock && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>📦 En stock</Text>
-            </View>
-          )}
-          <View style={[styles.badge, styles.badgeHighlight]}>
-            <Text style={styles.badgeHighlightText}>⭐ Meilleure Vente</Text>
-          </View>
-        </View>
-
-        {/* Section Prix Premium */}
-        <View style={styles.priceSection}>
-          <View style={styles.priceHeader}>
-            <Text style={styles.priceLabel}>Prix spécial</Text>
-            {product.originalPrice > product.price && (
+        {/* SECTION PRINCIPALE */}
+        <View style={styles.mainInfo}>
+          {/* Prix original barré si promotion */}
+          {product.originalPrice && product.originalPrice > product.price ? (
+            <View style={styles.originalPriceContainer}>
+<Text style={styles.originalPriceText}>
+  {formatDisplayPrice(product.originalPrice)}
+</Text>
               <View style={styles.discountBadge}>
-                <Text style={styles.discountText}>-14%</Text>
+                <Text style={styles.discountText}>
+                  -{Math.round((1 - product.price / product.originalPrice) * 100)}%
+                </Text>
               </View>
-            )}
-          </View>
-          
-          <View style={styles.priceRow}>
-            {product.originalPrice > product.price && (
-              <Text style={styles.originalPrice}>{product.originalPrice} F CFA</Text>
-            )}
-            <Text style={styles.discountedPrice}>{product.price} F CFA</Text>
-          </View>
-          
-          <View style={styles.priceDetails}>
-            <Text style={styles.minOrder}>📦 Commande min : {product.minOrder} pièce(s)</Text>
-            <Text style={styles.bulkPrice}>🎯 Prix dégressif selon quantité</Text>
-          </View>
-
-          <View style={styles.ratingContainer}>
-            <View style={styles.ratingStars}>
-              <Text style={styles.rating}>⭐⭐⭐⭐⭐</Text>
-              <Text style={styles.ratingValue}>{product.reviews.product.rating.toFixed(1)}</Text>
             </View>
-            <Text style={styles.ratingCount}>({product.reviews.product.count} avis)</Text>
-            <Text style={styles.soldCount}>· {product.soldCount} vendus</Text>
-          </View>
-        </View>
-
-        {/* Nom du produit */}
-        <View style={styles.productNameSection}>
-          <Text style={styles.productName}>
-            {product.name}
-          </Text>
-          <Text style={styles.productDescription}>
-            {product.fullDescription}
-          </Text>
-        </View>
-
-        {/* Carte du vendeur */}
-        <SellerCard 
-          seller={product.seller}
-          onPress={handleViewCompany}
-        />
-
-        {/* Produits similaires */}
-        <View style={styles.similarProductsSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Produits Similaires</Text>
-            <TouchableOpacity onPress={handleViewSimilar}>
-              <Text style={styles.seeAllText}>Voir tout</Text>
-            </TouchableOpacity>
+          ) : null}
+          
+          {/* Prix actuel */}
+          <View style={styles.priceContainer}>
+<Text style={styles.priceText}>{formatDisplayPrice(currentUnitPrice)}</Text>
+            {product.specialOffer ? (
+              <Text style={styles.specialOfferBadge}>Offre spéciale</Text>
+            ) : null}
           </View>
           
-          {similarProducts.length > 0 ? (
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.similarProductsContainer}
-            >
-              {similarProducts.map((item) => (
-                <TouchableOpacity 
-                  key={item.id}
-                  style={styles.similarProductCard}
-                  onPress={() => router.push(`/product/${item.id}`)}
-                >
-                  <Image 
-                    source={{
-                      uri: item.image || item.imageUrl || item.images?.[0]
-                    }}
-                    style={styles.similarProductImage}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.similarProductInfo}>
-                    <Text style={styles.similarProductName} numberOfLines={2}>
-                      {item.name}
-                    </Text>
-                    <View style={styles.similarProductPrice}>
-                      {item.originalPrice > item.price && (
-                        <Text style={styles.similarOriginalPrice}>
-                          {item.originalPrice} F CFA
-                        </Text>
-                      )}
-                      <Text style={styles.similarCurrentPrice}>
-                        {item.price} F CFA
-                      </Text>
-                    </View>
-                    <View style={styles.similarProductMeta}>
-                      <Text style={styles.similarProductRating}>
-                        ⭐ {item.rating.toFixed(1)}
-                      </Text>
-                      <Text style={styles.similarProductOrders}>
-                        Min: {item.minOrder}
-                      </Text>
-                    </View>
+          {/* Nom du produit */}
+          <Text style={styles.productName}>{product.name}</Text>
+          
+          {/* Badges statut */}
+          <View style={styles.badgesContainer}>
+            {product.newArrival ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Nouveau</Text>
+              </View>
+            ) : null}
+            {product.featured ? (
+              <View style={[styles.badge, styles.featuredBadge]}>
+                <Text style={styles.badgeText}>En vedette</Text>
+              </View>
+            ) : null}
+            {product.trending ? (
+              <View style={[styles.badge, styles.trendingBadge]}>
+                <Text style={styles.badgeText}>Tendance</Text>
+              </View>
+            ) : null}
+            {product.premiumSupplier ? (
+              <View style={[styles.badge, styles.premiumBadge]}>
+                <Text style={styles.badgeText}>Premium</Text>
+              </View>
+            ) : null}
+          </View>
+          
+          {/* Description */}
+          {product.description ? (
+            <Text style={styles.description}>
+              {product.description}
+            </Text>
+          ) : null}
+
+          {/* SECTION BOUTIQUE/ENTREPRISE */}
+          {company && (
+            <View style={styles.companySection}>
+              <TouchableOpacity 
+                style={styles.companyCard}
+                onPress={handleCompanyPress}
+                activeOpacity={0.7}
+              >
+                <View style={styles.companyHeader}>
+                  <View style={styles.companyLogoContainer}>
+                    {company.logo && typeof company.logo === 'string' && company.logo.startsWith('http') ? (
+                      <Image 
+                        source={{ uri: company.logo }}
+                        style={styles.companyLogo}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.companyLogoPlaceholder}>
+                        <Ionicons name="business" size={24} color={COLORS.primary} />
+                      </View>
+                    )}
                   </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.noSimilarProducts}>
-              <Text style={styles.noSimilarText}>Aucun produit similaire trouvé</Text>
+                  
+                  <View style={styles.companyInfo}>
+                    <Text style={styles.companyName}>{company.name || 'Boutique'}</Text>
+                    
+                    {company.isActive && (
+                      <View style={styles.verifiedBadge}>
+                        <Ionicons name="checkmark-circle" size={14} color={COLORS.success} />
+                        <Text style={styles.verifiedText}>Vérifié</Text>
+                      </View>
+                    )}
+                  </View>
+                  
+                  <View style={styles.chevronContainer}>
+                    <Ionicons name="chevron-forward" size={20} color="#999" />
+                  </View>
+                </View>
+
+                {/* Informations entreprise */}
+                <View style={styles.companyDetails}>
+                  {(company.city || company.country || company.fullAddress) && (
+                    <View style={styles.companyDetailRow}>
+                      <Ionicons name="location-outline" size={16} color="#666" />
+                      <Text style={styles.companyDetailText}>
+                        {company.fullAddress || [company.city, company.country, company.street].filter(Boolean).join(', ')}
+                      </Text>
+                    </View>
+                  )}
+                  
+                  {company.phone && (
+                    <View style={styles.companyDetailRow}>
+                      <Ionicons name="call-outline" size={16} color="#666" />
+                      <Text style={styles.companyDetailText}>{company.phone}</Text>
+                    </View>
+                  )}
+                  
+                  {company.email && (
+                    <View style={styles.companyDetailRow}>
+                      <Ionicons name="mail-outline" size={16} color="#666" />
+                      <Text style={styles.companyDetailText}>{company.email}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Statistiques */}
+                {company.stats && (
+                  <View style={styles.companyStats}>
+                    {company.stats.productCount > 0 && (
+                      <>
+                        <View style={styles.companyStatItem}>
+                          <Text style={styles.companyStatValue}>{company.stats.productCount}</Text>
+                          <Text style={styles.companyStatLabel}>Produits</Text>
+                        </View>
+                        <View style={styles.companyStatDivider} />
+                      </>
+                    )}
+                    
+                    <View style={styles.companyStatItem}>
+                      <Text style={styles.companyStatValue}>
+                        {company.yearEstablished || 'N/A'}
+                      </Text>
+                      <Text style={styles.companyStatLabel}>Depuis</Text>
+                    </View>
+                    
+                    {company.businessType && (
+                      <>
+                        <View style={styles.companyStatDivider} />
+                        <View style={styles.companyStatItem}>
+                          <Text style={styles.companyStatValue} numberOfLines={1}>
+                            {company.businessType}
+                          </Text>
+                          <Text style={styles.companyStatLabel}>Type</Text>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                )}
+
+                {/* Lien vers la boutique */}
+                <View style={styles.companyFooter}>
+                  <Text style={styles.companyFooterText}>
+                    Voir la boutique →
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
           )}
+
+          {loadingCompany && (
+            <View style={styles.companyLoadingContainer}>
+              <ActivityIndicator size="small" color={COLORS.primary} />
+              <Text style={styles.companyLoadingText}>Chargement de la boutique...</Text>
+            </View>
+          )}
+
+          {!company && product?.companyId && !loadingCompany && (
+            <View style={styles.companyErrorContainer}>
+              <Ionicons name="business-outline" size={20} color="#999" />
+              <Text style={styles.companyErrorText}>
+                Boutique non disponible
+              </Text>
+            </View>
+          )}
+
+          <TrustBadges />
         </View>
 
-        {/* Spécifications du produit */}
-        <ProductSpecifications 
-          specifications={product.specifications}
-          description={product.fullDescription}
-        />
+        {/* VARIANTES TAILLES */}
+        {product.hasVariants && variantAttributes.sizes.length > 0 ? (
+          <View style={styles.section}>
+            <ProductVariants 
+              label="Taille"
+              options={variantAttributes.sizes}
+              selectedOption={selectedSize}
+              onSelect={setSelectedSize}
+              disabledOptions={product.variants
+                ?.filter(v => v.color === selectedColor && (v.stock <= 0 || !product.inStock))
+                .map(v => v.size) || []}
+            />
+          </View>
+        ) : null}
 
-        {/* Options de livraison standard */}
-        <ShippingOptionsPreview />
+        {/* VARIANTES COULEURS */}
+        {product.hasVariants && variantAttributes.colors.length > 0 ? (
+          <View style={styles.section}>
+            <ProductVariants 
+              label="Couleur"
+              options={variantAttributes.colors}
+              selectedOption={selectedColor}
+              onSelect={setSelectedColor}
+              disabledOptions={product.variants
+                ?.filter(v => v.size === selectedSize && (v.stock <= 0 || !product.inStock))
+                .map(v => v.color) || []}
+            />
+          </View>
+        ) : null}
 
-        {/* Livraison Grossiste Professionnelle */}
-        <WholesaleDeliverySection />
+        {/* SELECTEUR DE QUANTITÉ */}
+        <View style={styles.section}>
+          <QuantityIncrementalSelector 
+            quantity={quantity}
+            onChange={setQuantity}
+            priceSteps={[{ min: 1, price: currentUnitPrice }]}
+            minQuantity={1}
+            stock={currentStock}
+          />
+        </View>
 
-        {/* Calculateur de livraison */}
+        {/* INFORMATIONS PRODUIT */}
+        <View style={styles.infoCard}>
+          {/* Disponibilité */}
+          <View style={styles.infoRow}>
+            <Ionicons name="cube-outline" size={18} color="#666" />
+            <Text style={styles.infoLabel}>Disponibilité:</Text>
+            <Text style={[
+              styles.infoValue,
+              product.inStock && currentStock > 50 ? styles.inStock : 
+              product.inStock && currentStock > 0 ? styles.lowStock : 
+              styles.outOfStock
+            ]}>
+              {product.inStock ? 
+                (currentStock > 50 ? 'En stock' : 
+                 currentStock > 0 ? 'Stock limité' : 
+                 'Rupture de stock') : 
+                'Non disponible'}
+              {product.inStock && currentStock > 0 ? ` (${currentStock} disponibles)` : ''}
+            </Text>
+          </View>
+          
+          {/* Livraison */}
+          {product.deliveryTime ? (
+            <View style={styles.infoRow}>
+              <Ionicons name="time-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Livraison:</Text>
+              <Text style={styles.infoValue}>{product.deliveryTime}</Text>
+            </View>
+          ) : null}
+          
+          {/* Vendeur */}
+          {(product.companyName || product.supplier) ? (
+            <View style={styles.infoRow}>
+              <Ionicons name="business-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Vendeur:</Text>
+              <Text style={styles.infoValue}>{product.companyName || product.supplier}</Text>
+            </View>
+          ) : null}
+          
+          {/* Catégorie */}
+          {product.categoryName ? (
+            <View style={styles.infoRow}>
+              <Ionicons name="grid-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Catégorie:</Text>
+              <Text style={styles.infoValue}>{product.categoryName}</Text>
+            </View>
+          ) : null}
+          
+          {/* Référence */}
+          {product.specifications?.modelNumber ? (
+            <View style={styles.infoRow}>
+              <Ionicons name="barcode-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Référence:</Text>
+              <Text style={styles.infoValue}>{product.specifications.modelNumber}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {/* STATISTIQUES */}
+        {(product.rating > 0 || product.reviewCount > 0 || product.soldCount > 0) ? (
+          <View style={styles.statsCard}>
+            {product.rating > 0 ? (
+              <>
+                <View style={styles.statItem}>
+                  <Ionicons name="star" size={20} color="#FFD700" />
+                  <Text style={styles.statValue}>{product.rating.toFixed(1)}</Text>
+                  <Text style={styles.statLabel}>Note</Text>
+                </View>
+                <View style={styles.statDivider} />
+              </>
+            ) : null}
+            
+            {product.reviewCount > 0 ? (
+              <>
+                <View style={styles.statItem}>
+                  <Ionicons name="chatbubble-outline" size={20} color="#666" />
+                  <Text style={styles.statValue}>{product.reviewCount}</Text>
+                  <Text style={styles.statLabel}>Avis</Text>
+                </View>
+                <View style={styles.statDivider} />
+              </>
+            ) : null}
+            
+            {product.soldCount > 0 ? (
+              <>
+                <View style={styles.statItem}>
+                  <Ionicons name="cart-outline" size={20} color="#666" />
+                  <Text style={styles.statValue}>{product.soldCount}</Text>
+                  <Text style={styles.statLabel}>Vendus</Text>
+                </View>
+                <View style={styles.statDivider} />
+              </>
+            ) : null}
+            
+            <View style={styles.statItem}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={COLORS.success} />
+              <Text style={styles.statValue}>✓</Text>
+              <Text style={styles.statLabel}>Garantie</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* CALCULATEUR DE LIVRAISON */}
         <ShippingCalculator 
           productId={product.id}
-          quantity={selectedOptions.quantity}
-          onOptionsPress={handleShippingOptions}
-          shippingOptions={product.shippingOptions}
+          quantity={quantity}
+          weight={product.specifications?.weight}
+          shippingCost={product.shippingCost}
+          onOptionsPress={() => {
+            console.log("Options de livraison détaillées demandées");
+          }}
         />
 
-        {/* Badges de protection */}
-        <ProtectionBadges />
+        {/* BOUTON DEVIS GROSSISTE */}
+        <TouchableOpacity 
+          style={styles.quoteCard}
+          onPress={() => setIsQuoteVisible(true)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.quoteIconCircle}>
+            <Ionicons name="document-text" size={20} color={COLORS.primary} />
+          </View>
+          <View style={styles.quoteTextContainer}>
+            <Text style={styles.quoteTitle}>Commande en gros ?</Text>
+            <Text style={styles.quoteSub}>Demandez un devis personnalisé</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#CCC" />
+        </TouchableOpacity>
 
-        {/* ✅ Avis et Évaluations en avant-dernière position */}
-        <ReviewSummary 
-          productReviews={product.reviews.product}
-          shopReviews={product.reviews.shop}
-          onProductReviewsPress={handleViewProductReviews}
-          onShopReviewsPress={handleViewShopReviews}
-        />
+        {/* SECTION PRODUITS SIMILAIRES AVEC TITRE DYNAMIQUE */}
+        {(similarProducts.length > 0 || loadingSimilar) && (
+          <View style={styles.similarProductsSection}>
+            <View style={styles.similarProductsHeader}>
+              <Text style={styles.similarProductsTitle}>
+                Produits similaires
+              </Text>
+              <Text style={styles.similarProductsSubtitle}>
+                {company?.name ? `de ${company.name}` : 'du même fournisseur'}
+              </Text>
+            </View>
 
-        {/* Espace pour le footer flottant */}
-        <View style={styles.footerSpacer} />
+            {loadingSimilar ? (
+              <View style={styles.similarLoadingContainer}>
+                <ActivityIndicator size="small" color={COLORS.primary} />
+                <Text style={styles.similarLoadingText}>
+                  Chargement des produits similaires...
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={similarProducts}
+                renderItem={({ item }) => <SimilarProductCard product={item} />}
+                keyExtractor={(item) => item.id}
+                numColumns={2}
+                columnWrapperStyle={styles.similarProductsRow}
+                scrollEnabled={false}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
+          </View>
+        )}
       </ScrollView>
 
-      {/* Footer d'actions flottant */}
+      {/* FOOTER COLLANT */}
       <ActionFooter 
-        product={product}
-        onAddToCart={handleAddToCartAndRedirect}
+        product={{
+          id: product.id,
+          name: product.name,
+          imageUrl: galleryImages[0] || product.mainImage || '',
+          price: effectiveUnitPrice,
+          stock: currentStock,
+          minOrder: minimumOrder,
+          hasVariants: product.hasVariants,
+          selectedSize,
+          selectedColor,
+          currency: product.currency
+        }}
         onChat={handleChat}
+        onAddToCart={handleAddToCart}
         addingToCart={addingToCart}
+        disabled={!product.inStock || currentStock <= 0 || product.status !== 'published'}
+        variantInfo={selectedVariant ? `Taille ${selectedSize} - ${selectedColor}` : ''}
       />
 
-      {/* ✅ MODAL DE DEMANDE DE DEVIS GROSSISTE */}
-      <WholesaleQuoteForm
-        productName={product?.name}
-        productId={product?.id}
-        visible={quoteModalVisible}
-        onClose={() => setQuoteModalVisible(false)}
+      {/* MODAL DE DEVIS GROSSISTE */}
+      <WholesaleQuoteForm 
+        visible={isQuoteVisible}
+        onClose={() => setIsQuoteVisible(false)}
+        productName={product.name}
+        productId={product.id}
+        productImages={galleryImages}
+        currentPrice={currentUnitPrice}
+        supplierName={product.companyName || product.supplier}
+        supplierId={product.companyId}
+        minOrder={minimumOrder}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
+  safeArea: { 
     flex: 1, 
     backgroundColor: COLORS.white 
   },
-  scrollContent: {
-    paddingBottom: 120,
+  container: { 
+    flex: 1, 
+    backgroundColor: COLORS.background 
+  },
+  scrollContent: { 
+    paddingBottom: 120 
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.white,
-    gap: 16,
-    padding: 20,
+    backgroundColor: COLORS.white
   },
   loadingText: {
+    marginTop: 16,
     fontSize: 16,
     color: COLORS.text,
-    fontWeight: '500',
-  },
-  loadingSubtext: {
-    fontSize: 14,
-    color: COLORS.textLight,
+    fontWeight: '500'
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.white,
-    padding: 20,
-    gap: 16,
+    padding: 20
   },
   errorTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 8,
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.error,
+    marginTop: 16,
+    marginBottom: 8
   },
   errorText: {
-    fontSize: 16,
-    color: COLORS.textLight,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  errorSubtext: {
     fontSize: 14,
-    color: '#999',
+    color: COLORS.text,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 24
   },
   backButton: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 12,
-    marginTop: 10,
+    borderRadius: 8
   },
   backButtonText: {
     color: COLORS.white,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '600'
   },
-  badgesContainer: { 
-    flexDirection: 'row', 
+  mainInfo: { 
     padding: 16, 
-    gap: 8,
-    flexWrap: 'wrap',
+    backgroundColor: COLORS.white, 
+    marginBottom: 8 
   },
-  badge: { 
-    backgroundColor: COLORS.primaryLight, 
-    paddingHorizontal: 12, 
-    paddingVertical: 8, 
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  badgeHighlight: {
-    backgroundColor: COLORS.primary,
-  },
-  badgeText: { 
-    color: COLORS.primary, 
-    fontSize: 12, 
-    fontWeight: '600',
-  },
-  badgeHighlightText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  priceSection: { 
-    padding: 20, 
-    backgroundColor: COLORS.background,
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  priceHeader: {
+  originalPriceContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 4
   },
-  priceLabel: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    fontWeight: '500',
+  originalPriceText: {
+    fontSize: 16,
+    color: '#999',
+    textDecorationLine: 'line-through',
+    marginRight: 8
   },
   discountBadge: {
-    backgroundColor: COLORS.accent,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    backgroundColor: COLORS.error,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4
   },
   discountText: {
     color: COLORS.white,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: 'bold'
   },
-  priceRow: { 
+  priceContainer: { 
     flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 12, 
-    marginBottom: 12 
+    alignItems: 'baseline', 
+    marginBottom: 8 
   },
-  originalPrice: { 
+  currency: { 
     fontSize: 16, 
-    color: COLORS.textLight, 
-    textDecorationLine: 'line-through',
-    fontWeight: '500',
-  },
-  discountedPrice: { 
-    fontSize: 28, 
     fontWeight: 'bold', 
-    color: COLORS.primary,
+    color: COLORS.text, 
+    marginRight: 4 
   },
-  priceDetails: {
-    gap: 6,
-    marginBottom: 16,
+  priceText: { 
+    fontSize: 28, 
+    fontWeight: '800', 
+    color: COLORS.text 
   },
-  minOrder: { 
-    fontSize: 14, 
-    color: COLORS.text,
-    fontWeight: '500',
-  },
-  bulkPrice: { 
-    fontSize: 14, 
-    color: COLORS.text,
-    fontWeight: '500',
-  },
-  ratingContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8, 
-    marginBottom: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  ratingStars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  rating: { 
-    fontSize: 14, 
-    color: '#FFB800' 
-  },
-  ratingValue: { 
-    fontSize: 14, 
-    color: COLORS.text,
-    fontWeight: '600',
-  },
-  ratingCount: { 
-    fontSize: 14, 
-    color: COLORS.textLight,
-    fontWeight: '500',
-  },
-  soldCount: { 
-    fontSize: 14, 
-    color: COLORS.textLight,
-    fontWeight: '500',
-  },
-  productNameSection: {
-    padding: 20,
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 16,
+  specialOfferBadge: { 
+    marginLeft: 10, 
+    color: COLORS.error, 
+    fontSize: 12, 
+    fontWeight: 'bold', 
+    backgroundColor: '#FFE6E6', 
+    paddingHorizontal: 6, 
+    paddingVertical: 2, 
+    borderRadius: 4 
   },
   productName: { 
     fontSize: 18, 
-    fontWeight: '700', 
-    color: COLORS.text,
-    lineHeight: 24,
+    color: COLORS.text, 
+    lineHeight: 24, 
+    marginBottom: 12, 
+    fontWeight: '700' 
+  },
+  badgesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12
+  },
+  badge: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4
+  },
+  badgeText: {
+    color: COLORS.white,
+    fontSize: 10,
+    fontWeight: '600'
+  },
+  featuredBadge: {
+    backgroundColor: '#4C6EF5'
+  },
+  trendingBadge: {
+    backgroundColor: '#FA5252'
+  },
+  premiumBadge: {
+    backgroundColor: '#FFD700'
+  },
+  description: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    marginBottom: 16
+  },
+  // Styles pour la section boutique/entreprise
+  companySection: {
+    marginTop: 12,
     marginBottom: 8,
   },
-  productDescription: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    lineHeight: 20,
+  companyCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  similarProductsSection: {
-    marginHorizontal: 16,
-    marginBottom: 24,
-  },
-  sectionHeader: {
+  companyHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 18,
+  companyLogoContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    overflow: 'hidden',
+    marginRight: 12,
+  },
+  companyLogo: {
+    width: '100%',
+    height: '100%',
+  },
+  companyLogoPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFF0E6',
+  },
+  companyInfo: {
+    flex: 1,
+  },
+  companyName: {
+    fontSize: 16,
     fontWeight: '700',
     color: COLORS.text,
+    marginBottom: 4,
   },
-  seeAllText: {
-    fontSize: 14,
+  verifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  verifiedText: {
+    fontSize: 12,
+    color: COLORS.success,
+    fontWeight: '500',
+  },
+  chevronContainer: {
+    marginLeft: 8,
+  },
+  companyDetails: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.lightGray,
+    gap: 8,
+  },
+  companyDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  companyDetailText: {
+    fontSize: 13,
+    color: '#666',
+    flex: 1,
+  },
+  companyStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.lightGray,
+  },
+  companyStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  companyStatValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  companyStatLabel: {
+    fontSize: 11,
+    color: '#999',
+    textTransform: 'uppercase',
+  },
+  companyStatDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: COLORS.lightGray,
+  },
+  companyFooter: {
+    alignItems: 'flex-end',
+  },
+  companyFooterText: {
+    fontSize: 13,
     color: COLORS.primary,
     fontWeight: '600',
   },
-  similarProductsContainer: {
-    paddingRight: 16,
+  companyLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    padding: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  companyLoadingText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  companyErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    padding: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    gap: 8,
+  },
+  companyErrorText: {
+    fontSize: 13,
+    color: '#999',
+  },
+  section: { 
+    backgroundColor: COLORS.white, 
+    marginBottom: 2 
+  },
+  infoCard: {
+    backgroundColor: COLORS.white,
+    padding: 16,
+    marginBottom: 2,
+    gap: 12
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#666',
+    minWidth: 100
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1
+  },
+  inStock: {
+    color: COLORS.success
+  },
+  lowStock: {
+    color: COLORS.warning
+  },
+  outOfStock: {
+    color: COLORS.error
+  },
+  statsCard: {
+    backgroundColor: COLORS.white,
+    padding: 16,
+    marginBottom: 2,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center'
+  },
+  statItem: {
+    alignItems: 'center',
+    gap: 4
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666'
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: COLORS.lightGray
+  },
+  quoteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
     gap: 12,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray
+  },
+  quoteIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF0E6',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  quoteTextContainer: {
+    flex: 1
+  },
+  quoteTitle: {
+    fontWeight: '700',
+    fontSize: 14,
+    color: COLORS.text
+  },
+  quoteSub: {
+    fontSize: 12,
+    color: '#718096'
+  },
+  // Styles pour la section produits similaires
+  similarProductsSection: {
+    backgroundColor: COLORS.white,
+    marginTop: 8,
+    paddingTop: 16,
+    paddingBottom: 8,
+    paddingHorizontal: 16,
+  },
+  similarProductsHeader: {
+    marginBottom: 16,
+  },
+  similarProductsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  similarProductsSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
+  similarLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 8,
+  },
+  similarLoadingText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  similarProductsRow: {
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
   similarProductCard: {
-    width: 160,
+    width: CARD_WIDTH,
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-    marginRight: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+    overflow: 'hidden',
+  },
+  similarProductImageContainer: {
+    width: '100%',
+    height: CARD_WIDTH,
+    backgroundColor: '#F5F5F5',
+    position: 'relative',
   },
   similarProductImage: {
     width: '100%',
-    height: 120,
-    borderRadius: 8,
-    marginBottom: 8,
+    height: '100%',
+  },
+  premiumBadgeSmall: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FFD700',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   similarProductInfo: {
-    flex: 1,
+    padding: 10,
   },
   similarProductName: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
     color: COLORS.text,
+    marginBottom: 6,
+    lineHeight: 18,
+    height: 36,
+  },
+  similarProductPriceContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
     marginBottom: 4,
-    lineHeight: 14,
+  },
+  similarProductCurrency: {
+    fontSize: 11,
+    color: COLORS.text,
+    marginRight: 2,
+    fontWeight: '500',
   },
   similarProductPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  similarProductMOQ: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     marginBottom: 4,
   },
-  similarOriginalPrice: {
-    fontSize: 10,
-    color: COLORS.textLight,
-    textDecorationLine: 'line-through',
+  similarProductMOQText: {
+    fontSize: 11,
+    color: '#666',
   },
-  similarCurrentPrice: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  similarProductMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  similarProductRating: {
-    fontSize: 10,
-    color: COLORS.textLight,
-  },
-  similarProductOrders: {
-    fontSize: 10,
-    color: COLORS.textLight,
-  },
-  noSimilarProducts: {
-    padding: 20,
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-    borderRadius: 12,
-  },
-  noSimilarText: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    textAlign: 'center',
-  },
-  shippingPreviewSection: {
-    marginHorizontal: 16,
-    marginBottom: 24,
-  },
-  shippingOptionsContainer: {
-    gap: 12,
-  },
-  shippingOptionCard: {
-    backgroundColor: COLORS.white,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  shippingOptionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  shippingOptionName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-    flex: 1,
-    marginRight: 12,
-  },
-  deliveryBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  expressBadge: {
-    backgroundColor: '#DC2626',
-  },
-  standardBadge: {
-    backgroundColor: '#2563EB',
-  },
-  economyBadge: {
-    backgroundColor: '#059669',
-  },
-  deliveryBadgeText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  shippingOptionDescription: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    marginBottom: 8,
-    lineHeight: 18,
-  },
-  shippingOptionPrice: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  shippingCost: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  wholesaleDeliverySection: {
-    marginHorizontal: 16,
-    marginBottom: 24,
-  },
-  wholesaleDeliveryCard: {
-    backgroundColor: '#F8FAFC',
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  wholesaleHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  wholesaleTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1E293B',
-    flex: 1,
-    marginRight: 12,
-  },
-  professionalBadge: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  professionalBadgeText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  wholesaleDescription: {
-    fontSize: 14,
-    color: '#475569',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  wholesaleFeatures: {
-    marginBottom: 20,
-    gap: 10,
-  },
-  wholesaleFeatureItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  wholesaleFeatureIcon: {
-    color: '#10B981',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginTop: 2,
-  },
-  wholesaleFeatureText: {
-    fontSize: 14,
-    color: '#334155',
-    flex: 1,
-    lineHeight: 20,
-  },
-  wholesaleDetails: {
-    backgroundColor: COLORS.white,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    gap: 12,
-  },
-  wholesaleDetailItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  wholesaleDetailLabel: {
-    fontSize: 14,
-    color: '#64748B',
+  similarProductSold: {
+    fontSize: 11,
+    color: COLORS.success,
     fontWeight: '500',
-  },
-  wholesaleDetailValue: {
-    fontSize: 14,
-    color: '#1E293B',
-    fontWeight: '600',
-  },
-  wholesaleCost: {
-    color: '#DC2626',
-    fontWeight: '700',
-    fontSize: 16,
-  },
-  wholesaleContactButton: {
-    backgroundColor: '#3B82F6',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  wholesaleContactButtonText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  footerSpacer: {
-    height: 100,
   },
 });

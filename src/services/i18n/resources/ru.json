@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "Поиск товаров, поставщиков, категорий...",
+    "suppliers": "Поставщики",
+    "products": "Товары",
+    "countries": "Страны",
+    "seeAll": "Показать все"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "РЫНОК"
+  }
+}

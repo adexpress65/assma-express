@@ -1,4 +1,3 @@
-// src/components/premium/FloatingCartButton.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -7,123 +6,56 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-export default function FloatingCartButton() {
+export default function FloatingAIButton() {
   const router = useRouter();
-  const [cartCount, setCartCount] = useState(3);
   const [isExpanded, setIsExpanded] = useState(false);
-  
-  const scaleAnim = useRef(new Animated.Value(1)).current;
   const bounceAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const isNavigatingRef = useRef(false);
 
   useEffect(() => {
-    Animated.sequence([
-      Animated.timing(bounceAnim, {
-        toValue: 1.2,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(bounceAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(bounceAnim, { toValue: 1.1, duration: 1500, useNativeDriver: true }),
+        Animated.timing(bounceAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+      ])
+    ).start();
   }, []);
 
   useEffect(() => {
-    Animated.timing(slideAnim, {
+    Animated.spring(slideAnim, {
       toValue: isExpanded ? 1 : 0,
-      duration: 400,
+      friction: 5,
       useNativeDriver: true,
     }).start();
   }, [isExpanded]);
 
-  const handlePress = () => {
-    Animated.sequence([
-      Animated.timing(scaleAnim, {
-        toValue: 0.9,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    if (isExpanded) {
-      router.push('/cart');
-    } else {
-      setIsExpanded(true);
-    }
-  };
-
-  const handleLongPress = () => {
-    Animated.timing(rotateAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start(() => {
-      rotateAnim.setValue(0);
-    });
-
-    Alert.alert(
-      'Panier Rapide',
-      `Vous avez ${cartCount} articles dans votre panier. Total: 245 000 FCFA`,
-      [
-        { text: 'Voir le panier', onPress: () => router.push('/cart') },
-        { text: 'Continuer', style: 'cancel' },
-      ]
-    );
-  };
-
   const quickActions = [
-    {
-      icon: 'search',
-      label: 'Rechercher',
-      color: '#2196F3',
-      onPress: () => router.push('/search'),
-    },
-    {
-      icon: 'heart',
-      label: 'Favoris',
-      color: '#FF4444',
-      onPress: () => router.push('/favorites'),
-    },
-    {
-      icon: 'chatbubble',
-      label: 'Support',
-      color: '#4CAF50',
-      onPress: () => router.push('/support'),
-    },
-    {
-      icon: 'person',
-      label: 'Compte',
-      color: '#9C27B0',
-      onPress: () => router.push('/profile'),
-    },
+    { icon: 'sparkles', label: 'Assistant IA', color: '#8E24AA', path: '/ai-assistant' },
+    { icon: 'search', label: 'Recherche IA', color: '#2196F3', path: '/ai-search' },
+    { icon: 'cart', label: 'Panier', color: '#ff6a00', path: '/cart' },
   ];
 
-  const rotation = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
+  const handleNavigate = (path: string) => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
 
-  const actionTranslateY = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -80],
-  });
+    console.log("🚀 Navigation :", path);
+
+    setIsExpanded(false);
+    router.push(path as any);
+
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 700);
+  };
 
   const actionOpacity = slideAnim.interpolate({
     inputRange: [0, 1],
@@ -131,95 +63,68 @@ export default function FloatingCartButton() {
   });
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} pointerEvents="box-none">
+
+      {/* Overlay */}
+      {isExpanded && (
+        <TouchableOpacity
+          style={styles.overlay}
+          activeOpacity={1}
+          onPress={() => setIsExpanded(false)}
+        />
+      )}
+
+      {/* Quick Actions */}
       {quickActions.map((action, index) => (
         <Animated.View
           key={action.icon}
+          pointerEvents={isExpanded ? "auto" : "none"}
           style={[
             styles.quickAction,
             {
+              opacity: actionOpacity,
               transform: [
-                { 
-                  translateY: actionTranslateY.interpolate({
+                {
+                  translateY: slideAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [0, -80 * (index + 1)]
-                  }) 
+                    outputRange: [0, -85 * (index + 1)],
+                  }),
                 },
                 { scale: actionOpacity },
               ],
-              opacity: actionOpacity,
             },
           ]}
         >
+          <View style={styles.labelContainer}>
+            <Text style={styles.actionLabel}>{action.label}</Text>
+          </View>
+
           <TouchableOpacity
+            activeOpacity={0.85}
             style={[styles.actionButton, { backgroundColor: action.color }]}
-            onPress={action.onPress}
+            onPress={() => handleNavigate(action.path)}
           >
-            <Ionicons name={action.icon as any} size={20} color="#fff" />
+            <Ionicons name={action.icon as any} size={22} color="#fff" />
           </TouchableOpacity>
-          <Text style={styles.actionLabel}>{action.label}</Text>
         </Animated.View>
       ))}
 
-      <Animated.View
-        style={[
-          styles.floatingButton,
-          {
-            transform: [
-              { scale: Animated.multiply(scaleAnim, bounceAnim) },
-              { rotate: rotation },
-            ],
-          },
-        ]}
-      >
+      {/* Bouton principal */}
+      <Animated.View style={{ transform: [{ scale: bounceAnim }] }}>
         <TouchableOpacity
-          onPress={handlePress}
-          onLongPress={handleLongPress}
-          activeOpacity={0.8}
-          style={styles.buttonTouchable}
+          activeOpacity={0.9}
+          style={styles.buttonGradientContainer}
+          onPress={() => setIsExpanded(prev => !prev)}
         >
           <LinearGradient
-            colors={['#ff6a00', '#ff8c00']}
+            colors={['#8E24AA', '#1E88E5']}
             style={styles.buttonGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
           >
-            <Ionicons name="cart" size={24} color="#fff" />
-            
-            {cartCount > 0 && (
-              <View style={styles.cartBadge}>
-                <Text style={styles.cartBadgeText}>
-                  {cartCount > 99 ? '99+' : cartCount}
-                </Text>
-              </View>
-            )}
-
-            <Animated.View 
-              style={[
-                styles.expandIndicator,
-                {
-                  transform: [{
-                    rotate: slideAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0deg', '180deg']
-                    })
-                  }]
-                }
-              ]}
-            >
-              <Ionicons name="chevron-up" size={12} color="#fff" />
-            </Animated.View>
+            <Ionicons name={isExpanded ? "close" : "sparkles"} size={28} color="#fff" />
           </LinearGradient>
         </TouchableOpacity>
       </Animated.View>
 
-      {isExpanded && (
-        <TouchableOpacity
-          style={styles.overlay}
-          onPress={() => setIsExpanded(false)}
-          activeOpacity={1}
-        />
-      )}
     </View>
   );
 }
@@ -227,64 +132,35 @@ export default function FloatingCartButton() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 30,
     right: 20,
     alignItems: 'center',
-    zIndex: 1000,
+    zIndex: 99999,
+    elevation: 99999,
   },
-  floatingButton: {
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 16,
+  overlay: {
+    position: 'absolute',
+    width: width,
+    height: height,
+    bottom: -30,
+    right: -20,
+    backgroundColor: 'rgba(0,0,0,0.1)',
   },
-  buttonTouchable: {
-    borderRadius: 30,
+  buttonGradientContainer: {
+    borderRadius: 35,
     overflow: 'hidden',
+    elevation: 10,
   },
   buttonGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 65,
+    height: 65,
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
-  },
-  cartBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#FF4444',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  cartBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '900',
-  },
-  expandIndicator: {
-    position: 'absolute',
-    bottom: 6,
   },
   quickAction: {
     position: 'absolute',
     alignItems: 'center',
-    marginBottom: 8,
+    zIndex: 100000,
   },
   actionButton: {
     width: 50,
@@ -292,24 +168,22 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
     elevation: 8,
   },
-  actionLabel: {
-    marginTop: 4,
-    fontSize: 10,
-    color: '#666',
-    fontWeight: '600',
-  },
-  overlay: {
+  labelContainer: {
     position: 'absolute',
-    top: -Dimensions.get('window').height,
-    left: -Dimensions.get('window').width,
-    width: Dimensions.get('window').width * 3,
-    height: Dimensions.get('window').height * 3,
-    backgroundColor: 'transparent',
+    right: 60,
+    width: 110,
+    alignItems: 'flex-end',
+  },
+  actionLabel: {
+    fontSize: 12,
+    color: '#FFF',
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
 });

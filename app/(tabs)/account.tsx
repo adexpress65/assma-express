@@ -1,4 +1,4 @@
-ï»¿import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,23 +8,184 @@ import {
   TouchableOpacity,
   Alert,
   Dimensions,
+  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import LoginModal from '@/components/account/LoginModal';
 import { useRouter } from 'expo-router';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { db } from '@/config/firebase';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-// Types pour les icÃ´nes
+// Types pour les icônes
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  originalPrice: number;
+  mainImage: string;
+  imageUrl?: string;
+  rating: number;
+  soldCount: number;
+  trending?: boolean;
+  featured?: boolean;
+  specialOffer?: boolean;
+  companyName: string;
+}
 
 export default function AccountScreen() {
   const { user, userRole, logout } = useAuth();
   const [loginModalVisible, setLoginModalVisible] = useState(false);
+  const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // ðŸŽ¯ NAVIGATION AVEC VÃ‰RIFICATION RÃ”LE
+  // Charger les produits tendances - MODIFIÉ: limit à 20
+  useEffect(() => {
+    const fetchTrendingProducts = async () => {
+      try {
+        setLoading(true);
+        
+        // Récupérer les produits avec trending = true
+        const productsRef = collection(db, 'products');
+        const q = query(
+          productsRef,
+          where('trending', '==', true),
+          where('status', '==', 'published'),
+          where('isActive', '==', true),
+          orderBy('createdAt', 'desc'),
+          limit(20) // MODIFIÉ: de 10 à 20
+        );
+
+        const querySnapshot = await getDocs(q);
+        const products: Product[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          products.push({
+            id: doc.id,
+            name: data.name || '',
+            price: data.price || 0,
+            originalPrice: data.originalPrice || data.price || 0,
+            mainImage: data.mainImage || data.imageUrl || '',
+            imageUrl: data.imageUrl || data.mainImage || '',
+            rating: data.rating || 0,
+            soldCount: data.soldCount || 0,
+            trending: data.trending || false,
+            featured: data.featured || false,
+            specialOffer: data.specialOffer || false,
+            companyName: data.companyName || data.supplier || '',
+          });
+        });
+
+        // Si pas assez de produits trending, récupérer des produits featured
+        if (products.length < 3) {
+          const featuredQuery = query(
+            productsRef,
+            where('featured', '==', true),
+            where('status', '==', 'published'),
+            where('isActive', '==', true),
+            orderBy('createdAt', 'desc'),
+            limit(20 - products.length)
+          );
+          
+          const featuredSnapshot = await getDocs(featuredQuery);
+          featuredSnapshot.forEach((doc) => {
+            const data = doc.data();
+            // Vérifier si le produit n'est pas déjà dans la liste
+            if (!products.find(p => p.id === doc.id)) {
+              products.push({
+                id: doc.id,
+                name: data.name || '',
+                price: data.price || 0,
+                originalPrice: data.originalPrice || data.price || 0,
+                mainImage: data.mainImage || data.imageUrl || '',
+                imageUrl: data.imageUrl || data.mainImage || '',
+                rating: data.rating || 0,
+                soldCount: data.soldCount || 0,
+                trending: data.trending || false,
+                featured: data.featured || false,
+                specialOffer: data.specialOffer || false,
+                companyName: data.companyName || data.supplier || '',
+              });
+            }
+          });
+        }
+
+        // Si toujours pas assez, récupérer les nouveaux produits
+        if (products.length < 3) {
+          const newArrivalsQuery = query(
+            productsRef,
+            where('status', '==', 'published'),
+            where('isActive', '==', true),
+            orderBy('createdAt', 'desc'),
+            limit(20)
+          );
+          
+          const newArrivalsSnapshot = await getDocs(newArrivalsQuery);
+          const allProducts: Product[] = [];
+          
+          newArrivalsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            allProducts.push({
+              id: doc.id,
+              name: data.name || '',
+              price: data.price || 0,
+              originalPrice: data.originalPrice || data.price || 0,
+              mainImage: data.mainImage || data.imageUrl || '',
+              imageUrl: data.imageUrl || data.mainImage || '',
+              rating: data.rating || 0,
+              soldCount: data.soldCount || 0,
+              trending: data.trending || false,
+              featured: data.featured || false,
+              specialOffer: data.specialOffer || false,
+              companyName: data.companyName || data.supplier || '',
+            });
+          });
+
+          // Mélanger et prendre 20 produits
+          const shuffled = [...allProducts].sort(() => 0.5 - Math.random());
+          const selected = shuffled.slice(0, 20);
+          setTrendingProducts(selected);
+        } else {
+          setTrendingProducts(products.slice(0, 20)); // MODIFIÉ: de 3 à 20
+        }
+      } catch (error) {
+        console.error('Error fetching trending products:', error);
+        // Utiliser des produits par défaut en cas d'erreur
+        setTrendingProducts(getDefaultProducts());
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTrendingProducts();
+  }, []);
+
+  // Fonction pour les produits par défaut
+  const getDefaultProducts = (): Product[] => {
+    return [
+      {
+        id: '1IoUVqzhXLJ9DWNRUW0g',
+        name: 'Baskets pour hommes',
+        price: 7500,
+        originalPrice: 20000,
+        mainImage: 'https://firebasestorage.googleapis.com/v0/b/assma-expresse.firebasestorage.app/o/products%2FyxlcK76I8KWWl3aZjIiZPxGDbdH2%2F1768122624197_1.jpg?alt=media&token=a96d769d-ad5a-40e7-bcd3-4a290be344eb',
+        rating: 0,
+        soldCount: 0,
+        trending: true,
+        featured: true,
+        specialOffer: true,
+        companyName: 'USINE A2EXPRESS',
+      },
+    ];
+  };
+
+  // Navigation avec vérification rôle
   const navigateToMessages = () => {
     if (!user) {
       setLoginModalVisible(true);
@@ -95,7 +256,7 @@ export default function AccountScreen() {
       return;
     }
     if (userRole !== 'seller' && userRole !== 'admin' && userRole !== 'super-admin') {
-      Alert.alert('AccÃ¨s limitÃ©', 'Cette fonctionnalitÃ© est rÃ©servÃ©e aux vendeurs');
+      Alert.alert('Acces limite', 'Cette fonctionnalite est reservee aux vendeurs');
       return;
     }
     router.push('/seller/add-product');
@@ -107,7 +268,7 @@ export default function AccountScreen() {
       return;
     }
     if (userRole !== 'seller' && userRole !== 'admin' && userRole !== 'super-admin') {
-      Alert.alert('AccÃ¨s limitÃ©', 'Cette fonctionnalitÃ© est rÃ©servÃ©e aux vendeurs');
+      Alert.alert('Acces limite', 'Cette fonctionnalite est reservee aux vendeurs');
       return;
     }
     router.push('/seller/analytics');
@@ -119,7 +280,7 @@ export default function AccountScreen() {
       return;
     }
     if (userRole !== 'seller' && userRole !== 'admin' && userRole !== 'super-admin') {
-      Alert.alert('AccÃ¨s limitÃ©', 'Cette fonctionnalitÃ© est rÃ©servÃ©e aux vendeurs');
+      Alert.alert('Acces limite', 'Cette fonctionnalite est reservee aux vendeurs');
       return;
     }
     router.push('/seller/promotions');
@@ -137,16 +298,17 @@ export default function AccountScreen() {
     } else if (userRole === 'seller') {
       router.push('/seller/dashboard');
     } else {
-      Alert.alert('AccÃ¨s limitÃ©', 'Cette fonctionnalitÃ© est rÃ©servÃ©e aux vendeurs et administrateurs');
+      Alert.alert('Acces limite', 'Cette fonctionnalite est reservee aux vendeurs et administrateurs');
     }
   };
 
+  // MODIFIÉ: Route vers /suppliers au lieu de /become-seller
   const navigateToBecomeSeller = () => {
     if (!user) {
       setLoginModalVisible(true);
       return;
     }
-    router.push('/become-seller');
+    router.push('/suppliers');
   };
 
   const navigateToAdminDashboard = () => {
@@ -157,17 +319,18 @@ export default function AccountScreen() {
     if (userRole === 'super-admin' || userRole === 'admin') {
       router.push(userRole === 'super-admin' ? '/super-admin/dashboard' : '/admin/dashboard');
     } else {
-      Alert.alert('AccÃ¨s limitÃ©', 'Cette fonctionnalitÃ© est rÃ©servÃ©e aux administrateurs');
+      Alert.alert('Acces limite', 'Cette fonctionnalite est reservee aux administrateurs');
     }
   };
 
-  const navigateToProductDetail = (productId: number) => {
-    router.push(`/products/${productId}`);
+  const navigateToProductDetail = (productId: string) => {
+    router.push(`/product/${productId}`);
   };
 
-  const navigateToAllProducts = () => {
-    router.push('/products/trending');
-  };
+  // MODIFIÉ: Commenté - plus utilisé car le bouton Voir tout est caché
+  // const navigateToAllProducts = () => {
+  //   router.push('/products/trending');
+  // };
 
   const navigateToLive = () => {
     if (!user) {
@@ -177,16 +340,16 @@ export default function AccountScreen() {
     router.push('/live/broadcast');
   };
 
-  // ðŸŽ¯ COMPOSANT PROFILE HEADER AMÃ‰LIORÃ‰
+  // Composant Profile Header ameliore
   const ProfileHeader = () => {
     const handleLogout = () => {
       Alert.alert(
-        'DÃ©connexion',
-        'ÃŠtes-vous sÃ»r de vouloir vous dÃ©connecter ?',
+        'Deconnexion',
+        'Etes-vous sur de vouloir vous deconnecter ?',
         [
           { text: 'Annuler', style: 'cancel' },
           { 
-            text: 'DÃ©connexion', 
+            text: 'Deconnexion', 
             style: 'destructive',
             onPress: () => logout()
           },
@@ -194,18 +357,18 @@ export default function AccountScreen() {
       );
     };
 
-    // ðŸŽ¯ LABEL DU RÃ”LE
+    // Label du role
     const getRoleLabel = () => {
       switch (userRole) {
-        case 'super-admin': return 'ðŸ‘‘ Super Admin';
-        case 'admin': return 'ðŸ› ï¸ Administrateur';
-        case 'seller': return 'ðŸª Vendeur';
-        case 'customer': return 'ðŸ‘¤ Client';
-        default: return 'ðŸ‘¤ Visiteur';
+        case 'super-admin': return 'Super Admin';
+        case 'admin': return 'Administrateur';
+        case 'seller': return 'Vendeur';
+        case 'customer': return 'Client';
+        default: return 'Visiteur';
       }
     };
 
-    // ðŸŽ¯ BADGE DE STATUT
+    // Badge de statut
     const getStatusBadge = () => {
       if (!user) return null;
       
@@ -223,7 +386,7 @@ export default function AccountScreen() {
           break;
         case 'seller':
           badgeColor = '#4CAF50';
-          badgeText = 'Vendeur VÃ©rifiÃ©';
+          badgeText = 'Vendeur Verifie';
           break;
         case 'customer':
           badgeColor = '#FF6B00';
@@ -254,7 +417,7 @@ export default function AccountScreen() {
             {user ? user.email : 'Connectez-vous'}
           </Text>
           <Text style={profileStyles.userLevel}>
-            {user ? getRoleLabel() : 'Rejoignez notre communautÃ©'}
+            {user ? getRoleLabel() : 'Rejoignez notre communaute'}
           </Text>
           
           {getStatusBadge()}
@@ -291,17 +454,17 @@ export default function AccountScreen() {
     );
   };
 
-  // ðŸŽ¯ SERVICES SECTION
+  // Services Section - MODIFIÉ: Commenté tous les boutons sauf Commandes, Messages, Paiement
   const ServicesSection = () => {
     const services: { icon: IoniconsName; title: string; color: string; count: number | null; onPress: () => void }[] = [
-      { icon: 'heart-outline', title: 'Favoris', color: '#FF4444', count: 12, onPress: navigateToFavorites },
+      // { icon: 'heart-outline', title: 'Favoris', color: '#FF4444', count: 12, onPress: navigateToFavorites }, // COMMENTÉ
       { icon: 'cube-outline', title: 'Commandes', color: '#4CAF50', count: 5, onPress: navigateToOrders },
       { icon: 'chatbubble-outline', title: 'Messages', color: '#2196F3', count: 3, onPress: navigateToMessages },
-      { icon: 'videocam-outline', title: 'Live', color: '#FF0000', count: null, onPress: navigateToLive },
+      // { icon: 'videocam-outline', title: 'Live', color: '#FF0000', count: null, onPress: navigateToLive }, // COMMENTÉ
       { icon: 'card-outline', title: 'Paiement', color: '#FF9800', count: null, onPress: navigateToPayment },
-      { icon: 'ticket-outline', title: 'Coupons', color: '#9C27B0', count: 2, onPress: navigateToCoupons },
-      { icon: 'location-outline', title: 'Adresses', color: '#795548', count: null, onPress: navigateToAddresses },
-      { icon: 'shield-checkmark-outline', title: 'Garantie', color: '#607D8B', count: null, onPress: navigateToWarranty },
+      // { icon: 'ticket-outline', title: 'Coupons', color: '#9C27B0', count: 2, onPress: navigateToCoupons }, // COMMENTÉ
+      // { icon: 'location-outline', title: 'Adresses', color: '#795548', count: null, onPress: navigateToAddresses }, // COMMENTÉ
+      // { icon: 'shield-checkmark-outline', title: 'Garantie', color: '#607D8B', count: null, onPress: navigateToWarranty }, // COMMENTÉ
     ];
 
     return (
@@ -330,7 +493,7 @@ export default function AccountScreen() {
     );
   };
 
-  // ðŸŽ¯ SELLER SECTION AMÃ‰LIORÃ‰E
+  // Seller Section amelioree
   const SellerSection = () => {
     if (userRole !== 'seller' && userRole !== 'admin' && userRole !== 'super-admin') {
       return null;
@@ -340,14 +503,14 @@ export default function AccountScreen() {
       { value: '24', label: 'Produits' },
       { value: '156', label: 'Ventes' },
       { value: '4.8', label: 'Avis' },
-      { value: '98%', label: 'Taux RÃ©ponse' },
+      { value: '98%', label: 'Taux Reponse' },
     ];
 
     const getSectionTitle = () => {
       switch (userRole) {
-        case 'super-admin': return 'ðŸ‘‘ Super Administration';
-        case 'admin': return 'ðŸ› ï¸ Administration';
-        case 'seller': return 'ðŸª Vendre sur Assma Express';
+        case 'super-admin': return 'Super Administration';
+        case 'admin': return 'Administration';
+        case 'seller': return 'Vendre sur Assma Express';
         default: return 'Vendre sur Assma Express';
       }
     };
@@ -356,8 +519,8 @@ export default function AccountScreen() {
       switch (userRole) {
         case 'super-admin': return 'Super Dashboard';
         case 'admin': return 'Admin Dashboard';
-        case 'seller': return 'GÃ©rer';
-        default: return 'GÃ©rer';
+        case 'seller': return 'Gerer';
+        default: return 'Gerer';
       }
     };
 
@@ -424,91 +587,120 @@ export default function AccountScreen() {
     );
   };
 
-  // ðŸŽ¯ PRODUCTS SECTION
+  // Products Section avec produits reels - MODIFIÉ: bouton Voir tout caché
   const ProductsSection = () => {
-    const trendingProducts = [
-      {
-        id: 1,
-        name: 'Smartphone Android 5G',
-        price: '899 DH',
-        originalPrice: '1,199 DH',
-        image: 'ðŸ“±',
-        rating: 4.8,
-        orders: '2.4k',
-      },
-      {
-        id: 2,
-        name: 'Casque Audio Bluetooth',
-        price: '299 DH',
-        originalPrice: '499 DH',
-        image: 'ðŸŽ§',
-        rating: 4.5,
-        orders: '1.8k',
-      },
-      {
-        id: 3,
-        name: 'Montre ConnectÃ©e Sport',
-        price: '450 DH',
-        originalPrice: '699 DH',
-        image: 'âŒš',
-        rating: 4.3,
-        orders: '956',
-      },
-    ];
+    const formatPrice = (price: number) => {
+      return price.toLocaleString('fr-FR') + ' XOF';
+    };
+
+    const calculateDiscount = (original: number, current: number) => {
+      if (original <= current || original === 0) return 0;
+      return Math.round(((original - current) / original) * 100);
+    };
+
+    if (loading) {
+      return (
+        <View style={productsStyles.container}>
+          <Text style={productsStyles.sectionTitle}>Produits Tendances</Text>
+          <Text style={{ textAlign: 'center', padding: 20, color: '#666' }}>
+            Chargement des produits...
+          </Text>
+        </View>
+      );
+    }
+
+    if (trendingProducts.length === 0) {
+      return (
+        <View style={productsStyles.container}>
+          <Text style={productsStyles.sectionTitle}>Produits Tendances</Text>
+          <Text style={{ textAlign: 'center', padding: 20, color: '#666' }}>
+            Aucun produit tendance pour le moment
+          </Text>
+        </View>
+      );
+    }
 
     return (
       <View style={productsStyles.container}>
         <View style={productsStyles.header}>
-          <Text style={productsStyles.sectionTitle}>ðŸ”¥ Produits Tendances</Text>
-          <TouchableOpacity style={productsStyles.seeAllButton} onPress={navigateToAllProducts}>
+          <Text style={productsStyles.sectionTitle}>Produits Tendances</Text>
+          {/* MODIFIÉ: Bouton Voir tout caché */}
+          {/* <TouchableOpacity style={productsStyles.seeAllButton} onPress={navigateToAllProducts}>
             <Text style={productsStyles.seeAllText}>Voir tout</Text>
             <Ionicons name="arrow-forward" size={16} color="#FF6B00" />
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={productsStyles.scrollView}>
-          {trendingProducts.map((product) => (
-            <TouchableOpacity 
-              key={product.id} 
-              style={productsStyles.productCard}
-              onPress={() => navigateToProductDetail(product.id)}
-            >
-              <View style={productsStyles.productImage}>
-                <Text style={productsStyles.emoji}>{product.image}</Text>
-                <View style={productsStyles.discountBadge}>
-                  <Text style={productsStyles.discountText}>-25%</Text>
+          {trendingProducts.map((product) => {
+            const discount = calculateDiscount(product.originalPrice, product.price);
+            
+            return (
+              <TouchableOpacity 
+                key={product.id} 
+                style={productsStyles.productCard}
+                onPress={() => navigateToProductDetail(product.id)}
+              >
+                <View style={productsStyles.productImage}>
+                  {product.mainImage ? (
+                    <Image 
+                      source={{ uri: product.mainImage }} 
+                      style={productsStyles.productImageContent}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={productsStyles.imagePlaceholder}>
+                      <Ionicons name="image-outline" size={32} color="#999" />
+                    </View>
+                  )}
+                  {discount > 0 && (
+                    <View style={productsStyles.discountBadge}>
+                      <Text style={productsStyles.discountText}>-{discount}%</Text>
+                    </View>
+                  )}
+                  {product.specialOffer && (
+                    <View style={productsStyles.specialOfferBadge}>
+                      <Text style={productsStyles.specialOfferText}>Promo</Text>
+                    </View>
+                  )}
                 </View>
-              </View>
-              
-              <Text style={productsStyles.productName} numberOfLines={2}>
-                {product.name}
-              </Text>
-              
-              <View style={productsStyles.ratingContainer}>
-                <View style={productsStyles.ratingStars}>
-                  <Ionicons name="star" size={12} color="#FFD700" />
-                  <Text style={productsStyles.rating}>{product.rating}</Text>
+                
+                <Text style={productsStyles.productName} numberOfLines={2}>
+                  {product.name}
+                </Text>
+                
+                <Text style={productsStyles.supplierName} numberOfLines={1}>
+                  {product.companyName}
+                </Text>
+                
+                <View style={productsStyles.ratingContainer}>
+                  <View style={productsStyles.ratingStars}>
+                    <Ionicons name="star" size={12} color="#FFD700" />
+                    <Text style={productsStyles.rating}>{product.rating.toFixed(1)}</Text>
+                  </View>
+                  <Text style={productsStyles.orders}>{product.soldCount} vendus</Text>
                 </View>
-                <Text style={productsStyles.orders}>{product.orders} commandes</Text>
-              </View>
 
-              <View style={productsStyles.priceContainer}>
-                <Text style={productsStyles.currentPrice}>{product.price}</Text>
-                <Text style={productsStyles.originalPrice}>{product.originalPrice}</Text>
-              </View>
+                <View style={productsStyles.priceContainer}>
+                  <Text style={productsStyles.currentPrice}>{formatPrice(product.price)}</Text>
+                  {discount > 0 && (
+                    <Text style={productsStyles.originalPrice}>{formatPrice(product.originalPrice)}</Text>
+                  )}
+                </View>
 
-              <TouchableOpacity style={productsStyles.addToCartButton}>
-                <Ionicons name="cart-outline" size={14} color="#FFF" />
-                <Text style={productsStyles.addToCartText}>Ajouter</Text>
+                <TouchableOpacity style={productsStyles.addToCartButton}>
+                  <Ionicons name="cart-outline" size={14} color="#FFF" />
+                  <Text style={productsStyles.addToCartText}>Ajouter</Text>
+                </TouchableOpacity>
               </TouchableOpacity>
-            </TouchableOpacity>
-          ))}
+            );
+          })}
         </ScrollView>
       </View>
     );
   };
 
-  // ðŸŽ¯ CTA DEVENIR VENDEUR (masquÃ© si dÃ©jÃ  vendeur/admin)
+  // CTA Devenir Vendeur - MODIFIÉ: avec nouvelle route vers /suppliers
   const BecomeSellerCta = () => {
     if (userRole === 'seller' || userRole === 'admin' || userRole === 'super-admin') {
       return null;
@@ -518,15 +710,15 @@ export default function AccountScreen() {
       <View style={ctaStyles.container}>
         <View style={ctaStyles.content}>
           <View style={ctaStyles.textContent}>
-            <Text style={ctaStyles.title}>ðŸš€ Devenez Vendeur sur Assma Express</Text>
+            <Text style={ctaStyles.title}>Devenez Vendeur sur Assma Express</Text>
             <Text style={ctaStyles.subtitle}>
-              DÃ©veloppez votre business en ligne et atteignez des millions de clients
+              Developpez votre business en ligne et atteignez des millions de clients
             </Text>
             
             <View style={ctaStyles.features}>
               <View style={ctaStyles.feature}>
                 <Ionicons name="checkmark-circle" size={14} color="#4CAF50" />
-                <Text style={ctaStyles.featureText}>Commission compÃ©titive</Text>
+                <Text style={ctaStyles.featureText}>Commission competitive</Text>
               </View>
               <View style={ctaStyles.feature}>
                 <Ionicons name="checkmark-circle" size={14} color="#4CAF50" />
@@ -918,13 +1110,20 @@ const productsStyles = StyleSheet.create({
     height: 100,
     backgroundColor: '#F8F9FA',
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
     marginBottom: 8,
     position: 'relative',
+    overflow: 'hidden',
   },
-  emoji: {
-    fontSize: 32,
+  productImageContent: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
   },
   discountBadge: {
     position: 'absolute',
@@ -940,12 +1139,33 @@ const productsStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
   },
+  specialOfferBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  specialOfferText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
   productName: {
     fontSize: 13,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 6,
+    marginBottom: 4,
     lineHeight: 16,
+    height: 32,
+  },
+  supplierName: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 6,
+    fontStyle: 'italic',
   },
   ratingContainer: {
     flexDirection: 'row',

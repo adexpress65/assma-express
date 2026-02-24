@@ -1,0 +1,284 @@
+{
+  "homeScreen": {
+    "defaultProductName": "Assma Express Product",
+    "defaultSupplier": "Assma Express",
+    "defaultDeliveryTime": "3-5 days",
+    "defaultCategory": "Fashion & Accessories",
+    "searchLog": "🔍 Search:",
+    "loadingSuppliers": "🔄 Loading suppliers with products...",
+    "suppliersFound": "🏪 {{count}} suppliers found",
+    "supplierProductsError": "⚠️ Product error for {{name}}:",
+    "validSuppliers": "📦 {{count}} suppliers with valid products",
+    "suppliersLoadError": "❌ Error loading suppliers:",
+    "loadingData": "🚀 Starting data loading...",
+    "totalProducts": "📊 TOTAL products in Firestore: {{count}}",
+    "results": "📈 RESULTS:\n- Featured products: {{featured}}\n- Trending products: {{trending}}\n- Special offers: {{specialOffers}}\n- New arrivals: {{newArrivals}}\n- Industrial machines: {{industrial}}\n- Premium suppliers: {{premium}}\n- Popular products: {{popular}}\n- All products: {{all}}\n- Suppliers with products: {{suppliers}}",
+    "fallbackProductName": "Shoe Model {{number}}",
+    "fallbackSupplier": "Assma Express",
+    "firestoreError": "❌ FIRESTORE ERROR:",
+    "productNavigationLog": "👉 Navigating to product:",
+    "featuredProductsTitle": "Featured Products",
+    "featuredProductsSubtitle": "Discover our highlighted products",
+    "specialOffersTitle": "Special Offers",
+    "specialOffersSubtitle": "Promotions and great deals"
+  },
+  "productCard": {
+    "imagePlaceholder": "Image",
+    "verified": "Verified",
+    "currency": "F CFA",
+    "minOrder": "Min: {{value}}",
+    "inStock": "In stock",
+    "limitedStock": "Limited stock",
+    "order": "Order",
+    "viewDetails": "View details",
+    "uncategorized": "Uncategorized"
+  },
+  "header": {
+    "title": "A2Express",
+    "subtitle": "BETA",
+    "languageChangeError": "Failed to change language:",
+    "searchError": "Search error:"
+  },
+  "common": {
+    "search": "Search products, suppliers...",
+    "seeAll": "See all results for",
+    "suppliers": "Suppliers",
+    "products": "Products",
+    "countries": "Countries"
+  },
+  "languages": {
+    "english": "English",
+    "french": "French",
+    "spanish": "Spanish",
+    "arabic": "Arabic",
+    "chinese": "Chinese",
+    "russian": "Russian",
+    "portuguese": "Portuguese",
+    "turkish": "Turkish",
+    "german": "German",
+    "italian": "Italian",
+    "dutch": "Dutch",
+    "japanese": "Japanese",
+    "korean": "Korean",
+    "vietnamese": "Vietnamese",
+    "indonesian": "Indonesian"
+  },
+  "newArrivals": {
+    "navigationLog": "🆕 Navigating to new product:",
+    "categoryTitle": "New Arrivals",
+    "badge": "New",
+    "newBadge": "NEW",
+    "title": "New Products",
+    "seeAll": "See more",
+    "countdown": {
+      "title": "Next arrivals in:",
+      "days": "Days",
+      "hours": "Hours",
+      "minutes": "Minutes"
+    }
+  },
+  "trending": {
+    "loadingLog": "🔥 Loading trending products...",
+    "usingProps": "✅ Using products passed in props",
+    "loadedFromFirestore": "🔥 {{count}} trending products loaded from Firestore",
+    "queryFailed": "⚠️ Trending query failed, trying next...",
+    "usingSampleProducts": "🔄 No products found, using sample trending products",
+    "loadError": "❌ Error loading trending products:",
+    "navigationLog": "🔥 Navigating to trending product:",
+    "categoryTitle": "Trending Products",
+    "bestSeller": "Sold",
+    "loading": "Loading trends...",
+    "title": "Current Trends",
+    "explore": "Explore",
+    "defaultProductName": "Trending Product",
+    "defaultSupplier": "Premium Supplier",
+    "defaultDeliveryTime": "5-10 days",
+    "stats": {
+      "viewsToday": "Views today",
+      "orders": "Orders",
+      "satisfaction": "Satisfaction"
+    },
+    "promoBanner": "FREE EXPRESS delivery on trending products",
+    "sampleProducts": {
+      "smartphone": "High-End Android 5G Smartphone",
+      "headphones": "Pro Wireless Headphones",
+      "watch": "Premium Smartwatch",
+      "camera": "Professional Camera",
+      "laptop": "Gaming Laptop",
+      "speaker": "Powerful Bluetooth Speaker"
+    },
+    "sampleSuppliers": {
+      "tech": "Tech Innovation Ltd",
+      "audio": "Audio Pro Solutions",
+      "watch": "Watch Premium Co.",
+      "photo": "Photo Expert Group",
+      "computers": "Computers Unlimited"
+    }
+  },
+  "quickActions": {
+    "navigationLog": "🔄 Navigating quick action:",
+    "flashDeal": "Flash Deal",
+    "trending": "Trending",
+    "premium": "Premium",
+    "suppliers": "Suppliers",
+    "wholesale": "Wholesale",
+    "verified": "Verified",
+    "express": "Express",
+    "global": "Global",
+    "new": "New",
+    "verifiedProducts": "Verified Products",
+    "expressDelivery": "Express Delivery",
+    "globalProducts": "Global Products"
+  },
+  "category": {
+    "electronics": "Electronics",
+    "clothing": "Clothing",
+    "machinery": "Machinery",
+    "materials": "Materials",
+    "automotive": "Automotive",
+    "medicalEquipment": "Medical Equipment",
+    "furniture": "Furniture",
+    "gardening": "Gardening"
+  },
+  "footer": {
+    "email": "info@assma-expresse.com",
+    "copyright": "© {{year}} Assma Express"
+  },
+  "categories": {
+    "categories": "Categories",
+    "category": "Category",
+    "preparingCategories": "Preparing categories...",
+    "initialDataLoading": "📥 Loading initial data...",
+    "noDescription": "No description",
+    "machineCategoryName": "Machine",
+    "machineCategoryDescription": "Industrial machines and equipment",
+    "initialDataError": "❌ Initial loading error:",
+    "loadingShops": "🏪 Loading shops from Firestore...",
+    "realCompaniesLoaded": "✅ {{count}} real companies loaded",
+    "creatingDemoShops": "ℹ️ Creating demo shops...",
+    "demoShopsCreated": "🏪 {{count}} demo shops created",
+    "companyDescription": "{{businessType}} company - {{mainProducts}}",
+    "commercial": "commercial",
+    "diverseProducts": "Diverse products",
+    "uniqueShopsAvailable": "🏪 {{count}} unique shops available",
+    "shopsLoadingError": "❌ Error loading shops:",
+    "demoShops": {
+      "assmaExpress": {
+        "name": "Assma Express",
+        "description": "Main shop - Diverse products",
+        "address": {
+          "street": "Main street",
+          "city": "Bamako",
+          "country": "Mali"
+        },
+        "formattedDescription": "Your trusted shop for all your needs"
+      },
+      "tidioShop": {
+        "name": "Tidio Shop",
+        "description": "Specialized equipment shop",
+        "address": {
+          "street": "Mali",
+          "city": "Bko",
+          "country": "Mli"
+        },
+        "formattedDescription": "Wholesaler of various equipment"
+      }
+    },
+    "fallbackShops": {
+      "defaultShop1": {
+        "name": "Express Shop",
+        "description": "Your trusted shop",
+        "address": {
+          "street": "Main street",
+          "city": "Bamako",
+          "country": "Mali"
+        },
+        "formattedDescription": "A selection of quality products"
+      }
+    },
+    "loadingFeaturedProducts": "⭐ Loading featured products...",
+    "featuredProductsLoaded": "✅ {{count}} featured products loaded",
+    "featuredProductsError": "❌ Error loading featured products:",
+    "uniqueProductsLoadedForFeatured": "✅ {{count}} unique products loaded for 'Featured'",
+    "noProductsFoundForFeatured": "ℹ️ No products found for \"Featured\"",
+    "loadingNewProducts": "🆕 Loading new products...",
+    "newProductsLoaded": "✅ {{count}} new arrivals loaded",
+    "newProductsError": "❌ Error loading new products:",
+    "noNewProductsFound": "ℹ️ No new products found",
+    "loadingDiscoverProducts": "🎯 Loading discover products...",
+    "discoverProductsLoaded": "✅ {{count}} discover products loaded",
+    "noProductsFoundForDiscover": "ℹ️ No products found for \"Discover\"",
+    "discoverProductsError": "❌ Error loading discover products:",
+    "loadingProductsForCategory": "📥 Loading products for category: {{categoryName}} ({{categoryId}})",
+    "uniqueProductsLoadedForCategory": "✅ {{count}} unique products loaded for {{categoryName}}",
+    "noProductsFoundForCategory": "ℹ️ No products found for {{categoryName}}",
+    "productsLoadingErrorForCategory": "❌ Error loading products for {{categoryName}}:",
+    "promotionClicked": "Promotion clicked:",
+    "ourShops": "🏪 Our Shops",
+    "partnerShops": "{{count}} partner shops",
+    "viewAllShops": "View all shops",
+    "retailShop": "Retail shop",
+    "wholesaleShop": "Wholesaler",
+    "manufacturerShop": "Manufacturer",
+    "productCount": "{{count}}+ products",
+    "visit": "Visit",
+    "featuredProducts": "⭐ Featured Products",
+    "exclusiveSelection": "Exclusive selection of the best products",
+    "loadingProducts": "Loading products...",
+    "noFeaturedProducts": "No featured products",
+    "featuredProductsComingSoon": "Featured products will be added soon",
+    "newArrivals": "🆕 New Arrivals",
+    "discoverLatestProducts": "Discover our latest added products",
+    "noNewProducts": "No new products",
+    "newProductsComingSoon": "New products will be added soon",
+    "noProductsToDiscover": "No products to discover",
+    "priceOnRequest": "Price on request",
+    "productImageError": "Product image error:",
+    "shopImageError": "Shop image error:",
+    "navigationToShop": "🏪 Navigating to shop:",
+    "company": "Company",
+    "discoverAllProductsInCategory": "Discover all our products in this category",
+    "remainingStock": "{{count}} left",
+    "outOfStock": "Out of stock",
+    "inStock": "In stock",
+    "noProductsAvailable": "No products available",
+    "noProductsInCategory": "This category doesn't contain any products yet",
+    "productClicked": "Product clicked:",
+    "viewCompany": "View company",
+    "qualityProduct": "Quality product",
+    "new": "New",
+    "popularProductsTitle": "Popular Products",
+    "specialMenu": {
+      "shops": "Shops",
+      "featured": "Featured",
+      "newArrivals": "New Arrivals"
+    },
+    "headerPromotions": {
+      "factoryEquipment": {
+        "title": "Factory Equipment",
+        "subtitle": "Industrial equipment"
+      },
+      "featuredProducts": {
+        "title": "Featured Products",
+        "subtitle": "Exclusive selection"
+      },
+      "fashionAccessories": {
+        "title": "Fashion & Accessories",
+        "subtitle": "New collection"
+      },
+      "beautyHealth": {
+        "title": "Beauty & Health",
+        "subtitle": "Natural products"
+      },
+      "automotive": {
+        "title": "Automotive",
+        "subtitle": "Parts & Accessories"
+      },
+      "limitedStock": "Limited stock",
+      "topSales": "Top sales",
+      "fastDelivery": "Fast delivery",
+      "qualityGuaranteed": "Quality guaranteed",
+      "competitivePrices": "Competitive prices"
+    }
+  }
+}

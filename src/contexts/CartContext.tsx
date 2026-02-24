@@ -1,310 +1,255 @@
-// src/contexts/CartContext.tsx
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  onSnapshot,
-  query,
-  where,
-  writeBatch,
-  getDocs
-} from 'firebase/firestore';
-import { db, auth } from '@/config/firebase';
-import { onAuthStateChanged, User } from 'firebase/auth';
+// contexts/CartContext.tsx - VERSION CORRIGÉE
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "../config/firebase";
+
+// Taux de conversion fixe (1 USD = 650 XOF)
+const EXCHANGE_RATE = 650;
 
 export interface CartItem {
   id: string;
-  productId: string;
+  cartId: string;
   name: string;
-  price: number;
-  originalPrice?: number;
+  price: number;           // ✅ TOUJOURS en XOF (brut Firebase)
+  originalCurrency: 'XOF';
   quantity: number;
-  image: string;
-  seller: string;
-  minOrder: number;
-  shipping: string;
-  inStock: boolean;
-  userId?: string;
+  image?: string | null;
+  selectedSize?: string | null;
+  selectedColor?: string | null;
+  seller?: string | null;
+  minOrder?: number | null;
+  inStock?: boolean | null;
+  variantInfo?: {
+    basePrice?: number;
+    priceAdjustment?: number;
+    variantId?: string;
+  } | null;
 }
 
 interface CartContextType {
   cartItems: CartItem[];
-  addToCart: (product: any) => Promise<void>;
-  removeFromCart: (productId: string) => Promise<void>;
-  updateQuantity: (productId: string, newQuantity: number) => Promise<void>;
-  clearCart: () => Promise<void>;
+  addToCart: (product: any) => void;
+  removeFromCart: (cartId: string) => void;
+  updateQuantity: (cartId: string, newQuantity: number) => void;
+  clearCart: () => void;
   getTotalPrice: () => number;
   getTotalItems: () => number;
-  loading: boolean;
-  syncCart: () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+const sanitizeForFirestore = (data: any): any => {
+  if (data === undefined || data === null) return null;
+  if (Array.isArray(data)) return data.map(item => sanitizeForFirestore(item));
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const sanitized: any = {};
+    Object.keys(data).forEach(key => { sanitized[key] = sanitizeForFirestore(data[key]); });
+    return sanitized;
+  }
+  return data;
+};
+
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+  const isInitialMount = useRef(true);
+  const syncTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  const STORAGE_KEY = "@assma_cart";
+
+  const saneQty = (q: any): number => {
+    const n = Math.floor(Number(q));
+    return (!Number.isFinite(n) || n < 1) ? 1 : (n > 999 ? 999 : n);
+  };
+
+  // 🔐 AUTH LISTENER
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setLoading(false);
-      
-      if (!user) {
-        setCartItems([]);
+    return onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUserId(user.uid);
+        mergeCartWithFirestore(user.uid);
+      } else {
+        setUserId(null);
       }
     });
-
-    return unsubscribe;
   }, []);
 
+  // 📦 LOAD LOCAL
   useEffect(() => {
-    if (!user) {
-      setCartItems([]);
+    AsyncStorage.getItem(STORAGE_KEY).then(stored => {
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setCartItems(parsed.map((item: any) => ({
+            ...item,
+            cartId: item.cartId || `${item.id}-${item.selectedSize || 'NS'}-${item.selectedColor || 'NS'}`,
+            quantity: saneQty(item.quantity),
+            originalCurrency: 'XOF',
+          })));
+        } catch (e) { console.error("Err parse local cart", e); }
+      }
+    });
+  }, []);
+
+  // 💾 AUTO SAVE & SYNC
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
       return;
     }
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cartItems));
 
-    const cartQuery = query(collection(db, 'cart'), where('userId', '==', user.uid));
-    
-    const unsubscribe = onSnapshot(cartQuery, 
-      (snapshot) => {
-        const items = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as CartItem));
-        setCartItems(items);
-      },
-      (error) => {
-        console.error('Erreur écoute Firebase:', error);
-      }
-    );
-
-    return unsubscribe;
-  }, [user]);
-
-  const syncCart = async () => {
-    if (!user) return;
-
-    try {
-      const cartQuery = query(collection(db, 'cart'), where('userId', '==', user.uid));
-      const snapshot = await getDocs(cartQuery);
-      const firebaseCart = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as CartItem));
-
-      setCartItems(firebaseCart);
-    } catch (error) {
-      console.error('Erreur synchronisation:', error);
+    if (userId) {
+      if (syncTimeout.current) clearTimeout(syncTimeout.current);
+      syncTimeout.current = setTimeout(() => {
+        syncToFirestore(userId, cartItems);
+      }, 2000);
     }
+  }, [cartItems, userId]);
+
+  const syncToFirestore = async (uid: string, items: CartItem[]) => {
+    try {
+      const ref = doc(db, "users", uid, "data", "cart");
+      
+      console.log("🔥 SYNC TO FIRESTORE:", {
+        itemsCount: items.length,
+        samplePrice: items[0]?.price,
+        totalXOF: items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
+      });
+      
+      const dataToSave = sanitizeForFirestore({
+        items: items.map(item => ({
+          ...item,
+          originalCurrency: undefined,
+        })),
+        updatedAt: new Date(),
+        totalPrice: items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
+      });
+      await setDoc(ref, dataToSave, { merge: true });
+    } catch (error) { console.error("⚠️ Firestore Sync Error:", error); }
   };
 
-  const addToCart = async (product: any) => {
-    if (!user) {
-      setCartItems(prev => {
-        const existing = prev.find(item => item.productId === product.id);
-        if (existing) {
-          return prev.map(item =>
-            item.productId === product.id 
-              ? { ...item, quantity: item.quantity + 1 }
-              : item
-          );
-        }
-        
-        return [...prev, {
-          id: `local_${Date.now()}`,
-          productId: product.id,
-          name: product.name,
-          price: product.price,
-          quantity: 1,
-          image: product.imageUrl || product.image || `https://picsum.photos/200/200?${product.id}`,
-          seller: product.seller || 'ASMA Express',
-          minOrder: product.minOrder || 1,
-          shipping: product.shipping || 'Livraison gratuite',
-          inStock: product.inStock !== undefined ? product.inStock : true
-        }];
-      });
-      return;
-    }
-
+  const mergeCartWithFirestore = async (uid: string) => {
     try {
-      const existingQuery = query(
-        collection(db, 'cart'),
-        where('userId', '==', user.uid),
-        where('productId', '==', product.id)
-      );
-      
-      const snapshot = await getDocs(existingQuery);
-      
-      const productData: any = {
-        userId: user.uid,
-        productId: product.id,
-        name: product.name,
-        price: product.price,
-        quantity: 1,
-        image: product.imageUrl || product.image,
-        seller: product.seller || 'ASMA Express',
-        minOrder: product.minOrder || 1,
-        shipping: product.shipping || 'Livraison gratuite',
-        inStock: product.inStock !== undefined ? product.inStock : true,
-        createdAt: new Date(),
-        updatedAt: new Date()
+      const ref = doc(db, "users", uid, "data", "cart");
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const remoteItems = snap.data()?.items || [];
+        
+        console.log("🔥 MERGE FROM FIRESTORE:", {
+          remoteCount: remoteItems.length,
+          samplePrice: remoteItems[0]?.price,
+        });
+        
+        setCartItems(prev => {
+          const merged = [...prev];
+          remoteItems.forEach((ri: any) => {
+            if (!merged.find(li => li.cartId === ri.cartId)) {
+              merged.push({
+                ...ri,
+                originalCurrency: 'XOF',
+              });
+            }
+          });
+          return merged;
+        });
+      }
+    } catch (e) { console.error("Merge error", e); }
+  };
+
+  // ✅ ADD TO CART - VERSION SIMPLIFIÉE ET CORRIGÉE
+  const addToCart = (product: any) => {
+    console.log("🔍 ADD TO CART - INPUT:", {
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      selectedSize: product.selectedSize,
+      selectedColor: product.selectedColor,
+    });
+
+    setCartItems((prev) => {
+      const uniqueCartId = `${product.id}-${product.selectedSize || 'NS'}-${product.selectedColor || 'NS'}`;
+      const existing = prev.find((i) => i.cartId === uniqueCartId);
+      const qtyToAdd = saneQty(product.quantity ?? 1);
+
+      // ✅ SIMPLIFICATION : Utiliser directement le prix fourni
+      // Le prix correct est déjà calculé dans l'écran produit
+      const finalPrice = Number(product.price) || 0;
+
+      if (finalPrice === 0) {
+        console.error("❌ Prix invalide:", product);
+      }
+
+      const newItem: CartItem = {
+        id: product.id,
+        cartId: uniqueCartId,
+        name: product.name || "Produit",
+        price: finalPrice,  // ✅ Utilise directement le prix de l'écran produit
+        originalCurrency: 'XOF',
+        quantity: qtyToAdd,
+        image: product.image ?? product.imageUrl ?? product.mainImage ?? null,
+        selectedSize: product.selectedSize || null,
+        selectedColor: product.selectedColor || null,
+        seller: product.seller ?? product.supplier ?? product.companyName ?? "ASMA Express",
+        minOrder: Number(product.minOrder) || 1,
+        inStock: product.inStock ?? true,
+        variantInfo: product.variantInfo ? {
+          basePrice: product.variantInfo.basePrice,
+          priceAdjustment: product.variantInfo.priceAdjustment,
+          variantId: product.variantInfo.variantId,
+        } : null,
       };
 
-      if (product.originalPrice !== undefined) {
-        productData.originalPrice = product.originalPrice;
-      }
+      console.log("✅ ITEM STORED:", {
+        price: newItem.price,
+        cartId: newItem.cartId,
+      });
 
-      if (!snapshot.empty) {
-        const existingDoc = snapshot.docs[0];
-        const currentQuantity = existingDoc.data().quantity;
-        
-        await updateDoc(doc(db, 'cart', existingDoc.id), {
-          quantity: currentQuantity + 1,
-          updatedAt: new Date()
-        });
-      } else {
-        await addDoc(collection(db, 'cart'), productData);
-      }
-    } catch (error) {
-      console.error('Erreur ajout panier Firebase:', error);
-      addToCartLocal(product);
-    }
-  };
-
-  const addToCartLocal = (product: any) => {
-    setCartItems(prev => {
-      const existing = prev.find(item => item.productId === product.id);
       if (existing) {
-        return prev.map(item =>
-          item.productId === product.id 
-            ? { ...item, quantity: item.quantity + 1 }
-            : item
+        return prev.map((i) => 
+          i.cartId === uniqueCartId 
+            ? { ...i, quantity: saneQty(i.quantity + qtyToAdd) } 
+            : i
         );
       }
-      
-      return [...prev, {
-        id: `local_${Date.now()}`,
-        productId: product.id,
-        name: product.name,
-        price: product.price,
-        quantity: 1,
-        image: product.imageUrl || product.image,
-        seller: product.seller || 'ASMA Express',
-        minOrder: product.minOrder || 1,
-        shipping: product.shipping || 'Livraison gratuite',
-        inStock: product.inStock !== undefined ? product.inStock : true
-      }];
+
+      return [...prev, newItem];
     });
   };
 
-  const removeFromCart = async (productId: string) => {
-    if (!user) {
-      setCartItems(prev => prev.filter(item => item.productId !== productId));
-      return;
-    }
-
-    try {
-      const cartQuery = query(
-        collection(db, 'cart'),
-        where('userId', '==', user.uid),
-        where('productId', '==', productId)
-      );
-      
-      const snapshot = await getDocs(cartQuery);
-      if (!snapshot.empty) {
-        await deleteDoc(doc(db, 'cart', snapshot.docs[0].id));
-      }
-    } catch (error) {
-      console.error('Erreur suppression:', error);
-      setCartItems(prev => prev.filter(item => item.productId !== productId));
-    }
+  const removeFromCart = (cartId: string) => {
+    setCartItems((prev) => prev.filter((i) => i.cartId !== cartId));
   };
 
-  const updateQuantity = async (productId: string, newQuantity: number) => {
-    if (newQuantity < 1) {
-      await removeFromCart(productId);
-      return;
-    }
-
-    if (!user) {
-      setCartItems(prev => 
-        prev.map(item => 
-          item.productId === productId ? { ...item, quantity: newQuantity } : item
-        )
-      );
-      return;
-    }
-
-    try {
-      const cartQuery = query(
-        collection(db, 'cart'),
-        where('userId', '==', user.uid),
-        where('productId', '==', productId)
-      );
-      
-      const snapshot = await getDocs(cartQuery);
-      if (!snapshot.empty) {
-        await updateDoc(doc(db, 'cart', snapshot.docs[0].id), {
-          quantity: newQuantity,
-          updatedAt: new Date()
-        });
-      }
-    } catch (error) {
-      console.error('Erreur mise à jour quantité:', error);
-      setCartItems(prev => 
-        prev.map(item => 
-          item.productId === productId ? { ...item, quantity: newQuantity } : item
-        )
-      );
-    }
+  const updateQuantity = (cartId: string, rawQty: number) => {
+    setCartItems((prev) => prev.map((i) => 
+      i.cartId === cartId ? { ...i, quantity: saneQty(rawQty) } : i
+    ));
   };
 
-  const clearCart = async () => {
-    if (!user) {
-      setCartItems([]);
-      return;
-    }
-
-    try {
-      const cartQuery = query(collection(db, 'cart'), where('userId', '==', user.uid));
-      const snapshot = await getDocs(cartQuery);
-      
-      const batch = writeBatch(db);
-      snapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-      await batch.commit();
-    } catch (error) {
-      console.error('Erreur vidage panier:', error);
-      setCartItems([]);
-    }
+  const clearCart = () => {
+    setCartItems([]);
+    AsyncStorage.removeItem(STORAGE_KEY);
   };
 
-  const getTotalPrice = () => {
-    return cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
-  };
-
-  const getTotalItems = () => {
-    return cartItems.reduce((total, item) => total + item.quantity, 0);
-  };
+  const getTotalPrice = () => cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
+  
+  const getTotalItems = () => cartItems.reduce((total, item) => total + item.quantity, 0);
 
   return (
-    <CartContext.Provider value={{
-      cartItems,
-      addToCart,
-      removeFromCart,
-      updateQuantity,
-      clearCart,
-      getTotalPrice,
-      getTotalItems,
-      loading,
-      syncCart
-    }}>
+    <CartContext.Provider 
+      value={{ 
+        cartItems, 
+        addToCart, 
+        removeFromCart, 
+        updateQuantity, 
+        clearCart, 
+        getTotalPrice, 
+        getTotalItems,
+      }}
+    >
       {children}
     </CartContext.Provider>
   );
@@ -312,8 +257,6 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 export const useCart = () => {
   const context = useContext(CartContext);
-  if (!context) {
-    throw new Error('useCart must be used within a CartProvider');
-  }
+  if (!context) throw new Error("useCart must be used within a CartProvider");
   return context;
 };

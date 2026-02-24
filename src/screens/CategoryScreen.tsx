@@ -1,12 +1,12 @@
-ï»¿ import React from "react";
+ import React from "react";
 import { View, Text, FlatList, StyleSheet } from "react-native";
 import { useRoute } from "@react-navigation/native";
 
 const MOCK = [
-  { title: "Produit A", price: "99.90 â‚¬" },
-  { title: "Produit B", price: "149.50 â‚¬" },
-  { title: "Produit C", price: "249.00 â‚¬" },
-  { title: "Produit D", price: "79.00 â‚¬" },
+  { title: "Produit A", price: "99.90 €" },
+  { title: "Produit B", price: "149.50 €" },
+  { title: "Produit C", price: "249.00 €" },
+  { title: "Produit D", price: "79.00 €" },
 ];
 
 export default function CategoryScreen() {

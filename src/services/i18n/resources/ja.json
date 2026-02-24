@@ -1,0 +1,147 @@
+﻿{
+  "homeScreen": {
+    "defaultProductName": "Assma Express 商品",
+    "defaultSupplier": "Assma Express",
+    "defaultDeliveryTime": "3-5日",
+    "defaultCategory": "ファッション＆アクセサリー",
+    "searchLog": "🔍 検索:",
+    "loadingSuppliers": "🔄 商品を持つサプライヤーを読み込み中...",
+    "suppliersFound": "🏪 {{count}}件のサプライヤーが見つかりました",
+    "supplierProductsError": "⚠️ {{name}}の商品エラー:",
+    "validSuppliers": "📦 {{count}}件の有効なサプライヤー（商品あり）",
+    "suppliersLoadError": "❌ サプライヤー読み込みエラー:",
+    "loadingData": "🚀 データ読み込みを開始しています...",
+    "totalProducts": "📊 Firestoreの商品総数: {{count}}",
+    "results": "📈 結果:\n- 注目商品: {{featured}}\n- トレンド商品: {{trending}}\n- 特別オファー: {{specialOffers}}\n- 新着商品: {{newArrivals}}\n- 産業機械: {{industrial}}\n- プレミアムサプライヤー: {{premium}}\n- 人気商品: {{popular}}\n- 全商品: {{all}}\n- 商品を持つサプライヤー: {{suppliers}}",
+    "fallbackProductName": "シューズモデル{{number}}",
+    "fallbackSupplier": "Assma Express",
+    "firestoreError": "❌ FIRESTOREエラー:",
+    "productNavigationLog": "👉 商品へのナビゲーション:",
+    "featuredProductsTitle": "注目商品",
+    "featuredProductsSubtitle": "注目の商品をご覧ください",
+    "specialOffersTitle": "特別オファー",
+    "specialOffersSubtitle": "プロモーションとお得な取引"
+  },
+  "productCard": {
+    "imagePlaceholder": "画像",
+    "verified": "確認済み",
+    "currency": "CFAフラン",
+    "minOrder": "最低: {{value}}",
+    "inStock": "在庫あり",
+    "limitedStock": "在庫限り",
+    "order": "注文",
+    "viewDetails": "詳細を見る",
+    "uncategorized": "未分類"
+  },
+  "header": {
+    "title": "A2Express",
+    "subtitle": "ベータ版",
+    "languageChangeError": "言語の変更に失敗しました：",
+    "searchError": "検索エラー："
+  },
+  "common": {
+    "search": "商品、サプライヤーを検索...",
+    "seeAll": "すべての結果を見る",
+    "suppliers": "サプライヤー",
+    "products": "商品",
+    "countries": "国"
+  },
+  "languages": {
+    "english": "英語",
+    "french": "フランス語",
+    "spanish": "スペイン語",
+    "arabic": "アラビア語",
+    "chinese": "中国語",
+    "russian": "ロシア語",
+    "portuguese": "ポルトガル語",
+    "turkish": "トルコ語",
+    "german": "ドイツ語",
+    "italian": "イタリア語",
+    "dutch": "オランダ語",
+    "japanese": "日本語",
+    "korean": "韓国語",
+    "vietnamese": "ベトナム語",
+    "indonesian": "インドネシア語"
+  },
+  "newArrivals": {
+    "navigationLog": "🆕 新商品ナビゲーション：",
+    "categoryTitle": "新着商品",
+    "badge": "新着",
+    "newBadge": "新着",
+    "title": "新商品",
+    "seeAll": "もっと見る",
+    "countdown": {
+      "title": "次の到着まで：",
+      "days": "日",
+      "hours": "時間",
+      "minutes": "分"
+    }
+  },
+  "trending": {
+    "loadingLog": "🔥 トレンド商品を読み込み中...",
+    "usingProps": "✅ propsとして渡された商品を使用",
+    "loadedFromFirestore": "🔥 Firestoreから{{count}}件のトレンド商品を読み込みました",
+    "queryFailed": "⚠️ トレンドクエリに失敗、次を試します...",
+    "usingSampleProducts": "🔄 商品が見つかりません、サンプルのトレンド商品を使用します",
+    "loadError": "❌ トレンド商品の読み込みエラー:",
+    "navigationLog": "🔥 トレンド商品ナビゲーション:",
+    "categoryTitle": "トレンド商品",
+    "bestSeller": "ベストセラー",
+    "loading": "トレンドを読み込み中...",
+    "title": "現在のトレンド",
+    "explore": "探す",
+    "defaultProductName": "トレンド商品",
+    "defaultSupplier": "プレミアムサプライヤー",
+    "defaultDeliveryTime": "5-10日",
+    "stats": {
+      "viewsToday": "本日の閲覧数",
+      "orders": "注文数",
+      "satisfaction": "満足度"
+    },
+    "promoBanner": "トレンド商品でEXPRESS配送無料",
+    "sampleProducts": {
+      "smartphone": "プレミアム5G Androidスマートフォン",
+      "headphones": "プロフェッショナルワイヤレスヘッドホン",
+      "watch": "プレミアムスマートウォッチ",
+      "camera": "プロフェッショナルカメラ",
+      "laptop": "ゲーミングノートPC",
+      "speaker": "パワフルBluetoothスピーカー"
+    },
+    "sampleSuppliers": {
+      "tech": "テックイノベーション株式会社",
+      "audio": "オーディオプロソリューションズ",
+      "watch": "ウォッチプレミアム株式会社",
+      "photo": "フォトエキスパートグループ",
+      "computers": "コンピューターズ無制限"
+    }
+  },
+  "quickActions": {
+    "navigationLog": "🔄 クイックアクションナビゲーション:",
+    "flashDeal": "フラッシュセール",
+    "trending": "トレンド",
+    "premium": "プレミアム",
+    "suppliers": "サプライヤー",
+    "wholesale": "卸売",
+    "verified": "認証済み",
+    "express": "エクスプレス",
+    "global": "グローバル",
+    "new": "新着",
+    "verifiedProducts": "認証済み商品",
+    "expressDelivery": "エクスプレス配送",
+    "globalProducts": "グローバル商品"
+  },
+  "category": {
+    "electronics": "エレクトロニクス",
+    "clothing": "衣類",
+    "machinery": "機械",
+    "materials": "材料",
+    "automotive": "自動車",
+    "medicalEquipment": "医療機器",
+    "furniture": "家具",
+    "gardening": "園芸"
+  },
+  "footer": {
+    "email": "info@assma-expresse.com",
+    "copyright": "© {{year}} Assma Express"
+  }
+}

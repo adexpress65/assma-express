@@ -1,6 +1,6 @@
-﻿export const Colors = {
+export const Colors = {
   primary: "#00AEEF",       // bleu ciel
-  primaryDark: "#008ACB",   // bleu ciel foncé
+  primaryDark: "#008ACB",   // bleu ciel fonc�
   accent: "#FFB703",        // accent chaud (cta)
   text: "#0F172A",
   muted: "#64748B",

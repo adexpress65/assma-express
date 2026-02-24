@@ -1,40 +1,17 @@
-// apps/mobile/app/seller/add-product.tsx - CODE COMPLET CORRIGÉ
+// apps/mobile/app/super-admin/add-product.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, SafeAreaView, ScrollView, 
   TextInput, TouchableOpacity, Alert, Switch, Image,
-  ActivityIndicator, Modal, FlatList
+  ActivityIndicator, Linking, Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { 
-  collection, addDoc, getDocs, updateDoc, doc, 
-  query, where, getDoc, serverTimestamp 
-} from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { collection, addDoc, getDocs, query, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
-import { db } from '../../src/config/firebase';
-
-// ? INTERFACES
-interface Category {
-  id: string;
-  name: string;
-  description: string;
-  isActive: boolean;
-  productCount: number;
-  icon?: string;
-}
-
-interface CompanyData {
-  name: string;
-  logo: string;
-  verified: boolean;
-  goldSupplier: boolean;
-  categories: string[];
-  mainCategory: string;
-  responseRate: number;
-}
+import { db, storage } from '@/config/firebase';
 
 // ? FONCTION POUR GÉNÉRER UN SLUG
 const generateSlug = (name: string): string => {
@@ -46,331 +23,433 @@ const generateSlug = (name: string): string => {
     .substring(0, 100);
 };
 
-// ? UPLOAD D'IMAGE SIMPLE ET FIABLE
-const uploadImageToFirebase = async (imageUri: string, path: string) => {
-  try {
-    const storage = getStorage();
-    const storageRef = ref(storage, path);
-    
-    const response = await fetch(imageUri);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    
-    const blob = await response.blob();
-    if (blob.size === 0) throw new Error('Blob vide - image corrompue');
-    
-    await uploadBytes(storageRef, blob);
-    const downloadURL = await getDownloadURL(storageRef);
-    
-    return downloadURL;
-  } catch (error) {
-    console.error("?? Erreur upload Firebase:", error);
-    throw new Error(`Échec upload image: ${error.message}`);
-  }
-};
-
-// ? UPLOAD MULTIPLE DES IMAGES
-const uploadImagesToFirebase = async (imageUris: string[], userId: string): Promise<string[]> => {
-  const uploadedUrls: string[] = [];
+// ✅ FONCTION UPLOAD D'IMAGES (NE TÉLÉCHARGE QUE LES NOUVELLES IMAGES)
+const uploadImagesToFirebase = async (images: string[], userId: string): Promise<string[]> => {
+  console.log(`🔥 Upload de ${images.length} image(s) pour user: ${userId}`);
   
-  for (let i = 0; i < imageUris.length; i++) {
-    const imageUri = imageUris[i];
-    
+  const uploadPromises = images.map(async (imageUri, index) => {
     try {
-      const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(2, 10);
-      const fileName = `products/${userId}/${timestamp}_${randomId}.jpg`;
-      
-      const downloadURL = await uploadImageToFirebase(imageUri, fileName);
-      uploadedUrls.push(downloadURL);
-      
-    } catch (error) {
-      console.error(`? Erreur image ${i + 1}:`, error);
-      
-      if (i === 0) {
-        throw new Error(`Échec upload image principale: ${error.message}`);
+      if (imageUri.startsWith('https://firebasestorage.googleapis.com')) {
+        console.log(`🔥 ✅ Image ${index + 1} déjà sur Firebase, conservation de l'URL`);
+        return imageUri;
       }
+
+      console.log(`🔥 Conversion de l'image ${index + 1}...`);
+      const response = await fetch(imageUri);
       
-      console.warn(`?? Image ${i + 1} ignorée, continuation...`);
+      if (!response.ok) {
+        throw new Error(`Fetch failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      
+      if (blob.size === 0) {
+        throw new Error('Blob vide (0 bytes)');
+      }
+
+      const timestamp = Date.now();
+      const fileName = `product_${userId}_${timestamp}_${index}.jpg`;
+      const storagePath = `products/${fileName}`;
+      
+      console.log(`🔥 Upload de ${fileName}...`);
+      const storageRef = ref(storage, storagePath);
+      
+      await uploadBytes(storageRef, blob, {
+        contentType: blob.type || 'image/jpeg',
+      });
+
+      const downloadURL = await getDownloadURL(storageRef);
+      console.log(`🔥 ✅ Image ${index + 1} uploadée avec succès`);
+      
+      blob.close?.();
+      return downloadURL;
+      
+    } catch (error: any) {
+      console.error(`🔥 ERREUR upload image ${index + 1}:`, error);
+      throw error;
     }
-  }
-  
-  if (uploadedUrls.length === 0) {
-    throw new Error('Aucune image n\'a pu être uploadée');
-  }
-  
-  return uploadedUrls;
+  });
+
+  return await Promise.all(uploadPromises);
 };
 
-// ? COMPOSANT MODAL DE SÉLECTION DE CATÉGORIE
-const CategorySelectionModal = ({ 
-  visible, 
-  onClose, 
-  categories, 
-  onSelectCategory,
-  selectedCategories = []
-}: { 
-  visible: boolean; 
-  onClose: () => void;
-  categories: Category[];
-  onSelectCategory: (categoryId: string) => void;
-  selectedCategories?: string[];
-}) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  
-  const filteredCategories = categories.filter(cat =>
-    cat.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-    cat.isActive !== false
-  );
-
-  const getCategoryIcon = (categoryName: string): any => {
-    const name = categoryName.toLowerCase();
-    if (name.includes('mode') || name.includes('vetement') || name.includes('textile')) return 'shirt';
-    if (name.includes('electronique') || name.includes('électronique')) return 'hardware-chip';
-    if (name.includes('machin') || name.includes('industriel')) return 'build';
-    if (name.includes('aliment') || name.includes('food')) return 'restaurant';
-    if (name.includes('construct') || name.includes('bâtiment')) return 'home';
-    if (name.includes('santé') || name.includes('medical')) return 'medical';
-    if (name.includes('beauté') || name.includes('cosmétique')) return 'sparkles';
-    if (name.includes('sport') || name.includes('fitness')) return 'barbell';
-    if (name.includes('maison') || name.includes('décor')) return 'bed';
-    if (name.includes('auto') || name.includes('voiture')) return 'car';
-    if (name.includes('agriculture') || name.includes('ferme')) return 'leaf';
-    if (name.includes('chimie') || name.includes('plastique')) return 'flask';
-    return 'pricetag';
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent
-      onRequestClose={onClose}
-    >
-      <View style={modalStyles.modalOverlay}>
-        <View style={modalStyles.modalContent}>
-          <View style={modalStyles.modalHeader}>
-            <Text style={modalStyles.modalTitle}>Sélectionner une catégorie</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Barre de recherche */}
-          <View style={modalStyles.searchContainer}>
-            <Ionicons name="search" size={20} color="#999" />
-            <TextInput
-              style={modalStyles.searchInput}
-              placeholder="Rechercher une catégorie..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          {/* Liste des catégories */}
-          <FlatList
-            data={filteredCategories}
-            keyExtractor={(item) => item.id}
-            showsVerticalScrollIndicator={false}
-            style={modalStyles.categoryList}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  modalStyles.categoryItem,
-                  selectedCategories.includes(item.id) && modalStyles.categoryItemSelected
-                ]}
-                onPress={() => {
-                  onSelectCategory(item.id);
-                  onClose();
-                }}
-              >
-                <View style={modalStyles.categoryIconContainer}>
-                  <Ionicons 
-                    name={item.icon || getCategoryIcon(item.name)} 
-                    size={20} 
-                    color={selectedCategories.includes(item.id) ? '#fff' : '#ff6a00'} 
-                  />
-                </View>
-                <View style={modalStyles.categoryTextContainer}>
-                  <Text style={[
-                    modalStyles.categoryName,
-                    selectedCategories.includes(item.id) && modalStyles.categoryNameSelected
-                  ]}>
-                    {item.name}
-                  </Text>
-                  {item.description && (
-                    <Text style={modalStyles.categoryDescription} numberOfLines={2}>
-                      {item.description}
-                    </Text>
-                  )}
-                </View>
-                {item.productCount > 0 && (
-                  <View style={modalStyles.productCountBadge}>
-                    <Text style={modalStyles.productCountText}>
-                      {item.productCount}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={modalStyles.emptyContainer}>
-                <Ionicons name="grid-outline" size={48} color="#ccc" />
-                <Text style={modalStyles.emptyText}>
-                  {searchQuery ? 'Aucune catégorie trouvée' : 'Aucune catégorie disponible'}
-                </Text>
-              </View>
-            }
-          />
-        </View>
-      </View>
-    </Modal>
-  );
+// ? FONCTION POUR GÉNÉRER UN SKU UNIQUE
+const generateSku = (productName: string, color: string, size: string): string => {
+  const base = productName.trim().toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9-]/g, '');
+  const colorCode = color.trim().toUpperCase().substring(0, 3);
+  const sizeCode = size.trim().toUpperCase();
+  return `${base}-${colorCode}-${sizeCode}-${Date.now().toString().slice(-4)}`;
 };
 
 export default function AddProductScreen() {
   const router = useRouter();
   const { user, userRole } = useAuth();
+  const { productId } = useLocalSearchParams<{ productId: string }>();
+  const isEditMode = !!productId;
   
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(isEditMode);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [images, setImages] = useState<string[]>([]);
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
-  const [companyData, setCompanyData] = useState<CompanyData | null>(null);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   
+  // --- ÉTATS POUR LES VARIANTES ---
+  const [variantColors, setVariantColors] = useState<string[]>([]);
+  const [variantSizes, setVariantSizes] = useState<string[]>([]);
+  const [newColor, setNewColor] = useState('');
+  const [newSize, setNewSize] = useState('');
+  
+  // --- AJUSTEMENT DE PRIX RAPIDE (OPTIONNEL) ---
+  const [priceAdjustment, setPriceAdjustment] = useState<number>(0);
+  
+  // --- ÉTATS POUR LES ENTREPRISES ---
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+  const [selectedCompany, setSelectedCompany] = useState<any>(null);
+
+  // --- ÉTATS POUR LES CATÉGORIES DYNAMIQUES ---
+  const [categoriesDB, setCategoriesDB] = useState<{id: string, name: string}[]>([]);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [filteredCategories, setFilteredCategories] = useState<{id: string, name: string}[]>([]);
+
+  // --- ÉTATS POUR LA PERSONNALISATION ---
+  const [hasPersonalization, setHasPersonalization] = useState(false);
+  const [personalizationFields, setPersonalizationFields] = useState([
+    { id: 'name', label: 'Nom complet', type: 'text', required: true, enabled: true },
+    { id: 'email', label: 'Email', type: 'email', required: true, enabled: true },
+    { id: 'phone', label: 'Téléphone', type: 'tel', required: false, enabled: true },
+    { id: 'message', label: 'Message personnalisé', type: 'textarea', required: false, enabled: true },
+    { id: 'date', label: 'Date souhaitée', type: 'date', required: false, enabled: false },
+    { id: 'color', label: 'Couleur préférée', type: 'text', required: false, enabled: false },
+  ]);
+  const [showPersonalizationModal, setShowPersonalizationModal] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [newFieldType, setNewFieldType] = useState('text');
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+
+  // --- ÉTATS POUR LA GESTION DE LA LIVRAISON GRATUITE ---
+  const [hasFreeShipping, setHasFreeShipping] = useState(false);
+
   const [form, setForm] = useState({
     title: '',
     description: '',
     price: '',
     originalPrice: '',
-    categoryId: '',
-    categoryName: '',
+    category: '',
     stock: '10',
     sku: '',
     weight: '',
     dimensions: '',
     isActive: true,
-    hasVariants: false,
-    supplier: '',
     deliveryTime: '3-5 jours',
     minOrder: '1',
-    
-    // Spécifications B2B
-    material: '',
-    origin: '',
-    warranty: '',
-    modelNumber: '',
-    color: '',
-    usage: '',
-    style: '',
-    
-    // Sections d'affichage
     featured: false,
     trending: false,
     specialOffer: false,
     newArrival: true,
     industrial: false,
     premiumSupplier: false,
-    topSelling: false,
-    
-    // Options B2B
-    hasSample: true,
-    customization: false,
-    privateLabel: false,
-    bulkDiscount: false,
-    moq: '100', // Minimum Order Quantity
-    leadTime: '15-30 jours',
-    packaging: 'Standard',
-    certifications: '',
   });
 
-  // ? CHARGER LES CATÉGORIES DEPUIS FIRESTORE
-  useEffect(() => {
-    fetchCategories();
-    if (user?.uid) {
-      fetchCompanyData(user.uid);
-    }
-  }, [user]);
+  // --- CALCUL DU PRIX FINAL ---
+  const basePrice = Number(form.price) || 0;
+  const finalPrice = basePrice + priceAdjustment;
+  
+  // --- CALCUL DU NOMBRE DE VARIANTES ---
+  const variantCount = variantColors.length * variantSizes.length;
 
-  const fetchCategories = async () => {
-    try {
-      console.log('📥 Chargement des catégories depuis Firestore...');
-      const categoriesQuery = query(collection(db, 'categories'));
-      const snapshot = await getDocs(categoriesQuery);
-      
-      const categoriesData: Category[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        console.log(`📋 Catégorie trouvée: ${data.name} (${doc.id})`);
-        categoriesData.push({
+  // --- FILTRAGE DES CATÉGORIES ---
+  useEffect(() => {
+    if (categorySearch.trim() === '') {
+      setFilteredCategories(categoriesDB);
+    } else {
+      const filtered = categoriesDB.filter(cat => 
+        cat.name.toLowerCase().includes(categorySearch.toLowerCase())
+      );
+      setFilteredCategories(filtered);
+    }
+  }, [categorySearch, categoriesDB]);
+
+  // --- CHARGEMENT DES CATÉGORIES DEPUIS FIRESTORE ---
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        console.log('🔍 Chargement des catégories depuis Firestore...');
+        const q = query(collection(db, 'categories'), orderBy('name', 'asc'));
+        const querySnapshot = await getDocs(q);
+        const categoriesList = querySnapshot.docs.map(doc => ({
           id: doc.id,
-          name: data.name,
-          description: data.description || '',
-          isActive: data.isActive !== false, // Par défaut true si non spécifié
-          productCount: data.productCount || 0,
-          icon: data.icon
+          name: doc.data().name || 'Sans nom'
+        }));
+        console.log(`✅ ${categoriesList.length} catégories chargées`);
+        setCategoriesDB(categoriesList);
+        setFilteredCategories(categoriesList);
+      } catch (error) {
+        console.error("❌ Erreur lors du chargement des catégories:", error);
+      }
+    };
+    
+    fetchCategories();
+  }, []);
+
+  // --- CHARGEMENT DES DONNÉES DU PRODUIT EN MODIFICATION ---
+  useEffect(() => {
+    if (isEditMode && productId) {
+      loadProductData();
+    }
+  }, [productId]);
+
+  const loadProductData = async () => {
+    try {
+      console.log(`🔍 Chargement du produit ${productId} pour modification...`);
+      const productDoc = await getDoc(doc(db, 'products', productId));
+      
+      if (!productDoc.exists()) {
+        Alert.alert('Erreur', 'Produit non trouvé');
+        router.back();
+        return;
+      }
+
+      const productData = productDoc.data();
+      
+      setForm({
+        title: productData.name || '',
+        description: productData.description || '',
+        price: productData.basePrice?.toString() || productData.price?.toString() || '',
+        originalPrice: productData.originalPrice?.toString() || '',
+        category: productData.categoryName || '',
+        stock: productData.stockQuantity?.toString() || '10',
+        sku: productData.specifications?.modelNumber || '',
+        weight: productData.specifications?.weight || '',
+        dimensions: productData.specifications?.dimensions || '',
+        isActive: productData.isActive ?? true,
+        deliveryTime: productData.deliveryTime || '3-5 jours',
+        minOrder: productData.minOrder?.toString() || '1',
+        featured: productData.featured || false,
+        trending: productData.trending || false,
+        specialOffer: productData.specialOffer || false,
+        newArrival: productData.newArrival ?? true,
+        industrial: productData.industrial || false,
+        premiumSupplier: productData.premiumSupplier || false,
+      });
+
+      if (productData.images && Array.isArray(productData.images)) {
+        setImages(productData.images);
+      }
+
+      if (productData.variantAttributes) {
+        const colorsAttr = productData.variantAttributes.find((attr: any) => attr.name === "Color");
+        const sizesAttr = productData.variantAttributes.find((attr: any) => attr.name === "Size");
+        
+        if (colorsAttr && colorsAttr.values) {
+          setVariantColors(colorsAttr.values);
+        }
+        
+        if (sizesAttr && sizesAttr.values) {
+          setVariantSizes(sizesAttr.values);
+        }
+      }
+
+      if (productData.companyId) {
+        try {
+          const companyDoc = await getDoc(doc(db, 'companies', productData.companyId));
+          if (companyDoc.exists()) {
+            setSelectedCompany({
+              id: companyDoc.id,
+              ...companyDoc.data()
+            });
+          }
+        } catch (error) {
+          console.error('Erreur chargement entreprise:', error);
+        }
+      }
+
+      if (productData.priceAdjustment) {
+        setPriceAdjustment(productData.priceAdjustment);
+      }
+
+      // Chargement de la livraison gratuite
+      if (productData.hasFreeShipping !== undefined) {
+        setHasFreeShipping(productData.hasFreeShipping);
+      }
+
+      // Chargement des données de personnalisation
+      if (productData.personalization) {
+        setHasPersonalization(productData.personalization.enabled || false);
+        if (productData.personalization.fields) {
+          const loadedFields = productData.personalization.fields;
+          setPersonalizationFields(prev => {
+            const defaultFields = prev.filter(f => !f.id.startsWith('custom_'));
+            const customFields = loadedFields.filter((f: any) => f.id.startsWith('custom_'));
+            
+            const updatedDefaultFields = defaultFields.map(defaultField => {
+              const loadedField = loadedFields.find((f: any) => f.id === defaultField.id);
+              return loadedField || defaultField;
+            });
+            
+            return [...updatedDefaultFields, ...customFields];
+          });
+        }
+      }
+
+      console.log('✅ Produit chargé avec succès');
+      
+    } catch (error) {
+      console.error('❌ Erreur chargement produit:', error);
+      Alert.alert('Erreur', 'Impossible de charger les données du produit');
+    } finally {
+      setInitialLoading(false);
+    }
+  };
+
+  // --- CHARGEMENT DES ENTREPRISES ---
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        console.log('🔍 Chargement des entreprises depuis Firestore...');
+        const q = query(collection(db, 'companies'), orderBy('name', 'asc'));
+        const querySnapshot = await getDocs(q);
+        const companiesList = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        console.log(`✅ ${companiesList.length} entreprises chargées`);
+        setCompanies(companiesList);
+      } catch (error) {
+        console.error("❌ Erreur lors de la récupération des entreprises:", error);
+        Alert.alert('Erreur', 'Impossible de charger la liste des entreprises');
+      }
+    };
+    
+    fetchCompanies();
+  }, []);
+
+  // ✅ DEBUG STORAGE BUCKET
+  useEffect(() => {
+    console.log('🧪 DEBUG STORAGE BUCKET');
+    console.log('🧪 Storage object exists:', !!storage);
+    if (storage) {
+      console.log('🧪 Storage app exists:', !!storage.app);
+      console.log('🧪 Storage Bucket:', storage.app?.options?.storageBucket);
+    }
+  }, []);
+
+  // --- FONCTIONS POUR GÉRER LES VARIANTES ---
+  const addColor = () => {
+    if (newColor.trim() && !variantColors.includes(newColor.trim())) {
+      setVariantColors([...variantColors, newColor.trim()]);
+      setNewColor('');
+    }
+  };
+
+  const removeColor = (color: string) => {
+    setVariantColors(variantColors.filter(c => c !== color));
+  };
+
+  const addSize = () => {
+    if (newSize.trim() && !variantSizes.includes(newSize.trim())) {
+      setVariantSizes([...variantSizes, newSize.trim()]);
+      setNewSize('');
+    }
+  };
+
+  const removeSize = (size: string) => {
+    setVariantSizes(variantSizes.filter(s => s !== size));
+  };
+
+  // --- FONCTIONS POUR LA PERSONNALISATION ---
+  const togglePersonalizationField = (fieldId: string) => {
+    setPersonalizationFields(prev =>
+      prev.map(field =>
+        field.id === fieldId ? { ...field, enabled: !field.enabled } : field
+      )
+    );
+  };
+
+  const updateFieldLabel = (fieldId: string, newLabel: string) => {
+    setPersonalizationFields(prev =>
+      prev.map(field =>
+        field.id === fieldId ? { ...field, label: newLabel } : field
+      )
+    );
+  };
+
+  const updateFieldRequired = (fieldId: string) => {
+    setPersonalizationFields(prev =>
+      prev.map(field =>
+        field.id === fieldId ? { ...field, required: !field.required } : field
+      )
+    );
+  };
+
+  const addCustomField = () => {
+    if (!newFieldLabel.trim()) {
+      Alert.alert('Erreur', 'Veuillez saisir un nom pour le champ');
+      return;
+    }
+
+    const newField = {
+      id: `custom_${Date.now()}`,
+      label: newFieldLabel.trim(),
+      type: newFieldType,
+      required: false,
+      enabled: true,
+    };
+
+    setPersonalizationFields([...personalizationFields, newField]);
+    setNewFieldLabel('');
+    setNewFieldType('text');
+    setShowPersonalizationModal(false);
+  };
+
+  const removeCustomField = (fieldId: string) => {
+    if (!fieldId.startsWith('custom_')) {
+      Alert.alert('Info', 'Ce champ ne peut pas être supprimé, mais vous pouvez le désactiver');
+      return;
+    }
+    
+    setPersonalizationFields(prev => prev.filter(field => field.id !== fieldId));
+  };
+
+  // --- GÉNÉRATION DES VARIANTES ---
+  const generateVariants = () => {
+    const variants = [];
+    
+    variantColors.forEach(color => {
+      variantSizes.forEach(size => {
+        variants.push({
+          id: `${color.toLowerCase().replace(/\s+/g, '-')}-${size.toLowerCase().replace(/\s+/g, '-')}`,
+          color: color,
+          size: size,
+          price: finalPrice,
+          stock: Number(form.stock) || 10,
+          image: images.length > 0 ? images[0] : '',
+          sku: generateSku(form.title, color, size),
+          createdAt: new Date(),
+          isActive: form.isActive,
+          basePrice: basePrice,
+          priceAdjustment: priceAdjustment
         });
       });
-      
-      // Trier par nombre de produits (plus populaires en premier)
-      categoriesData.sort((a, b) => b.productCount - a.productCount);
-      setCategories(categoriesData);
-      console.log(`✅ ${categoriesData.length} catégories chargées`);
-      
-    } catch (error) {
-      console.error('❌ Erreur chargement catégories:', error);
-      // Fallback sur des catégories basiques
-      setCategories([
-        { id: 'mode', name: 'Mode & Accessoires', description: '', isActive: true, productCount: 0, icon: 'shirt' },
-        { id: 'electronique', name: 'Électronique', description: '', isActive: true, productCount: 0, icon: 'hardware-chip' },
-        { id: 'machines', name: 'Machines', description: '', isActive: true, productCount: 0, icon: 'build' },
-        { id: 'alimentation', name: 'Alimentation', description: '', isActive: true, productCount: 0, icon: 'restaurant' },
-        { id: 'construction', name: 'Construction', description: '', isActive: true, productCount: 0, icon: 'home' },
-      ]);
-    } finally {
-      setLoadingCategories(false);
-    }
+    });
+    
+    return variants;
   };
 
-  const fetchCompanyData = async (userId: string) => {
-    try {
-      const companyDoc = await getDoc(doc(db, 'companies', userId));
-      if (companyDoc.exists()) {
-        const data = companyDoc.data();
-        setCompanyData({
-          name: data.name || 'Mon Entreprise',
-          logo: data.logo || '',
-          verified: data.verified || data.verification?.verified || false,
-          goldSupplier: data.goldSupplier || false,
-          categories: data.categories || [],
-          mainCategory: data.mainCategory || '',
-          responseRate: data.responseRate || 85
-        });
-        
-        // Pré-remplir le fournisseur avec les données de l'entreprise
-        setForm(prev => ({
-          ...prev,
-          supplier: data.name || 'Mon Entreprise'
-        }));
-      }
-    } catch (error) {
-      console.error('Erreur chargement entreprise:', error);
-    }
-  };
-
-  // ? SÉLECTION DES IMAGES
+  // FONCTION PICKIMAGE
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       
       if (status !== 'granted') {
         Alert.alert(
-          'Permission requise', 
-          'L\'application a besoin d\'accéder à votre galerie pour sélectionner des images.',
-          [{ text: 'OK' }]
+          'Permission requise',
+          'Pour sélectionner des images, veuillez autoriser l\'accès à votre galerie.',
+          [
+            { text: 'Annuler', style: 'cancel' },
+            { text: 'Paramètres', onPress: () => Linking.openSettings() }
+          ]
         );
         return;
       }
@@ -378,55 +457,42 @@ export default function AddProductScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
-        aspect: [4, 3],
         quality: 0.8,
         allowsMultipleSelection: true,
-        selectionLimit: 10 - images.length
+        selectionLimit: 8 - images.length
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const newImages = result.assets.map(asset => asset.uri);
-        setImages(prev => [...prev, ...newImages].slice(0, 10));
+        setImages(prev => [...prev, ...newImages].slice(0, 8));
       }
 
-    } catch (error) {
-      console.error('? Erreur sélection images:', error);
-      Alert.alert('Erreur', 'Impossible d\'accéder à votre galerie.');
+    } catch (error: any) {
+      console.log('🔥 ERREUR PICKIMAGE:', error);
+      Alert.alert('Erreur', 'Impossible de sélectionner des images');
     }
   };
 
-  // ? SUPPRIMER IMAGE
+  // SUPPRIMER IMAGE
   const removeImage = (index: number) => {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ? SÉLECTIONNER UNE CATÉGORIE
-  const handleCategorySelect = (categoryId: string) => {
-    const category = categories.find(c => c.id === categoryId);
-    if (category) {
-      setForm({
-        ...form,
-        categoryId: category.id,
-        categoryName: category.name
-      });
-      console.log(`✅ Catégorie sélectionnée: ${category.name}`);
-    }
-  };
-
-  // ? FONCTION CRÉATION PRODUIT AVEC STRUCTURE B2B COMPLÈTE
+  // ✅ FONCTION HANDLESUBMIT AVEC LOGIQUE HYBRIDE
   const handleSubmit = async () => {
-    // VALIDATION AVANCÉE
+    console.log(`🔥🔥🔥 ${isEditMode ? 'MODIFICATION' : 'CRÉATION'} PRODUIT 🔥🔥🔥`);
+    
     if (!form.title.trim()) {
       Alert.alert('Erreur', 'Le titre du produit est requis');
       return;
     }
 
     if (!form.price || Number(form.price) <= 0) {
-      Alert.alert('Erreur', 'Le prix doit être supérieur à 0');
+      Alert.alert('Erreur', 'Le prix de base doit être supérieur à 0');
       return;
     }
 
-    if (!form.categoryId) {
+    if (!form.category) {
       Alert.alert('Erreur', 'Veuillez sélectionner une catégorie');
       return;
     }
@@ -436,8 +502,19 @@ export default function AddProductScreen() {
       return;
     }
 
-    if (Number(form.moq) < 1) {
-      Alert.alert('Erreur', 'La quantité minimum de commande doit être d\'au moins 1');
+    if (!selectedCompany) {
+      Alert.alert('Erreur', 'Veuillez sélectionner l\'entreprise propriétaire de ce produit');
+      return;
+    }
+
+    if (variantColors.length === 0 || variantSizes.length === 0) {
+      Alert.alert('Erreur', 'Veuillez ajouter au moins une couleur et une taille pour les variantes');
+      return;
+    }
+
+    if (!user || !user.uid) {
+      console.log('🔥 ❌ ERREUR: USER NON PRÊT');
+      Alert.alert('Erreur', 'Vous devez être connecté pour créer un produit');
       return;
     }
 
@@ -446,214 +523,197 @@ export default function AddProductScreen() {
     setUploadProgress(0);
 
     try {
-      console.log('?? Début processus création produit B2B...');
+      console.log(`🔥 ${isEditMode ? 'Modification' : 'Création'} produit pour entreprise:`, selectedCompany.name);
       
-      // ? UPLOAD DES IMAGES
-      const uploadedImageUrls = await uploadImagesToFirebase(images, user?.uid || 'anonymous');
-      
-      // Simulation de progression
       const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 15;
-        });
-      }, 300);
+        setUploadProgress(prev => prev < 90 ? prev + 10 : 90);
+      }, 200);
 
-      // ? STRUCTURE COMPLÈTE POUR PRODUITS B2B
+      console.log(`🔥 Upload ${images.length} image(s)...`);
+      const uploadedImageUrls = await uploadImagesToFirebase(images, user.uid);
+      
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+
+      console.log(`🔥 Génération de ${variantCount} variantes...`);
+      const variants = generateVariants();
+      
+      const variantsWithImages = variants.map(variant => ({
+        ...variant,
+        image: uploadedImageUrls[0]
+      }));
+
+      const variantAttributes = [
+        { name: "Color", values: variantColors },
+        { name: "Size", values: variantSizes }
+      ];
+
+      // On prépare les données
+      // 🔒 Vérification vendeur AVANT écriture Firestore
+      if (!selectedCompany?.id) {
+        Alert.alert("Erreur", "Impossible de déterminer le vendeur");
+        return;
+      }
+      
       const productData = {
-        // === IDENTIFIANTS ET MÉTADONNÉES ===
-        id: '', // Firestore générera l'ID
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        status: 'published',
-        productType: 'physical',
+        id: isEditMode ? productId : "", 
         
-        // === INFORMATIONS DE BASE ===
         name: form.title.trim(),
+        nameLower: form.title.trim().toLowerCase(),
         description: form.description.trim() || `Découvrez notre produit ${form.title.trim()}`,
-        shortDescription: form.description.trim().substring(0, 150) || '',
-        price: Number(form.price),
+        price: finalPrice,
+        basePrice: basePrice,
         originalPrice: form.originalPrice ? Number(form.originalPrice) : null,
         currency: 'XOF',
-        priceUnit: 'unité',
+        priceAdjustment: priceAdjustment,
         
-        // === IMAGES ===
         images: uploadedImageUrls,
         mainImage: uploadedImageUrls[0],
-        thumbnail: uploadedImageUrls[0],
+        imageUrl: uploadedImageUrls[0],
         
-        // === CATÉGORISATION ===
-        categoryId: form.categoryId,
-        categoryName: form.categoryName,
-        categories: companyData?.categories || [],
-        mainCategory: form.categoryId,
-        tags: [],
-        keywords: form.title.trim().toLowerCase().split(' '),
+        categoryId: await getCategoryId(form.category),
+        categoryName: form.category,
         
-        // === RELATION AVEC LE FOURNISSEUR ===
-        sellerId: user?.uid || '',
-        sellerName: form.supplier.trim(),
-        sellerLogo: companyData?.logo || user?.photoURL || '',
-        companyId: user?.uid || '',
-        companyName: companyData?.name || form.supplier.trim(),
-        companyVerified: companyData?.verified || false,
-        companyGoldSupplier: companyData?.goldSupplier || false,
-        companyResponseRate: companyData?.responseRate || 85,
+        companyId: selectedCompany.id,
+        companyName: selectedCompany.name,
+        supplier: selectedCompany.name,
+
+        // 🔴 IDENTITÉ VENDEUR (CRITIQUE POUR CHAT / CONVERSATIONS)
+        sellerId: selectedCompany.id,
+        creatorCompanyId: selectedCompany.id,
+        ownerCompanyId: selectedCompany.id,
         
-        // === SPÉCIFICATIONS TECHNIQUES B2B ===
-        specifications: {
-          material: form.material,
-          origin: form.origin || 'Importé',
-          warranty: form.warranty || '1 an',
-          modelNumber: form.modelNumber || form.sku || `MODEL-${Date.now()}`,
-          weight: form.weight ? `${form.weight} kg` : '',
-          dimensions: form.dimensions,
-          color: form.color,
-          usage: form.usage,
-          style: form.style,
-          packaging: form.packaging,
-          certifications: form.certifications ? form.certifications.split(',').map(c => c.trim()) : []
+        companyData: {
+          id: selectedCompany.id,
+          name: selectedCompany.name,
+          isPremium: selectedCompany.isPremium || false,
+          logo: selectedCompany.logo || null
         },
-        
-        // === STOCK ET COMMANDE B2B ===
-        stockQuantity: Number(form.stock) || 10,
-        minOrder: Number(form.minOrder) || 1,
-        moq: Number(form.moq) || 100,
-        maxOrder: null,
-        inStock: form.isActive,
-        lowStockThreshold: 5,
-        
-        // === OPTIONS B2B ===
-        hasSample: form.hasSample,
-        customizationAvailable: form.customization,
-        privateLabelAvailable: form.privateLabel,
-        bulkDiscount: form.bulkDiscount,
-        bulkDiscountRates: form.bulkDiscount ? [
-          { quantity: 100, discount: 5 },
-          { quantity: 500, discount: 10 },
-          { quantity: 1000, discount: 15 }
-        ] : [],
-        
-        // === LIVRAISON B2B ===
-        shippingCost: 0,
-        deliveryTime: form.deliveryTime,
-        leadTime: form.leadTime,
-        shippingMethods: ['Express', 'Standard', 'Sea Freight'],
-        fobPort: 'Abidjan, Côte d\'Ivoire',
-        paymentTerms: ['T/T', 'L/C', 'Western Union', 'Escrow'],
-        
-        // === AVIS ET NOTATION ===
-        rating: 0,
-        reviewCount: 0,
-        soldCount: 0,
-        inquiryCount: 0,
-        
-        // === GESTION DES PROMOTIONS ===
-        onSale: form.originalPrice && form.price ? Number(form.price) < Number(form.originalPrice) : false,
-        salePrice: form.originalPrice && form.price ? Number(form.price) : null,
-        discountPercentage: form.originalPrice && form.price ? 
-          Math.round((1 - Number(form.price) / Number(form.originalPrice)) * 100) : 0,
-        saleEndDate: null,
-        
-        // === MÉTADONNÉES DE CRÉATION ===
-        createdBy: userRole === 'admin' ? 'admin' : 'company',
-        creatorId: user?.uid || 'anonymous',
+
+        // ✅ NOUVEAU CHAMP POUR LA LIVRAISON GRATUITE
+        hasFreeShipping: hasFreeShipping,
+        freeShippingBadge: hasFreeShipping ? 'Livraison gratuite' : null,
+
+        isActive: form.isActive,
+        status: 'published',
+        inStock: true,
         isVerified: userRole === 'admin',
-        approvalStatus: 'approved',
         
-        // === SECTIONS D'AFFICHAGE ===
         featured: form.featured,
         trending: form.trending,
         specialOffer: form.specialOffer,
         newArrival: form.newArrival,
         industrial: form.industrial,
-        premiumSupplier: form.premiumSupplier,
-        topSelling: form.topSelling,
-        recommended: false,
-        
-        // === SEO ET VISIBILITÉ ===
+        premiumSupplier: selectedCompany.isPremium || form.premiumSupplier,
+
+        stockQuantity: Number(form.stock) || 10000,
+        minOrder: Number(form.minOrder) || 1,
+        shippingCost: 0,
+        deliveryTime: form.deliveryTime,
+        rating: 0,
+        reviewCount: 0,
+        soldCount: 0,
+
         slug: generateSlug(form.title.trim()),
-        metaTitle: form.title.trim(),
-        metaDescription: form.description.trim().substring(0, 160) || '',
-        metaKeywords: form.title.trim().toLowerCase().split(' ').join(', '),
-        
-        // === STATISTIQUES ===
-        viewCount: 0,
-        favoriteCount: 0,
-        shareCount: 0,
-        clickCount: 0,
-        
-        // === CHAMPS COMPLÉMENTAIRES ===
-        hasVariants: form.hasVariants,
-        variantOptions: form.hasVariants ? [
-          { name: 'Couleur', values: ['Rouge', 'Bleu', 'Vert'] },
-          { name: 'Taille', values: ['S', 'M', 'L', 'XL'] }
-        ] : [],
-        
-        // === POUR ANALYTIQUES ===
-        lastViewed: null,
-        lastSold: null,
-        
-        // === COMPATIBILITÉ ===
-        isActive: form.isActive,
-        isDeleted: false,
-        isDraft: false
+        updatedAt: new Date(),
+
+        specifications: {
+          modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
+          weight: form.weight.trim() || '',
+          dimensions: form.dimensions.trim() || '',
+        },
+
+        // Données de personnalisation
+        personalization: {
+          enabled: hasPersonalization,
+          fields: personalizationFields
+            .filter(field => field.enabled)
+            .map(field => ({
+              id: field.id,
+              label: field.label,
+              type: field.type,
+              required: field.required,
+            })),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+
+        hasVariants: true,
+        variantCount: variantCount,
+        variantAttributes: variantAttributes,
+        variants: variantsWithImages
       };
 
-      console.log('?? Création produit B2B Firestore...');
-      const docRef = await addDoc(collection(db, 'products'), productData);
-      
-      // Mettre à jour l'ID du document
-      await updateDoc(docRef, { id: docRef.id });
-      
-      // Mettre à jour le compteur de produits dans la catégorie
-      await updateCategoryProductCount(form.categoryId);
-      
-      // Mettre à jour le compteur de produits de l'entreprise
-      await updateCompanyProductCount(user?.uid || '');
-      
-      clearInterval(progressInterval);
-      setUploadProgress(100);
+      if (isEditMode) {
+        await updateDoc(doc(db, 'products', productId), productData);
+        
+        await addDoc(collection(db, 'product_updates'), {
+          productId: productId,
+          updateType: 'update',
+          updatedAt: new Date(),
+          updatedBy: user.uid
+        });
 
-      console.log('?? Produit B2B créé avec ID:', docRef.id);
+        clearInterval(progressInterval);
+        
+        Alert.alert(
+          '✅ Succès',
+          `Produit modifié avec succès !\n${variantCount} variante(s) • Prix: ${finalPrice.toLocaleString()} F CFA`,
+          [
+            {
+              text: 'OK',
+              onPress: () => router.back()
+            }
+          ]
+        );
 
-      // SUCCÈS AVEC OPTIONS B2B
-      Alert.alert(
-        'Produit créé avec succès! ??',
-        `"${form.title}" a été ajouté à la marketplace B2B.`,
-        [
-          {
-            text: 'Voir le produit',
-            onPress: () => router.push(`/product/${docRef.id}`)
-          },
-          {
-            text: 'Créer un autre',
-            style: 'cancel',
-            onPress: () => resetForm()
-          },
-          {
-            text: 'Dashboard',
-            onPress: () => router.push('/seller/dashboard')
-          }
-        ]
-      );
-
-    } catch (error) {
-      console.error('? Erreur création produit:', error);
-      
-      let errorMessage = 'Impossible de créer le produit. ';
-      if (error.message.includes('network')) {
-        errorMessage += 'Vérifiez votre connexion internet.';
-      } else if (error.message.includes('upload')) {
-        errorMessage += 'Problème avec les images.';
       } else {
-        errorMessage += error.message;
+        const docRef = await addDoc(collection(db, 'products'), {
+          ...productData,
+          id: '',
+          createdAt: new Date(),
+          creatorId: user.uid,
+          createdBy: userRole === 'admin' ? 'admin' : 'company'
+        });
+        
+        await updateDoc(docRef, { id: docRef.id });
+        
+        await addDoc(collection(db, 'product_updates'), {
+          productId: docRef.id,
+          updateType: 'create',
+          updatedAt: new Date(),
+          updatedBy: user.uid
+        });
+
+        clearInterval(progressInterval);
+        
+        Alert.alert(
+          '✅ Succès',
+          `Produit créé avec ${variantCount} variantes !\nPrix: ${finalPrice.toLocaleString()} F CFA${priceAdjustment > 0 ? ` (+${priceAdjustment} F ajustement)` : ''}`,
+          [
+            {
+              text: 'Voir les produits',
+              onPress: () => router.back()
+            },
+            {
+              text: 'Créer un autre',
+              onPress: resetForm
+            }
+          ]
+        );
       }
+
+    } catch (error: any) {
+      console.log(`🔥🔥🔥 ERREUR ${isEditMode ? 'MODIFICATION' : 'CRÉATION'} 🔥🔥🔥`);
+      console.log('🔥 Type:', typeof error);
+      console.log('🔥 Code:', error?.code);
+      console.log('🔥 Message:', error?.message);
       
-      Alert.alert('Erreur', errorMessage);
+      Alert.alert(
+        `Erreur ${isEditMode ? 'de modification' : 'de création'}`,
+        `Code: ${error?.code || 'N/A'}\nMessage: ${error?.message || 'Erreur inconnue'}`,
+        [{ text: 'OK' }]
+      );
       
     } finally {
       setLoading(false);
@@ -662,97 +722,81 @@ export default function AddProductScreen() {
     }
   };
 
-  // ? METTRE À JOUR LE COMPTEUR DE PRODUITS DANS LA CATÉGORIE
-  const updateCategoryProductCount = async (categoryId: string) => {
+  // FONCTION CATÉGORIE - VÉRIFICATION ET CRÉATION
+  const getCategoryId = async (categoryName: string): Promise<string> => {
     try {
-      const categoryRef = doc(db, 'categories', categoryId);
-      const categoryDoc = await getDoc(categoryRef);
-      
-      if (categoryDoc.exists()) {
-        const currentCount = categoryDoc.data().productCount || 0;
-        await updateDoc(categoryRef, {
-          productCount: currentCount + 1,
-          updatedAt: serverTimestamp()
-        });
-        console.log(`✅ Compteur catégorie ${categoryId} incrémenté`);
+      const categoriesQuery = await getDocs(collection(db, 'categories'));
+      const existingCategory = categoriesQuery.docs.find(doc => 
+        doc.data().name === categoryName
+      );
+
+      if (existingCategory) {
+        return existingCategory.id;
       }
+
+      const newCategoryRef = await addDoc(collection(db, 'categories'), {
+        name: categoryName,
+        description: `Catégorie ${categoryName}`,
+        imageUrl: null,
+        isActive: true,
+        productCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      return newCategoryRef.id;
+      
     } catch (error) {
-      console.error('Erreur mise à jour compteur catégorie:', error);
+      console.error('Erreur catégorie:', error);
+      return 'default-category';
     }
   };
 
-  // ? METTRE À JOUR LE COMPTEUR DE PRODUITS DE L'ENTREPRISE
-  const updateCompanyProductCount = async (companyId: string) => {
-    try {
-      const companyRef = doc(db, 'companies', companyId);
-      const companyDoc = await getDoc(companyRef);
-      
-      if (companyDoc.exists()) {
-        const currentStats = companyDoc.data().stats || {};
-        await updateDoc(companyRef, {
-          'stats.productCount': (currentStats.productCount || 0) + 1,
-          updatedAt: serverTimestamp()
-        });
-        console.log(`✅ Compteur produits entreprise ${companyId} incrémenté`);
-      }
-    } catch (error) {
-      console.error('Erreur mise à jour compteur entreprise:', error);
-    }
-  };
-
-  // ? RÉINITIALISER LE FORMULAIRE
+  // RÉINITIALISER FORMULAIRE
   const resetForm = () => {
     setForm({
       title: '',
       description: '',
       price: '',
       originalPrice: '',
-      categoryId: '',
-      categoryName: '',
+      category: '',
       stock: '10',
       sku: '',
       weight: '',
       dimensions: '',
       isActive: true,
-      hasVariants: false,
-      supplier: companyData?.name || '',
       deliveryTime: '3-5 jours',
       minOrder: '1',
-      
-      material: '',
-      origin: '',
-      warranty: '',
-      modelNumber: '',
-      color: '',
-      usage: '',
-      style: '',
-      
       featured: false,
       trending: false,
       specialOffer: false,
       newArrival: true,
       industrial: false,
       premiumSupplier: false,
-      topSelling: false,
-      
-      hasSample: true,
-      customization: false,
-      privateLabel: false,
-      bulkDiscount: false,
-      moq: '100',
-      leadTime: '15-30 jours',
-      packaging: 'Standard',
-      certifications: '',
     });
     setImages([]);
+    setVariantColors([]);
+    setVariantSizes([]);
+    setPriceAdjustment(0);
+    setSelectedCompany(null);
+    setShowCategoryDropdown(false);
+    setShowCompanyDropdown(false);
+    setCategorySearch('');
+    setHasPersonalization(false);
+    setHasFreeShipping(false);
+    setPersonalizationFields([
+      { id: 'name', label: 'Nom complet', type: 'text', required: true, enabled: true },
+      { id: 'email', label: 'Email', type: 'email', required: true, enabled: true },
+      { id: 'phone', label: 'Téléphone', type: 'tel', required: false, enabled: true },
+      { id: 'message', label: 'Message personnalisé', type: 'textarea', required: false, enabled: true },
+      { id: 'date', label: 'Date souhaitée', type: 'date', required: false, enabled: false },
+      { id: 'color', label: 'Couleur préférée', type: 'text', required: false, enabled: false },
+    ]);
   };
 
-  // ? COMPOSANT TOGGLE B2B
-  const B2BToggle = ({ label, value, onValueChange, description, icon }) => (
+  // COMPOSANT TOGGLE
+  const SectionToggle = ({ label, value, onValueChange, description }: any) => (
     <View style={styles.toggleContainer}>
-      <View style={styles.toggleIconContainer}>
-        <Ionicons name={icon} size={20} color={value ? '#ff6a00' : '#999'} />
-      </View>
       <View style={styles.toggleText}>
         <Text style={styles.toggleLabel}>{label}</Text>
         <Text style={styles.toggleDescription}>{description}</Text>
@@ -760,25 +804,102 @@ export default function AddProductScreen() {
       <Switch
         value={value}
         onValueChange={onValueChange}
-        trackColor={{ false: '#ddd', true: '#ffd8b4' }}
+        trackColor={{ false: '#767577', true: '#81b0ff' }}
         thumbColor={value ? '#ff6a00' : '#f4f3f4'}
       />
     </View>
   );
 
-  // ? COMPOSANT INPUT B2B
-  const B2BInput = ({ label, value, onChangeText, placeholder, keyboardType = 'default' }) => (
-    <View style={styles.inputGroup}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={styles.input}
-        placeholder={placeholder}
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType}
-      />
+  // COMPOSANT BADGE
+  const Badge = ({ text, onRemove, type = 'default' }: any) => (
+    <View style={[
+      styles.badge,
+      type === 'color' && styles.colorBadge,
+      type === 'size' && styles.sizeBadge
+    ]}>
+      <Text style={styles.badgeText}>{text}</Text>
+      <TouchableOpacity onPress={() => onRemove(text)}>
+        <Ionicons name="close-circle" size={16} color="#FF4444" />
+      </TouchableOpacity>
     </View>
   );
+
+  // COMPOSANT MODAL D'AJOUT DE CHAMP PERSONNALISÉ
+  const PersonalizationModal = () => (
+    <Modal
+      visible={showPersonalizationModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowPersonalizationModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Ajouter un champ personnalisé</Text>
+            <TouchableOpacity onPress={() => setShowPersonalizationModal(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalBody}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Nom du champ</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex: Date de livraison souhaitée"
+                value={newFieldLabel}
+                onChangeText={setNewFieldLabel}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Type de champ</Text>
+              <View style={styles.fieldTypeContainer}>
+                {['text', 'textarea', 'email', 'tel', 'date'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[
+                      styles.fieldTypeButton,
+                      newFieldType === type && styles.fieldTypeButtonActive
+                    ]}
+                    onPress={() => setNewFieldType(type)}
+                  >
+                    <Text style={[
+                      styles.fieldTypeText,
+                      newFieldType === type && styles.fieldTypeTextActive
+                    ]}>
+                      {type === 'text' ? 'Texte' :
+                       type === 'textarea' ? 'Zone de texte' :
+                       type === 'email' ? 'Email' :
+                       type === 'tel' ? 'Téléphone' :
+                       'Date'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.modalAddButton}
+              onPress={addCustomField}
+            >
+              <Ionicons name="add-circle" size={20} color="#FFF" />
+              <Text style={styles.modalAddButtonText}>Ajouter le champ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  if (initialLoading) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#FF6B00" />
+        <Text style={styles.loadingText}>Chargement du produit...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -786,27 +907,23 @@ export default function AddProductScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Nouveau Produit B2B</Text>
-          {companyData && (
-            <Text style={styles.companyName}>{companyData.name}</Text>
-          )}
-        </View>
+        <Text style={styles.headerTitle}>
+          {isEditMode ? 'Modifier le produit' : 'Nouveau Produit'}
+        </Text>
         <TouchableOpacity onPress={handleSubmit} disabled={loading}>
           <Text style={[styles.publishButton, loading && styles.publishButtonDisabled]}>
-            {loading ? '...' : 'Créer'}
+            {loading ? '...' : isEditMode ? 'Mettre à jour' : 'Créer'}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Overlay de chargement */}
       {(loading || isUploading) && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#FF6B00" />
           <Text style={styles.loadingText}>
             {isUploading 
               ? `Upload des images... ${uploadProgress}%` 
-              : 'Création du produit B2B...'
+              : isEditMode ? 'Mise à jour...' : 'Création...'
             }
           </Text>
           <Text style={styles.loadingSubtext}>
@@ -827,23 +944,17 @@ export default function AddProductScreen() {
       )}
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* En-tête B2B */}
-        <View style={styles.b2bHeader}>
-          <Ionicons name="business" size={24} color="#007AFF" />
-          <Text style={styles.b2bHeaderText}>Formulaire Professionnel B2B</Text>
-        </View>
-
         {/* Section Photos */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>?? Photos du produit</Text>
-            <Text style={styles.requiredLabel}>(Minimum 1, Maximum 10)</Text>
+            <Text style={styles.sectionTitle}>📸 Photos du produit</Text>
+            <Text style={styles.requiredLabel}>(Obligatoire)</Text>
           </View>
           
           <Text style={styles.sectionSubtitle}>
             {images.length > 0 
-              ? `${images.length} image(s) - ${images.length >= 3 ? '✅ Idéal pour B2B' : 'Ajoutez plus d\'angles'}`
-              : 'Images haute qualité augmentent les conversions B2B'
+              ? `${images.length} image(s) sélectionnée(s)`
+              : 'Ajoutez au moins une image de qualité'
             }
           </Text>
           
@@ -852,14 +963,13 @@ export default function AddProductScreen() {
             <Text style={styles.uploadText}>
               {images.length > 0 ? 'Ajouter plus de photos' : '+ Ajouter des photos'}
             </Text>
-            <Text style={styles.uploadHint}>10 maximum • JPEG, PNG • 4:3 recommandé</Text>
+            <Text style={styles.uploadHint}>8 maximum • JPEG, PNG</Text>
           </TouchableOpacity>
 
-          {/* Aperçu des images */}
           {images.length > 0 && (
             <View style={styles.photoGrid}>
               {images.map((image, index) => (
-                <View key={index} style={styles.photoItem}>
+                <View key={`${image}-${index}`} style={styles.photoItem}>
                   <Image source={{ uri: image }} style={styles.photoImage} />
                   {index === 0 && (
                     <View style={styles.mainImageBadge}>
@@ -874,7 +984,7 @@ export default function AddProductScreen() {
                   </TouchableOpacity>
                 </View>
               ))}
-              {images.length < 10 && (
+              {images.length < 8 && (
                 <TouchableOpacity style={styles.photoSlot} onPress={pickImage}>
                   <Ionicons name="add" size={24} color="#999" />
                   <Text style={styles.photoSlotText}>Ajouter</Text>
@@ -884,22 +994,76 @@ export default function AddProductScreen() {
           )}
         </View>
 
+        {/* SECTION ENTREPRISE */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>🏢 Entreprise / Boutique</Text>
+            <Text style={styles.requiredLabel}>(Obligatoire)</Text>
+          </View>
+          
+          <Text style={styles.sectionSubtitle}>
+            À qui appartient ce produit ? {selectedCompany && `(${selectedCompany.name})`}
+          </Text>
+          
+          <TouchableOpacity 
+            style={styles.picker} 
+            onPress={() => setShowCompanyDropdown(!showCompanyDropdown)}
+          >
+            <Text style={selectedCompany ? styles.pickerTextSelected : styles.pickerText}>
+              {selectedCompany ? selectedCompany.name : 'Sélectionner une entreprise'}
+            </Text>
+            <Ionicons name="business" size={20} color="#FF6B00" />
+          </TouchableOpacity>
+
+          {showCompanyDropdown && (
+            <View style={styles.dropdown}>
+              <ScrollView style={styles.dropdownScroll} nestedScrollEnabled={true}>
+                {companies.map((comp) => (
+                  <TouchableOpacity 
+                    key={comp.id} 
+                    style={styles.dropdownItem}
+                    onPress={() => {
+                      setSelectedCompany(comp);
+                      setShowCompanyDropdown(false);
+                    }}
+                  >
+                    <View style={styles.companyItem}>
+                      <View style={styles.companyInfo}>
+                        <Text style={styles.dropdownText}>{comp.name}</Text>
+                        <Text style={styles.companyDetails}>
+                          {comp.type || 'Non spécifié'} • {comp.location || 'Localisation non spécifiée'}
+                        </Text>
+                      </View>
+                      {comp.isPremium && <Ionicons name="star" size={14} color="#FFD700" />}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
         {/* Informations de base */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>?? Informations de base</Text>
+          <Text style={styles.sectionTitle}>📋 Informations de base</Text>
           
-          <B2BInput
-            label="Titre du produit *"
-            value={form.title}
-            onChangeText={(text) => setForm({...form, title: text})}
-            placeholder="Ex: Machine à couvercles CNC 3 axes"
-          />
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Titre du produit <Text style={styles.required}>*</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ex: Chaussures de sport"
+              value={form.title}
+              onChangeText={(text) => setForm({...form, title: text})}
+            />
+          </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Description détaillée *</Text>
+            <Text style={styles.label}>Description</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Décrivez les caractéristiques techniques, spécifications, avantages..."
+              placeholder="Décrivez votre produit..."
               multiline
               numberOfLines={4}
               value={form.description}
@@ -909,7 +1073,9 @@ export default function AddProductScreen() {
 
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Prix (F CFA) *</Text>
+              <Text style={styles.label}>
+                Prix normal (F CFA) <Text style={styles.required}>*</Text>
+              </Text>
               <TextInput
                 style={styles.input}
                 placeholder="18900"
@@ -917,6 +1083,21 @@ export default function AddProductScreen() {
                 value={form.price}
                 onChangeText={(text) => setForm({...form, price: text})}
               />
+              {form.price && (
+                <View style={styles.priceSummary}>
+                  <Text style={styles.priceSummaryText}>
+                    Prix normal: <Text style={styles.priceValue}>{basePrice.toLocaleString()} F CFA</Text>
+                  </Text>
+                  {priceAdjustment > 0 && (
+                    <Text style={styles.priceSummaryText}>
+                      + Ajustement: <Text style={styles.adjustmentValue}>+{priceAdjustment} F</Text>
+                    </Text>
+                  )}
+                  <Text style={styles.finalPriceText}>
+                    Prix final: <Text style={styles.finalPriceValue}>{finalPrice.toLocaleString()} F CFA</Text>
+                  </Text>
+                </View>
+              )}
             </View>
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
               <Text style={styles.label}>Prix original</Text>
@@ -930,263 +1111,446 @@ export default function AddProductScreen() {
             </View>
           </View>
 
-          {/* Sélection de catégorie améliorée */}
+          {/* AJUSTEMENT DE PRIX RAPIDE */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Ajustement rapide (optionnel)</Text>
+            <Text style={styles.optionalDescription}>
+              Ajouter un montant fixe au prix normal
+            </Text>
+            <View style={styles.priceToggleContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.priceToggle,
+                  priceAdjustment === 500 && styles.priceToggleActive
+                ]}
+                onPress={() => setPriceAdjustment(priceAdjustment === 500 ? 0 : 500)}
+              >
+                <View style={styles.priceToggleContent}>
+                  <Ionicons 
+                    name={priceAdjustment === 500 ? "checkmark-circle" : "add-circle-outline"} 
+                    size={16} 
+                    color={priceAdjustment === 500 ? "#FFF" : "#666"} 
+                  />
+                  <Text style={[
+                    styles.priceToggleText,
+                    priceAdjustment === 500 && styles.priceToggleTextActive
+                  ]}>
+                    +500 F
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.priceToggle,
+                  priceAdjustment === 1000 && styles.priceToggleActive
+                ]}
+                onPress={() => setPriceAdjustment(priceAdjustment === 1000 ? 0 : 1000)}
+              >
+                <View style={styles.priceToggleContent}>
+                  <Ionicons 
+                    name={priceAdjustment === 1000 ? "checkmark-circle" : "add-circle-outline"} 
+                    size={16} 
+                    color={priceAdjustment === 1000 ? "#FFF" : "#666"} 
+                  />
+                  <Text style={[
+                    styles.priceToggleText,
+                    priceAdjustment === 1000 && styles.priceToggleTextActive
+                  ]}>
+                    +1000 F
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              {priceAdjustment > 0 && (
+                <TouchableOpacity
+                  style={styles.priceToggleRemove}
+                  onPress={() => setPriceAdjustment(0)}
+                >
+                  <View style={styles.priceToggleContent}>
+                    <Ionicons name="close-circle" size={16} color="#FF4444" />
+                    <Text style={styles.priceToggleRemoveText}>
+                      Retirer
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* SECTION CATÉGORIE DYNAMIQUE AVEC RECHERCHE ET AJOUT À LA VOLÉE */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
-              Catégorie * {form.categoryName && `- ${form.categoryName}`}
+              Catégorie <Text style={styles.required}>*</Text>
             </Text>
             <TouchableOpacity 
-              style={[styles.picker, form.categoryName && styles.pickerSelected]}
-              onPress={() => setShowCategoryModal(true)}
+              style={styles.picker}
+              onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
             >
-              <Ionicons name="pricetag-outline" size={18} color={form.categoryName ? '#ff6a00' : '#999'} />
-              <Text style={form.categoryName ? styles.pickerTextSelected : styles.pickerText}>
-                {form.categoryName || 'Sélectionner une catégorie'}
+              <Text style={form.category ? styles.pickerTextSelected : styles.pickerText}>
+                {form.category || 'Sélectionner une catégorie'}
               </Text>
-              <Ionicons name="chevron-forward" size={16} color="#999" />
+              <Ionicons name="chevron-down" size={16} color="#999" />
             </TouchableOpacity>
-            
-            {companyData?.categories && companyData.categories.length > 0 && (
-              <View style={styles.companyCategories}>
-                <Text style={styles.companyCategoriesTitle}>Catégories de votre entreprise:</Text>
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.categoryChips}
-                >
-                  {companyData.categories.slice(0, 10).map((catId, index) => {
-                    const category = categories.find(c => c.id === catId);
-                    return category ? (
-                      <TouchableOpacity
-                        key={index}
-                        style={[
-                          styles.categoryChip,
-                          form.categoryId === catId && styles.categoryChipActive
-                        ]}
-                        onPress={() => handleCategorySelect(catId)}
-                      >
-                        <Text style={[
-                          styles.categoryChipText,
-                          form.categoryId === catId && styles.categoryChipTextActive
-                        ]}>
-                          {category.name}
+
+            {showCategoryDropdown && (
+              <View style={styles.categoryDropdown}>
+                {/* Champ de recherche */}
+                <View style={styles.searchContainer}>
+                  <Ionicons name="search" size={16} color="#999" style={styles.searchIcon} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Rechercher une catégorie..."
+                    placeholderTextColor="#999"
+                    value={categorySearch}
+                    onChangeText={setCategorySearch}
+                  />
+                  {categorySearch.length > 0 && (
+                    <TouchableOpacity onPress={() => setCategorySearch('')}>
+                      <Ionicons name="close-circle" size={16} color="#999" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <ScrollView style={styles.dropdownScroll} nestedScrollEnabled={true}>
+                  {/* Liste des catégories existantes */}
+                  {filteredCategories.map((cat) => (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        setForm({...form, category: cat.name});
+                        setShowCategoryDropdown(false);
+                        setCategorySearch('');
+                      }}
+                    >
+                      <Text style={styles.dropdownText}>{cat.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+
+                  {/* Bouton d'ajout de nouvelle catégorie */}
+                  {categorySearch.trim() !== '' && 
+                   !filteredCategories.some(cat => 
+                     cat.name.toLowerCase() === categorySearch.toLowerCase()
+                   ) && (
+                    <TouchableOpacity
+                      style={styles.addNewCategoryButton}
+                      onPress={() => {
+                        setForm({...form, category: categorySearch.trim()});
+                        setShowCategoryDropdown(false);
+                        setCategorySearch('');
+                      }}
+                    >
+                      <View style={styles.addNewCategoryContent}>
+                        <Ionicons name="add-circle" size={20} color="#FF6B00" />
+                        <Text style={styles.addNewCategoryText}>
+                          + Ajouter "{categorySearch.trim()}"
                         </Text>
-                      </TouchableOpacity>
-                    ) : null;
-                  })}
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Message si aucune catégorie */}
+                  {filteredCategories.length === 0 && categorySearch.trim() === '' && (
+                    <View style={styles.emptyCategories}>
+                      <Text style={styles.emptyCategoriesText}>
+                        Aucune catégorie trouvée
+                      </Text>
+                    </View>
+                  )}
                 </ScrollView>
-                
-                {/* Message si plus de 10 catégories */}
-                {companyData.categories.length > 10 && (
-                  <TouchableOpacity 
-                    style={styles.seeAllButton}
-                    onPress={() => setShowCategoryModal(true)}
-                  >
-                    <Text style={styles.seeAllText}>
-                      + {companyData.categories.length - 10} autres catégories disponibles
-                    </Text>
-                  </TouchableOpacity>
-                )}
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* SECTION COULEURS ET TAILLES */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🎨 Couleurs et Tailles</Text>
+          <Text style={styles.sectionSubtitle}>
+            {variantCount > 0 
+              ? `✅ ${variantCount} variantes vont être créées`
+              : 'Ajoutez des couleurs et tailles pour générer des variantes'
+            }
+          </Text>
+
+          {/* COULEURS */}
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>
+              Couleurs <Text style={styles.required}>*</Text>
+            </Text>
+            <View style={styles.addInputContainer}>
+              <TextInput
+                style={[styles.input, styles.addInput]}
+                placeholder="Ex: Noir, Rouge, Bleu"
+                value={newColor}
+                onChangeText={setNewColor}
+                onSubmitEditing={addColor}
+              />
+              <TouchableOpacity style={styles.addButton} onPress={addColor}>
+                <Ionicons name="add" size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+            
+            {variantColors.length > 0 && (
+              <View style={styles.badgesContainer}>
+                {variantColors.map((color, index) => (
+                  <Badge 
+                    key={`color-${color}-${index}`} 
+                    text={color} 
+                    onRemove={removeColor}
+                    type="color"
+                  />
+                ))}
               </View>
             )}
           </View>
 
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Quantité minimum (MOQ) *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="100"
-                keyboardType="numeric"
-                value={form.moq}
-                onChangeText={(text) => setForm({...form, moq: text})}
-              />
-              <Text style={styles.hint}>Quantité minimum de commande</Text>
-            </View>
-            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>Délai de production</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="15-30 jours"
-                value={form.leadTime}
-                onChangeText={(text) => setForm({...form, leadTime: text})}
-              />
-              <Text style={styles.hint}>Délai après commande</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Spécifications techniques B2B */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>?? Spécifications techniques</Text>
-          
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Matériau</Text>
-              <TextInput
-                style={styles.input}
-                value={form.material}
-                onChangeText={(text) => setForm({...form, material: text})}
-                placeholder="Acier, plastique, aluminium..."
-              />
-            </View>
-            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>Origine</Text>
-              <TextInput
-                style={styles.input}
-                value={form.origin}
-                onChangeText={(text) => setForm({...form, origin: text})}
-                placeholder="Chine, UE, Local..."
-              />
-            </View>
-          </View>
-
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Garantie</Text>
-              <TextInput
-                style={styles.input}
-                value={form.warranty}
-                onChangeText={(text) => setForm({...form, warranty: text})}
-                placeholder="1 an, 2 ans..."
-              />
-            </View>
-            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>Numéro de modèle</Text>
-              <TextInput
-                style={styles.input}
-                value={form.modelNumber}
-                onChangeText={(text) => setForm({...form, modelNumber: text})}
-                placeholder="MOD-2024-001"
-              />
-            </View>
-          </View>
-
+          {/* TAILLES */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Certifications (séparées par des virgules)</Text>
-            <TextInput
-              style={styles.input}
-              value={form.certifications}
-              onChangeText={(text) => setForm({...form, certifications: text})}
-              placeholder="ISO 9001, CE, RoHS, FDA"
+            <Text style={styles.label}>
+              Tailles/Pointures <Text style={styles.required}>*</Text>
+            </Text>
+            <View style={styles.addInputContainer}>
+              <TextInput
+                style={[styles.input, styles.addInput]}
+                placeholder="Ex: S, M, L, XL ou 39, 40, 41"
+                value={newSize}
+                onChangeText={setNewSize}
+                onSubmitEditing={addSize}
+              />
+              <TouchableOpacity style={styles.addButton} onPress={addSize}>
+                <Ionicons name="add" size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+            
+            {variantSizes.length > 0 && (
+              <View style={styles.badgesContainer}>
+                {variantSizes.map((size, index) => (
+                  <Badge 
+                    key={`size-${size}-${index}`} 
+                    text={size} 
+                    onRemove={removeSize}
+                    type="size"
+                  />
+                ))}
+              </View>
+            )}
+          </View>
+
+          {variantCount > 0 && (
+            <View style={styles.variantsPreview}>
+              <Text style={styles.variantsPreviewTitle}>
+                ⚙️ Configuration des variantes
+              </Text>
+              <Text style={styles.variantsPreviewText}>
+                {variantColors.length} couleur(s) × {variantSizes.length} taille(s) = {variantCount} variante(s)
+              </Text>
+              <Text style={styles.variantsPreviewDetail}>
+                Prix par variante: {finalPrice.toLocaleString()} F CFA
+                {priceAdjustment > 0 && ` (${basePrice.toLocaleString()} F + ${priceAdjustment} F)`}
+              </Text>
+            </View>
+          )}
+
+          {/* SECTION PERSONNALISATION */}
+          <View style={styles.personalizationDivider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>PERSONNALISATION CLIENT</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <View style={styles.personalizationHeader}>
+            <View style={styles.personalizationTitleContainer}>
+              <Ionicons name="create-outline" size={24} color="#FF6B00" />
+              <Text style={styles.personalizationTitle}>Formulaire de personnalisation</Text>
+            </View>
+            <Switch
+              value={hasPersonalization}
+              onValueChange={setHasPersonalization}
+              trackColor={{ false: '#E0E0E0', true: '#FF6B00' }}
             />
           </View>
-        </View>
 
-        {/* Options B2B */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>?? Options B2B</Text>
-          <Text style={styles.sectionSubtitle}>
-            Ces options augmentent votre attractivité pour les acheteurs professionnels
-          </Text>
+          {hasPersonalization && (
+            <View style={styles.personalizationContainer}>
+              <Text style={styles.personalizationSubtitle}>
+                Configurez les champs que le client devra remplir avant d'acheter
+              </Text>
 
-          <B2BToggle
-            label="Échantillons disponibles"
-            value={form.hasSample}
-            onValueChange={(value) => setForm({...form, hasSample: value})}
-            description="Proposer des échantillons aux acheteurs sérieux"
-            icon="cube-outline"
-          />
+              {/* Liste des champs */}
+              <View style={styles.fieldsContainer}>
+                {personalizationFields.map((field) => (
+                  <View key={field.id} style={styles.fieldItem}>
+                    <View style={styles.fieldHeader}>
+                      <View style={styles.fieldTitleContainer}>
+                        <Ionicons 
+                          name={field.enabled ? "checkbox-outline" : "close-circle-outline"} 
+                          size={20} 
+                          color={field.enabled ? "#4CAF50" : "#999"} 
+                        />
+                        <Text style={[
+                          styles.fieldLabel,
+                          !field.enabled && styles.fieldLabelDisabled
+                        ]}>
+                          {field.label}
+                        </Text>
+                        {field.required && (
+                          <Text style={styles.requiredStar}>*</Text>
+                        )}
+                      </View>
+                      <View style={styles.fieldActions}>
+                        <TouchableOpacity
+                          onPress={() => togglePersonalizationField(field.id)}
+                          style={styles.fieldActionButton}
+                        >
+                          <Ionicons 
+                            name={field.enabled ? "eye-outline" : "eye-off-outline"} 
+                            size={18} 
+                            color={field.enabled ? "#4CAF50" : "#999"} 
+                          />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={() => updateFieldRequired(field.id)}
+                          style={styles.fieldActionButton}
+                        >
+                          <Ionicons 
+                            name={field.required ? "star" : "star-outline"} 
+                            size={18} 
+                            color={field.required ? "#FF6B00" : "#999"} 
+                          />
+                        </TouchableOpacity>
 
-          <B2BToggle
-            label="Personnalisation possible"
-            value={form.customization}
-            onValueChange={(value) => setForm({...form, customization: value})}
-            description="Adaptez le produit aux besoins du client"
-            icon="color-palette-outline"
-          />
+                        {field.id.startsWith('custom_') && (
+                          <TouchableOpacity
+                            onPress={() => removeCustomField(field.id)}
+                            style={styles.fieldActionButton}
+                          >
+                            <Ionicons name="trash-outline" size={18} color="#FF4444" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                    
+                    {!field.id.startsWith('custom_') && (
+                      <TextInput
+                        style={styles.fieldEditInput}
+                        value={field.label}
+                        onChangeText={(text) => updateFieldLabel(field.id, text)}
+                        placeholder="Modifier le libellé"
+                      />
+                    )}
+                    
+                    <Text style={styles.fieldType}>
+                      Type: {field.type === 'text' ? 'Texte' :
+                             field.type === 'textarea' ? 'Zone de texte' :
+                             field.type === 'email' ? 'Email' :
+                             field.type === 'tel' ? 'Téléphone' :
+                             'Date'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
 
-          <B2BToggle
-            label="Marque privée"
-            value={form.privateLabel}
-            onValueChange={(value) => setForm({...form, privateLabel: value})}
-            description="Ajoutez le logo du client"
-            icon="bag-add-outline"
-          />
+              {/* Bouton ajouter champ personnalisé */}
+              <TouchableOpacity
+                style={styles.addFieldButton}
+                onPress={() => setShowPersonalizationModal(true)}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#FF6B00" />
+                <Text style={styles.addFieldButtonText}>Ajouter un champ personnalisé</Text>
+              </TouchableOpacity>
 
-          <B2BToggle
-            label="Remises sur volume"
-            value={form.bulkDiscount}
-            onValueChange={(value) => setForm({...form, bulkDiscount: value})}
-            description="Réductions pour grosses commandes"
-            icon="trending-down-outline"
-          />
+              {/* Aperçu pour le client */}
+              <View style={styles.previewContainer}>
+                <Text style={styles.previewTitle}>👁️ Aperçu client</Text>
+                <View style={styles.previewContent}>
+                  <Text style={styles.previewText}>
+                    {personalizationFields.filter(f => f.enabled).length > 0 
+                      ? `Le client devra remplir ${personalizationFields.filter(f => f.enabled).length} champ(s) :`
+                      : 'Aucun champ activé pour le moment'}
+                  </Text>
+                  {personalizationFields.filter(f => f.enabled).map((field, index) => (
+                    <View key={field.id} style={styles.previewField}>
+                      <Text style={styles.previewFieldLabel}>
+                        {field.label}{field.required && ' *'}
+                      </Text>
+                      <View style={styles.previewFieldInput}>
+                        <Text style={styles.previewFieldPlaceholder}>
+                          {field.type === 'textarea' ? 'Zone de texte...' : 
+                           field.type === 'date' ? 'Sélectionner une date' :
+                           `Saisir ${field.label.toLowerCase()}`}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Sections d'affichage */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>?? Sections d'affichage</Text>
+          <Text style={styles.sectionTitle}>🎯 Sections d'affichage</Text>
           <Text style={styles.sectionSubtitle}>
-            Choisissez où votre produit apparaîtra sur la marketplace
+            Choisissez où votre produit apparaîtra sur la page d'accueil
           </Text>
 
-          <B2BToggle
-            label="?? Vedette sur l'accueil"
+          <SectionToggle
+            label="⭐ Vedette sur l'accueil"
             value={form.featured}
             onValueChange={(value) => setForm({...form, featured: value})}
             description="Produit mis en avant en haut de page"
-            icon="star-outline"
           />
 
-          <B2BToggle
-            label="?? Tendances"
+          <SectionToggle
+            label="📈 Tendances"
             value={form.trending}
             onValueChange={(value) => setForm({...form, trending: value})}
             description="Section populaire du moment"
-            icon="trending-up-outline"
           />
 
-          <B2BToggle
-            label="?? Offres spéciales"
+          <SectionToggle
+            label="🔥 Offres spéciales"
             value={form.specialOffer}
             onValueChange={(value) => setForm({...form, specialOffer: value})}
             description="Pour les promotions et soldes"
-            icon="flash-outline"
           />
 
-          <B2BToggle
-            label="?? Machines industrielles"
-            value={form.industrial}
-            onValueChange={(value) => setForm({...form, industrial: value})}
-            description="Section équipements professionnels"
-            icon="build-outline"
-          />
-
-          <B2BToggle
-            label="?? Nouveautés"
+          <SectionToggle
+            label="🆕 Nouveautés"
             value={form.newArrival}
             onValueChange={(value) => setForm({...form, newArrival: value})}
             description="Tous les nouveaux produits (recommandé)"
-            icon="sparkles-outline"
           />
 
-          <B2BToggle
-            label="?? Meilleures ventes"
-            value={form.topSelling}
-            onValueChange={(value) => setForm({...form, topSelling: value})}
-            description="Section des produits les plus vendus"
-            icon="trophy-outline"
+          <SectionToggle
+            label="🏭 Machines industrielles"
+            value={form.industrial}
+            onValueChange={(value) => setForm({...form, industrial: value})}
+            description="Section équipements professionnels"
           />
 
-          <B2BToggle
-            label="? Fournisseurs premium"
+          <SectionToggle
+            label="👑 Fournisseurs premium"
             value={form.premiumSupplier}
             onValueChange={(value) => setForm({...form, premiumSupplier: value})}
-            description="Visible uniquement si vous êtes Gold Supplier"
-            icon="diamond-outline"
+            description="Pour vendeurs certifiés"
           />
         </View>
 
         {/* Stock et inventaire */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>?? Stock et inventaire</Text>
+          <Text style={styles.sectionTitle}>📦 Stock et inventaire</Text>
           
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Quantité en stock</Text>
+              <Text style={styles.label}>Stock par variante</Text>
               <TextInput
                 style={styles.input}
-                placeholder="50"
+                placeholder="10"
                 keyboardType="numeric"
                 value={form.stock}
                 onChangeText={(text) => setForm({...form, stock: text})}
@@ -1205,10 +1569,20 @@ export default function AddProductScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Référence SKU/Code produit</Text>
+            <Text style={styles.label}>Délai de livraison</Text>
             <TextInput
               style={styles.input}
-              placeholder="MACH-CNC-2024-001"
+              placeholder="3-5 jours"
+              value={form.deliveryTime}
+              onChangeText={(text) => setForm({...form, deliveryTime: text})}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Référence SKU (base)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="CHAU-SPORT-001"
               value={form.sku}
               onChangeText={(text) => setForm({...form, sku: text})}
             />
@@ -1229,7 +1603,7 @@ export default function AddProductScreen() {
 
         {/* Livraison */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>?? Informations livraison</Text>
+          <Text style={styles.sectionTitle}>🚚 Informations livraison</Text>
           
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
@@ -1253,29 +1627,125 @@ export default function AddProductScreen() {
             </View>
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Conditionnement</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Carton, palette, emballage individuel..."
-              value={form.packaging}
-              onChangeText={(text) => setForm({...form, packaging: text})}
-            />
+          {/* SECTION LIVRAISON GRATUITE */}
+          <View style={[
+            styles.shippingFreeSection,
+            hasFreeShipping && styles.shippingFreeSectionActive
+          ]}>
+            <View style={styles.shippingFreeHeader}>
+              <View style={styles.shippingFreeTitleContainer}>
+                <Ionicons 
+                  name={hasFreeShipping ? "gift" : "gift-outline"} 
+                  size={24} 
+                  color={hasFreeShipping ? "#10b981" : "#999"} 
+                />
+                <Text style={styles.shippingFreeTitle}>
+                  Livraison gratuite
+                </Text>
+              </View>
+              <Switch
+                value={hasFreeShipping}
+                onValueChange={setHasFreeShipping}
+                trackColor={{ false: '#E0E0E0', true: '#10b981' }}
+                thumbColor={hasFreeShipping ? '#FFF' : '#f4f3f4'}
+              />
+            </View>
+            
+            <Text style={styles.shippingFreeDescription}>
+              {hasFreeShipping 
+                ? "✓ Ce produit bénéficie de la livraison gratuite pour le client" 
+                : "Activez pour offrir la livraison gratuite sur ce produit"}
+            </Text>
+            
+            {hasFreeShipping && (
+              <View style={styles.freeShippingBadge}>
+                <Ionicons name="checkmark-circle" size={16} color="#10b981" />
+                <Text style={styles.freeShippingBadgeText}>
+                  Livraison OFFERTE - Visible sur la fiche produit
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
-        {/* Bouton de création */}
+        {/* RÉSUMÉ FINAL */}
+        <View style={[styles.section, styles.summarySection]}>
+          <Text style={styles.summaryTitle}>📊 Récapitulatif</Text>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Produit:</Text>
+            <Text style={styles.summaryValue}>{form.title || 'Non défini'}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Entreprise:</Text>
+            <Text style={styles.summaryValue}>{selectedCompany?.name || 'Non sélectionnée'}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Catégorie:</Text>
+            <Text style={styles.summaryValue}>{form.category || 'Non sélectionnée'}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Variantes:</Text>
+            <Text style={styles.summaryValue}>{variantCount} combinaisons</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Personnalisation:</Text>
+            <Text style={styles.summaryValue}>
+              {hasPersonalization 
+                ? `${personalizationFields.filter(f => f.enabled).length} champ(s)` 
+                : 'Désactivée'}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Livraison gratuite:</Text>
+            <Text style={[styles.summaryValue, hasFreeShipping && styles.freeShippingValue]}>
+              {hasFreeShipping ? '✅ Oui' : '❌ Non'}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Prix normal:</Text>
+            <Text style={styles.summaryValue}>
+              {basePrice.toLocaleString()} F CFA
+            </Text>
+          </View>
+          {priceAdjustment > 0 && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Ajustement:</Text>
+              <Text style={[styles.summaryValue, styles.adjustmentValue]}>
+                +{priceAdjustment} F CFA
+              </Text>
+            </View>
+          )}
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Prix final:</Text>
+            <Text style={[styles.summaryValue, styles.finalPriceValue]}>
+              {finalPrice.toLocaleString()} F CFA
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Stock total:</Text>
+            <Text style={styles.summaryValue}>
+              {(Number(form.stock) * variantCount).toLocaleString()} unités
+            </Text>
+          </View>
+        </View>
+
+        {/* Bouton de création/mise à jour */}
         <TouchableOpacity 
-          style={[styles.submitButton, (loading || isUploading) && styles.submitButtonDisabled]} 
+          style={[styles.submitButton, (loading || isUploading || variantCount === 0) && styles.submitButtonDisabled]} 
           onPress={handleSubmit}
-          disabled={loading || isUploading}
+          disabled={loading || isUploading || variantCount === 0}
         >
           {(loading || isUploading) ? (
             <ActivityIndicator color="#FFF" />
           ) : (
             <>
-              <Ionicons name="add-circle-outline" size={20} color="#FFF" />
-              <Text style={styles.submitButtonText}>Créer le produit B2B</Text>
+              <Ionicons name={isEditMode ? "create-outline" : "add-circle-outline"} size={20} color="#FFF" />
+              <Text style={styles.submitButtonText}>
+                {isEditMode 
+                  ? `Mettre à jour ${variantCount} variante${variantCount > 1 ? 's' : ''}`
+                  : `Créer ${variantCount} variante${variantCount > 1 ? 's' : ''}`
+                }
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -1283,309 +1753,840 @@ export default function AddProductScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/* Modal de sélection de catégorie */}
-      <CategorySelectionModal
-        visible={showCategoryModal}
-        onClose={() => setShowCategoryModal(false)}
-        categories={categories}
-        onSelectCategory={handleCategorySelect}
-        selectedCategories={form.categoryId ? [form.categoryId] : []}
-      />
+      {/* Modal d'ajout de champ personnalisé */}
+      <PersonalizationModal />
     </SafeAreaView>
   );
 }
 
-// ? STYLES PRINCIPAUX
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFF' },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
-    backgroundColor: '#fff'
+  container: { 
+    flex: 1, 
+    backgroundColor: '#FFF' 
   },
-  headerCenter: {
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  companyName: {
-    fontSize: 12, color: '#666', marginTop: 2,
-    fontStyle: 'italic'
+  header: {
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    padding: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#F0F0F0',
   },
-  publishButton: { fontSize: 16, fontWeight: '600', color: '#FF6B00' },
-  publishButtonDisabled: { opacity: 0.5 },
-  content: { flex: 1 },
-  b2bHeader: {
+  headerTitle: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    color: '#333' 
+  },
+  publishButton: { 
+    fontSize: 16, 
+    fontWeight: '600', 
+    color: '#FF6B00' 
+  },
+  publishButtonDisabled: { 
+    opacity: 0.5 
+  },
+  content: { 
+    flex: 1 
+  },
+  section: { 
+    padding: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#F0F0F0' 
+  },
+  sectionHeader: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    marginBottom: 8 
+  },
+  sectionTitle: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    color: '#333', 
+    marginRight: 8 
+  },
+  sectionSubtitle: { 
+    fontSize: 14, 
+    color: '#666', 
+    marginBottom: 16 
+  },
+  requiredLabel: { 
+    fontSize: 12, 
+    color: '#FF4444', 
+    fontWeight: '600' 
+  },
+  uploadArea: {
+    height: 120, 
+    borderWidth: 2, 
+    borderColor: '#E0E0E0', 
+    borderStyle: 'dashed',
+    borderRadius: 12, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA', 
+    marginBottom: 16,
+  },
+  uploadText: { 
+    fontSize: 16, 
+    color: '#666', 
+    marginTop: 8, 
+    fontWeight: '500' 
+  },
+  uploadHint: { 
+    fontSize: 12, 
+    color: '#999', 
+    marginTop: 4 
+  },
+  photoGrid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: 12 
+  },
+  photoItem: { 
+    width: 100, 
+    height: 100, 
+    borderRadius: 8, 
+    position: 'relative' 
+  },
+  photoImage: { 
+    width: '100%', 
+    height: '100%', 
+    borderRadius: 8 
+  },
+  mainImageBadge: {
+    position: 'absolute', 
+    top: 4, 
+    left: 4, 
+    backgroundColor: '#FF6B00',
+    paddingHorizontal: 6, 
+    paddingVertical: 2, 
+    borderRadius: 4,
+  },
+  mainImageText: { 
+    color: '#FFF', 
+    fontSize: 10, 
+    fontWeight: 'bold' 
+  },
+  removePhotoButton: {
+    position: 'absolute', 
+    top: -6, 
+    right: -6, 
+    backgroundColor: '#FFF',
+    borderRadius: 10, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2, 
+    shadowRadius: 2, 
+    elevation: 2,
+  },
+  photoSlot: {
+    width: 100, 
+    height: 100, 
+    backgroundColor: '#F8F9FA', 
+    borderRadius: 8,
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    borderWidth: 1, 
+    borderColor: '#E0E0E0',
+  },
+  photoSlotText: { 
+    fontSize: 12, 
+    color: '#999', 
+    marginTop: 4 
+  },
+  inputGroup: { 
+    marginBottom: 16, 
+    position: 'relative' 
+  },
+  label: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    color: '#333', 
+    marginBottom: 8 
+  },
+  required: { 
+    color: '#FF4444' 
+  },
+  optionalDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  input: {
+    borderWidth: 1, 
+    borderColor: '#E0E0E0', 
+    borderRadius: 8, 
+    padding: 12,
+    fontSize: 16, 
+    backgroundColor: '#FFF',
+  },
+  textArea: { 
+    height: 100, 
+    textAlignVertical: 'top' 
+  },
+  row: { 
+    flexDirection: 'row' 
+  },
+  picker: {
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    borderWidth: 1, 
+    borderColor: '#E0E0E0', 
+    borderRadius: 8, 
+    padding: 12, 
+    backgroundColor: '#FFF',
+  },
+  pickerText: { 
+    fontSize: 16, 
+    color: '#999' 
+  },
+  pickerTextSelected: { 
+    fontSize: 16, 
+    color: '#333' 
+  },
+  dropdown: {
+    position: 'absolute', 
+    top: 70, 
+    left: 0, 
+    right: 0, 
+    backgroundColor: '#FFF',
+    borderWidth: 1, 
+    borderColor: '#E0E0E0', 
+    borderRadius: 8, 
+    zIndex: 1000,
+    elevation: 5, 
+    maxHeight: 200,
+  },
+  categoryDropdown: {
+    position: 'absolute', 
+    top: 70, 
+    left: 0, 
+    right: 0, 
+    backgroundColor: '#FFF',
+    borderWidth: 1, 
+    borderColor: '#E0E0E0', 
+    borderRadius: 8, 
+    zIndex: 1000,
+    elevation: 5, 
+    maxHeight: 250,
+  },
+  dropdownScroll: { 
+    maxHeight: 200 
+  },
+  dropdownItem: { 
+    padding: 12, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#F0F0F0' 
+  },
+  companyItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  companyInfo: {
+    flex: 1,
+  },
+  dropdownText: { 
+    fontSize: 16, 
+    color: '#333',
+    fontWeight: '500',
+  },
+  companyDetails: { 
+    fontSize: 10, 
+    color: '#999',
+    marginTop: 2,
+  },
+  toggleContainer: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    paddingVertical: 12, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#f0f0f0',
+  },
+  toggleText: { 
+    flex: 1, 
+    marginRight: 12 
+  },
+  toggleLabel: { 
+    fontSize: 16, 
+    fontWeight: '500', 
+    color: '#1A1A1A', 
+    marginBottom: 4 
+  },
+  toggleDescription: { 
+    fontSize: 12, 
+    color: '#6c757d' 
+  },
+  switchGroup: {
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  switchLabel: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    color: '#333', 
+    marginBottom: 2 
+  },
+  switchDescription: { 
+    fontSize: 12, 
+    color: '#666' 
+  },
+  submitButton: {
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center',
+    backgroundColor: '#FF6B00', 
+    margin: 16, 
+    padding: 16, 
+    borderRadius: 8, 
+    gap: 8,
+  },
+  submitButtonDisabled: { 
+    opacity: 0.6 
+  },
+  submitButtonText: { 
+    color: '#FFF', 
+    fontSize: 16, 
+    fontWeight: 'bold' 
+  },
+  loadingOverlay: {
+    position: 'absolute', 
+    top: 0, 
+    left: 0, 
+    right: 0, 
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+    justifyContent: 'center',
+    alignItems: 'center', 
+    zIndex: 1000,
+  },
+  loadingText: { 
+    marginTop: 12, 
+    fontSize: 16, 
+    color: '#666', 
+    fontWeight: '600' 
+  },
+  loadingSubtext: { 
+    marginTop: 8, 
+    fontSize: 14, 
+    color: '#999' 
+  },
+  progressBar: {
+    width: '80%', 
+    height: 6, 
+    backgroundColor: '#E0E0E0', 
+    borderRadius: 3,
+    marginTop: 16, 
+    overflow: 'hidden',
+  },
+  progressFill: { 
+    height: '100%', 
+    backgroundColor: '#FF6B00', 
+    borderRadius: 3 
+  },
+  spacer: { 
+    height: 20 
+  },
+  addInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addInput: {
+    flex: 1,
+    marginRight: 8,
+  },
+  addButton: {
+    backgroundColor: '#FF6B00',
+    borderRadius: 8,
+    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 44,
+    height: 44,
+  },
+  badgesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 8,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    gap: 6,
+  },
+  colorBadge: {
+    backgroundColor: '#E3F2FD',
+  },
+  sizeBadge: {
+    backgroundColor: '#F3E5F5',
+  },
+  badgeText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  priceToggleContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  priceToggle: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FFF',
+    minWidth: 100,
+  },
+  priceToggleActive: {
+    backgroundColor: '#FF6B00',
+    borderColor: '#FF6B00',
+  },
+  priceToggleContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    backgroundColor: '#f0f7ff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#d1e7ff',
+    gap: 6,
   },
-  b2bHeaderText: {
+  priceToggleText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#007AFF',
-    marginLeft: 8,
+    fontWeight: '500',
+    color: '#666',
   },
-  section: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333', marginRight: 8 },
-  sectionSubtitle: { fontSize: 14, color: '#666', marginBottom: 16 },
-  requiredLabel: { fontSize: 12, color: '#FF4444', fontWeight: '600' },
-  uploadArea: {
-    height: 120, borderWidth: 2, borderColor: '#E0E0E0', borderStyle: 'dashed',
-    borderRadius: 12, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: '#F8F9FA', marginBottom: 16,
+  priceToggleTextActive: {
+    color: '#FFF',
   },
-  uploadText: { fontSize: 16, color: '#666', marginTop: 8, fontWeight: '500' },
-  uploadHint: { fontSize: 12, color: '#999', marginTop: 4 },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  photoItem: { width: 100, height: 100, borderRadius: 8, position: 'relative' },
-  photoImage: { width: '100%', height: '100%', borderRadius: 8 },
-  mainImageBadge: {
-    position: 'absolute', top: 4, left: 4, backgroundColor: '#FF6B00',
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-  },
-  mainImageText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-  removePhotoButton: {
-    position: 'absolute', top: -6, right: -6, backgroundColor: '#FFF',
-    borderRadius: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2, shadowRadius: 2, elevation: 2,
-  },
-  photoSlot: {
-    width: 100, height: 100, backgroundColor: '#F8F9FA', borderRadius: 8,
-    justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0',
-  },
-  photoSlotText: { fontSize: 12, color: '#999', marginTop: 4 },
-  inputGroup: { marginBottom: 16, position: 'relative' },
-  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 8 },
-  required: { color: '#FF4444' },
-  input: {
-    borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 12,
-    fontSize: 16, backgroundColor: '#FFF',
-  },
-  textArea: { height: 100, textAlignVertical: 'top' },
-  row: { flexDirection: 'row' },
-  picker: {
-    flexDirection: 'row', alignItems: 'center',
-    borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 12, 
-    backgroundColor: '#FFF', gap: 8
-  },
-  pickerSelected: {
-    borderColor: '#ff6a00', backgroundColor: '#fff8f0'
-  },
-  pickerText: { fontSize: 16, color: '#999', flex: 1 },
-  pickerTextSelected: { fontSize: 16, color: '#333', flex: 1, fontWeight: '500' },
-  companyCategories: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: '#f9f9f9',
+  priceToggleRemove: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#eee'
+    borderColor: '#FF4444',
+    backgroundColor: '#FFF',
+    minWidth: 80,
   },
-  companyCategoriesTitle: {
+  priceToggleRemoveText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#FF4444',
+  },
+  priceSummary: {
+    marginTop: 8,
+    padding: 8,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF6B00',
+  },
+  priceSummaryText: {
     fontSize: 12,
-    fontWeight: '600',
     color: '#666',
-    marginBottom: 8
+    marginBottom: 2,
   },
-  categoryChips: {
-    flexDirection: 'row',
-    paddingVertical: 8,
-    maxHeight: 50,
+  priceValue: {
+    fontWeight: '600',
+    color: '#333',
   },
-  categoryChip: {
-    backgroundColor: '#e8f4ff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+  adjustmentValue: {
+    fontWeight: '600',
+    color: '#FF6B00',
+  },
+  finalPriceText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 4,
+  },
+  finalPriceValue: {
+    color: '#FF6B00',
+    fontSize: 14,
+  },
+  variantsPreview: {
+    backgroundColor: '#F8F9FA',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
     borderWidth: 1,
-    borderColor: '#b8d4ff',
+    borderColor: '#E0E0E0',
+  },
+  variantsPreviewTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  variantsPreviewText: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 2,
+  },
+  variantsPreviewDetail: {
+    fontSize: 12,
+    color: '#FF6B00',
+    fontWeight: '600',
+  },
+  summarySection: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 12,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  // STYLES POUR LA RECHERCHE DE CATÉGORIES
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    backgroundColor: '#FFF',
+  },
+  searchIcon: {
     marginRight: 8,
   },
-  categoryChipActive: {
-    backgroundColor: '#ff6a00',
-    borderColor: '#ff6a00',
-  },
-  categoryChipText: {
-    fontSize: 12,
-    color: '#007AFF',
-  },
-  categoryChipTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  seeAllButton: {
-    marginTop: 4,
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
     padding: 8,
   },
-  seeAllText: {
-    fontSize: 12,
-    color: '#007AFF',
+  addNewCategoryButton: {
+    padding: 12,
+    backgroundColor: '#FFF7E6',
+    borderTopWidth: 1,
+    borderTopColor: '#FFE0B2',
+  },
+  addNewCategoryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addNewCategoryText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#FF6B00',
+  },
+  emptyCategories: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  emptyCategoriesText: {
+    fontSize: 14,
+    color: '#999',
     fontStyle: 'italic',
   },
-  toggleContainer: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0',
+  // STYLES POUR LA PERSONNALISATION
+  personalizationDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 20,
   },
-  toggleIconContainer: {
-    width: 30,
-    alignItems: 'center'
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E0E0E0',
   },
-  toggleText: { flex: 1, marginRight: 12, marginLeft: 12 },
-  toggleLabel: { fontSize: 16, fontWeight: '500', color: '#1A1A1A', marginBottom: 4 },
-  toggleDescription: { fontSize: 12, color: '#6c757d' },
-  switchGroup: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    color: '#999',
+    fontWeight: '600',
+  },
+  personalizationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  switchLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 2 },
-  switchDescription: { fontSize: 12, color: '#666' },
-  submitButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#FF6B00', margin: 16, padding: 16, borderRadius: 8, gap: 8,
+  personalizationTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  submitButtonDisabled: { opacity: 0.6 },
-  submitButtonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
-  loadingOverlay: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)', justifyContent: 'center',
-    alignItems: 'center', zIndex: 1000,
+  personalizationTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
   },
-  loadingText: { marginTop: 12, fontSize: 16, color: '#666', fontWeight: '600' },
-  loadingSubtext: { marginTop: 8, fontSize: 14, color: '#999' },
-  progressBar: {
-    width: '80%', height: 6, backgroundColor: '#E0E0E0', borderRadius: 3,
-    marginTop: 16, overflow: 'hidden',
+  personalizationContainer: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
   },
-  progressFill: { height: '100%', backgroundColor: '#FF6B00', borderRadius: 3 },
-  spacer: { height: 20 },
-  hint: {
-    fontSize: 11,
+  personalizationSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+    fontStyle: 'italic',
+  },
+  fieldsContainer: {
+    gap: 12,
+    marginBottom: 16,
+  },
+  fieldItem: {
+    backgroundColor: '#FFF',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  fieldHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  fieldTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  fieldLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#333',
+  },
+  fieldLabelDisabled: {
     color: '#999',
-    marginTop: 4,
-    fontStyle: 'italic'
-  }
-});
-
-// ? STYLES POUR LE MODAL DE CATÉGORIE
-const modalStyles = StyleSheet.create({
+    textDecorationLine: 'line-through',
+  },
+  requiredStar: {
+    color: '#FF4444',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 2,
+  },
+  fieldActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  fieldActionButton: {
+    padding: 4,
+  },
+  fieldEditInput: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 6,
+    padding: 8,
+    fontSize: 14,
+    marginBottom: 6,
+    backgroundColor: '#FFF',
+  },
+  fieldType: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  addFieldButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#FF6B00',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  addFieldButtonText: {
+    fontSize: 14,
+    color: '#FF6B00',
+    fontWeight: '500',
+  },
+  previewContainer: {
+    backgroundColor: '#E8F4FD',
+    borderRadius: 8,
+    padding: 12,
+  },
+  previewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  previewContent: {
+    gap: 8,
+  },
+  previewText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  previewField: {
+    marginBottom: 8,
+  },
+  previewFieldLabel: {
+    fontSize: 12,
+    color: '#333',
+    marginBottom: 2,
+    fontWeight: '500',
+  },
+  previewFieldInput: {
+    backgroundColor: '#FFF',
+    borderRadius: 4,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  previewFieldPlaceholder: {
+    fontSize: 12,
+    color: '#999',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  
   modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    width: '90%',
+    maxWidth: 400,
+    padding: 20,
   },
-  
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    marginBottom: 20,
   },
-  
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
   },
-  
-  searchContainer: {
+  modalBody: {
+    gap: 16,
+  },
+  fieldTypeContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: '#f8f9fa',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  
-  searchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 16,
-    color: '#333',
+  fieldTypeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#F0F0F0',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
   },
-  
-  categoryList: {
-    maxHeight: 400,
+  fieldTypeButtonActive: {
+    backgroundColor: '#FF6B00',
+    borderColor: '#FF6B00',
   },
-  
-  categoryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f8f8f8',
-  },
-  
-  categoryItemSelected: {
-    backgroundColor: '#fff8f0',
-  },
-  
-  categoryIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#fff0e6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  
-  categoryTextContainer: {
-    flex: 1,
-  },
-  
-  categoryName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 2,
-  },
-  
-  categoryNameSelected: {
-    color: '#ff6a00',
-    fontWeight: '600',
-  },
-  
-  categoryDescription: {
+  fieldTypeText: {
     fontSize: 12,
     color: '#666',
   },
-  
-  productCountBadge: {
-    backgroundColor: '#f0f0f0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
+  fieldTypeTextActive: {
+    color: '#FFF',
   },
-  
-  productCountText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#666',
-  },
-  
-  emptyContainer: {
-    padding: 40,
+  modalAddButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FF6B00',
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 8,
   },
-  
-  emptyText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
+  modalAddButtonText: {
+    fontSize: 16,
+    color: '#FFF',
+    fontWeight: '600',
+  },
+  // NOUVEAUX STYLES POUR LA LIVRAISON GRATUITE
+  shippingFreeSection: {
+    backgroundColor: '#F8F9FA',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  shippingFreeSectionActive: {
+    borderColor: '#10b981',
+    backgroundColor: '#F0FDF4',
+  },
+  shippingFreeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  shippingFreeTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shippingFreeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  shippingFreeDescription: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  freeShippingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  freeShippingBadgeText: {
+    fontSize: 12,
+    color: '#10b981',
+    fontWeight: '600',
+  },
+  freeShippingValue: {
+    color: '#10b981',
+    fontWeight: 'bold',
   },
 });

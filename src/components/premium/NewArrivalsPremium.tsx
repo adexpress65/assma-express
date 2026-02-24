@@ -1,5 +1,5 @@
-// src/components/premium/NewArrivalsPremium.tsx - VERSION CORRIGÉE
-import React from 'react';
+// src/components/premium/NewArrivalsPremium.tsx
+import React, { useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,17 @@ import {
   TouchableOpacity,
   Dimensions,
   FlatList,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 
-// ✅ UTILISER VOTRE HOOK EXISTANT
 import useAppNavigation from '../../hooks/useAppNavigation';
 import ProductCardPremium from './ProductCardPremium';
 
-const { width } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const GROUP_WIDTH = SCREEN_WIDTH - 24; // Largeur d'un groupe de 2 produits
 
 interface Product {
   id: string;
@@ -37,37 +39,67 @@ interface NewArrivalsPremiumProps {
 }
 
 export default function NewArrivalsPremium({ products }: NewArrivalsPremiumProps) {
-  // ✅ UTILISER VOTRE HOOK EXISTANT
+  const { t } = useTranslation();
   const { navigateTo } = useAppNavigation();
+  const scrollListRef = useRef<FlatList>(null);
+  const scrollIndex = useRef(0);
 
-  // ✅ Grouper les produits par 2
-  const groupedProducts = products.reduce((acc: Product[][], _, i, arr) => {
-    if (i % 2 === 0) acc.push(arr.slice(i, i + 2));
-    return acc;
-  }, []);
+  // 1. Mélange et Groupement des produits (Diversité)
+  const groupedProducts = useMemo(() => {
+    // On mélange un peu pour ne pas toujours voir les mêmes en premier
+    const shuffled = [...products].sort(() => 0.5 - Math.random());
+    
+    const groups: Product[][] = [];
+    for (let i = 0; i < shuffled.length; i += 2) {
+      groups.push(shuffled.slice(i, i + 2));
+    }
+    return groups;
+  }, [products]);
 
-  // ✅ NAVIGATION EN 2 ÉTAPES
+  // 2. Logique de Défilement Automatique (Auto-scroll)
+  useEffect(() => {
+    if (groupedProducts.length <= 1) return;
+
+    const interval = setInterval(() => {
+      if (scrollListRef.current) {
+        let nextIndex = scrollIndex.current + 1;
+        
+        if (nextIndex >= groupedProducts.length) {
+          nextIndex = 0;
+        }
+
+        scrollIndex.current = nextIndex;
+        
+        scrollListRef.current.scrollToIndex({
+          index: nextIndex,
+          animated: true,
+          viewPosition: 0.5
+        });
+      }
+    }, 5000); // Défilement toutes les 5 secondes
+
+    return () => clearInterval(interval);
+  }, [groupedProducts]);
+
   const handleProductPress = (product: Product) => {
-    console.log('🆕 Navigation nouveau produit:', product.id);
     navigateTo.productDetail(product.id, product.categoryId || 'new-arrivals');
   };
 
   const navigateToAllNewArrivals = () => {
-    navigateTo.category('new-arrivals', 'Nouveautés');
+    navigateTo.category('new-arrivals', t('newArrivals.categoryTitle'));
   };
 
-  // ✅ Rendu des groupes
+  // Rendu des groupes (2 produits par ligne)
   const renderProductGroup = ({ item, index }: { item: Product[], index: number }) => (
-    <View style={styles.productGroup}>
-      {item.map((product, productIndex) => (
-        <View key={product.id} style={styles.productWrapper}>
+    <View style={[styles.productGroup, { width: GROUP_WIDTH }]}>
+      {item.map((product) => (
+        <View key={`${product.id}-${index}`} style={styles.productWrapper}>
           <ProductCardPremium 
             product={product}
             onPress={() => handleProductPress(product)}
             style={styles.productCard}
           />
           
-          {/* Badge Nouveau */}
           <LinearGradient
             colors={['#FF375F', '#FF6A00']}
             style={styles.newProductBadge}
@@ -75,16 +107,8 @@ export default function NewArrivalsPremium({ products }: NewArrivalsPremiumProps
             end={{ x: 1, y: 0 }}
           >
             <Ionicons name="newspaper-outline" size={12} color="#fff" />
-            <Text style={styles.newProductText}>Nouveau</Text>
+            <Text style={styles.newProductText}>{t('newArrivals.badge')}</Text>
           </LinearGradient>
-
-          {/* Timeline pour les premiers produits seulement */}
-          {index === 0 && productIndex === 0 && (
-            <>
-              <View style={styles.timelineDot} />
-              <View style={styles.timelineLine} />
-            </>
-          )}
         </View>
       ))}
     </View>
@@ -101,46 +125,55 @@ export default function NewArrivalsPremium({ products }: NewArrivalsPremiumProps
             end={{ x: 1, y: 0 }}
           >
             <Ionicons name="sparkles" size={16} color="#fff" />
-            <Text style={styles.newBadgeText}>NOUVEAU</Text>
+            <Text style={styles.newBadgeText}>{t('newArrivals.newBadge')}</Text>
           </LinearGradient>
-          <Text style={styles.title}>Nouveaux Produits</Text>
+          <Text style={styles.title}>{t('newArrivals.title')}</Text>
         </View>
         <TouchableOpacity 
           style={styles.seeAllButton}
           onPress={navigateToAllNewArrivals}
         >
-          <Text style={styles.seeAllText}>Voir plus</Text>
+          <Text style={styles.seeAllText}>{t('newArrivals.seeAll')}</Text>
           <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
         </TouchableOpacity>
       </View>
 
-      {/* Liste des produits */}
+      {/* Liste des produits avec défilement automatique */}
       <FlatList
+        ref={scrollListRef}
         data={groupedProducts}
         renderItem={renderProductGroup}
         keyExtractor={(_, index) => `new-arrivals-group-${index}`}
-        scrollEnabled={false}
-        showsVerticalScrollIndicator={false}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={GROUP_WIDTH}
+        decelerationRate="fast"
         contentContainerStyle={styles.productsContainer}
+        getItemLayout={(_, index) => ({
+          length: GROUP_WIDTH,
+          offset: GROUP_WIDTH * index,
+          index,
+        })}
       />
 
       {/* Compte à rebours */}
       <View style={styles.countdownContainer}>
-        <Text style={styles.countdownTitle}>Prochaines arrivages dans:</Text>
+        <Text style={styles.countdownTitle}>{t('newArrivals.countdown.title')}</Text>
         <View style={styles.countdownTimer}>
           <View style={styles.timeUnit}>
             <Text style={styles.timeNumber}>02</Text>
-            <Text style={styles.timeLabel}>Jours</Text>
+            <Text style={styles.timeLabel}>{t('newArrivals.countdown.days')}</Text>
           </View>
           <Text style={styles.timeSeparator}>:</Text>
           <View style={styles.timeUnit}>
             <Text style={styles.timeNumber}>14</Text>
-            <Text style={styles.timeLabel}>Heures</Text>
+            <Text style={styles.timeLabel}>{t('newArrivals.countdown.hours')}</Text>
           </View>
           <Text style={styles.timeSeparator}>:</Text>
           <View style={styles.timeUnit}>
             <Text style={styles.timeNumber}>38</Text>
-            <Text style={styles.timeLabel}>Minutes</Text>
+            <Text style={styles.timeLabel}>{t('newArrivals.countdown.minutes')}</Text>
           </View>
         </View>
       </View>
@@ -206,7 +239,6 @@ const styles = StyleSheet.create({
   productGroup: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
   },
   productWrapper: {
     flex: 1,
@@ -226,10 +258,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
     elevation: 4,
   },
   newProductText: {
@@ -237,26 +265,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     marginLeft: 2,
-  },
-  timelineDot: {
-    position: 'absolute',
-    bottom: -20,
-    left: '50%',
-    marginLeft: -4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ff6a00',
-    zIndex: 5,
-  },
-  timelineLine: {
-    position: 'absolute',
-    bottom: -16,
-    left: '60%',
-    right: -20,
-    height: 2,
-    backgroundColor: '#ff6a00',
-    opacity: 0.3,
   },
   countdownContainer: {
     backgroundColor: 'rgba(255, 106, 0, 0.05)',

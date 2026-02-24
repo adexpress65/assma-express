@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "Zoek naar producten, leveranciers, categorieën...",
+    "suppliers": "Leveranciers",
+    "products": "Producten",
+    "countries": "Landen",
+    "seeAll": "Alles bekijken"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "MARKT"
+  }
+}

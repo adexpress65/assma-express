@@ -1,27 +1,28 @@
-// components/premium/PremiumHeader.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Platform,
-  Dimensions,
-  ScrollView,
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  TouchableWithoutFeedback,
-  Keyboard,
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform, Dimensions, ScrollView, ActivityIndicator, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import SearchResults, { SearchResultItem } from '@/components/search/SearchResults';
-import { SearchService } from '@/services/firebase/searchService';
+import { useTranslation } from 'react-i18next';
+
+import SearchResults from '@/components/search/SearchResults';
+import { searchGlobal } from '@/services/searchService';
+import type { SearchResultItem } from '@/services/searchService';
+import LanguageSelectorModal from '@/components/language/LanguageSelectorModal';
+import { Language } from '@/services/i18n/languages';
+import { useCurrency } from '../../contexts/CurrencyContext'; // ✅ Import vérifié
 
 const { width } = Dimensions.get('window');
+
+const DesignParticles = () => (
+  <View style={styles.particlesContainer}>
+    <View style={[styles.particle, { width: 3, height: 3, top: 4, right: 8, opacity: 0.7 }]} />
+    <View style={[styles.particle, { width: 2, height: 2, top: 12, right: 20, opacity: 0.4 }]} />
+    <View style={[styles.particle, { width: 4, height: 4, top: 2, right: 32, opacity: 0.6 }]} />
+    <Ionicons name="sparkles" size={10} color="rgba(255,255,255,0.4)" style={{ marginLeft: 10 }} />
+  </View>
+);
 
 export default function PremiumHeader() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -32,23 +33,55 @@ export default function PremiumHeader() {
   const router = useRouter();
   const searchInputRef = useRef<TextInput>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const { t, i18n } = useTranslation();
+  const [languageModalVisible, setLanguageModalVisible] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState<Language | null>(null);
+  
+  // ✅ UTILISATION DU CONTEXT (Suppression de l'état local index)
+  const { currency, setCurrencyByCode } = useCurrency();
 
-  // Recherche avec debounce
+  const toggleCurrency = () => {
+    const codes = ['USD', 'XOF', 'EUR'];
+    const currentIndex = codes.indexOf(currency.code);
+    const nextIndex = (currentIndex + 1) % codes.length;
+    setCurrencyByCode(codes[nextIndex]);
+  };
+
+  useEffect(() => {
+    const loadCurrentLanguage = async () => {
+      setCurrentLanguage({
+        code: i18n.language,
+        name: getLanguageName(i18n.language),
+        nativeName: getNativeLanguageName(i18n.language),
+        flag: getFlag(i18n.language),
+        direction: i18n.language === 'ar' ? 'rtl' : 'ltr'
+      });
+    };
+    loadCurrentLanguage();
+  }, [i18n.language]);
+
+  const handleLanguageSelect = async (language: Language) => {
+    try {
+      await i18n.changeLanguage(language.code);
+      setCurrentLanguage(language);
+      setLanguageModalVisible(false);
+    } catch (error) {
+      console.error(t('header.languageChangeError'), error);
+    }
+  };
+
   useEffect(() => {
     if (searchQuery.trim().length >= 2) {
       setLoading(true);
-      
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-      
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(async () => {
         try {
-          const results = await SearchService.getInstantSuggestions(searchQuery);
+          const results = await searchGlobal(searchQuery);
           setSuggestions(results);
           setShowSuggestions(results.length > 0);
         } catch (error) {
-          console.error('Erreur recherche:', error);
+          setSuggestions([]);
+          setShowSuggestions(false);
         } finally {
           setLoading(false);
         }
@@ -58,60 +91,23 @@ export default function PremiumHeader() {
       setShowSuggestions(false);
       setLoading(false);
     }
-    
-    return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-    };
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
   }, [searchQuery]);
-
-  // NOUVELLE FONCTION : Navigation vers écran camera interne
-  const openCamera = () => {
-    // 1. Fermer le clavier avant navigation
-    Keyboard.dismiss();
-    
-    // 2. Navigation vers l'écran camera (navigation interne)
-    router.push('/camera');
-    
-    // 3. Optionnel : Fermer les suggestions si ouvertes
-    setShowSuggestions(false);
-  };
 
   const handleSearchSubmit = () => {
     if (searchQuery.trim()) {
       cleanSearch();
-      
-      // Naviguer vers la page de recherche avec résultats complets
-      router.push({
-        pathname: '/search-results',
-        params: { 
-          query: searchQuery,
-          timestamp: Date.now() // Éviter le cache
-        }
-      });
+      router.push({ pathname: '/search-results', params: { query: searchQuery, timestamp: Date.now() } });
     }
   };
 
   const handleSelectSuggestion = (item: SearchResultItem) => {
     cleanSearch();
-    
     switch(item.type) {
-      case 'product':
-        router.push(`/product/${item.id}`);
-        break;
-      case 'category':
-        router.push(`/category/${item.id}?name=${encodeURIComponent(item.name)}`);
-        break;
-      case 'company':
-      case 'supplier':
-        router.push(`/company/${item.id}?name=${encodeURIComponent(item.name)}`);
-        break;
-      default:
-        router.push({
-          pathname: '/search/results',
-          params: { query: item.name }
-        });
+      case 'product': router.push({ pathname: '/product/[id]', params: { id: item.id } }); break;
+      case 'category': router.push({ pathname: '/category/[id]', params: { id: item.id, name: item.name } }); break;
+      case 'company': router.push({ pathname: '/company/[id]', params: { id: item.id, name: item.name } }); break;
+      default: router.push({ pathname: '/search-results', params: { query: item.name } });
     }
   };
 
@@ -122,140 +118,84 @@ export default function PremiumHeader() {
     Keyboard.dismiss();
   };
 
-  const handleOutsidePress = () => {
-    Keyboard.dismiss();
-    setShowSuggestions(false);
+  const getLanguageName = (code: string): string => {
+    const languages: Record<string, string> = {
+      'en': t('languages.english'), 'fr': t('languages.french'), 'es': t('languages.spanish'),
+      'ar': t('languages.arabic'), 'zh': t('languages.chinese'), 'ru': t('languages.russian'),
+      'pt': t('languages.portuguese'), 'tr': t('languages.turkish'), 'de': t('languages.german'),
+      'it': t('languages.italian'), 'nl': t('languages.dutch'), 'ja': t('languages.japanese'),
+      'ko': t('languages.korean'), 'vi': t('languages.vietnamese'), 'id': t('languages.indonesian'),
+    };
+    return languages[code] || t('languages.english');
+  };
+
+  const getNativeLanguageName = (code: string): string => {
+    const languages: Record<string, string> = {
+      'en': 'English', 'fr': 'Français', 'es': 'Español', 'ar': 'العربية', 'zh': '简体中文',
+      'ru': 'Русский', 'pt': 'Português', 'tr': 'Türkçe', 'de': 'Deutsch', 'it': 'Italiano',
+      'nl': 'Nederlands', 'ja': '日本語', 'ko': '한국어', 'vi': 'Tiếng Việt', 'id': 'Bahasa Indonesia',
+    };
+    return languages[code] || 'English';
+  };
+
+  const getFlag = (code: string): string => {
+    const flags: Record<string, string> = {
+      'en': '🇬🇧', 'fr': '🇫🇷', 'es': '🇪🇸', 'ar': '🇸🇦', 'zh': '🇨🇳', 'ru': '🇷🇺', 'pt': '🇵🇹',
+      'tr': '🇹🇷', 'de': '🇩🇪', 'it': '🇮🇹', 'nl': '🇳🇱', 'ja': '🇯🇵', 'ko': '🇰🇷', 'vi': '🇻🇳', 'id': '🇮🇩',
+    };
+    return flags[code] || '🇬🇧';
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.keyboardAvoidingView}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-    >
-      <TouchableWithoutFeedback onPress={handleOutsidePress}>
-        <View>
-         <LinearGradient
-  colors={['#ff6a00', '#ff8c00']}
-  style={[
-    styles.container,
-    { paddingTop: insets.top } // 🔥 PROTECTION STATUS BAR
-  ]}
->
-
-            {/* Top Bar */}
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={[styles.keyboardAvoidingView, i18n.language === 'ar' && { direction: 'rtl' }]}>
+      <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowSuggestions(false); }}>
+        <View style={styles.stickyContainer}>
+          <LinearGradient colors={['#ff6a00', '#ff8c00']} style={[styles.container, { paddingTop: insets.top }]}>
             <View style={styles.topBar}>
-              <TouchableOpacity 
-                style={styles.logoContainer}
-                onPress={() => router.push('/')}
-              >
-                <Text style={styles.logoText}>ASSMA</Text>
-                <View style={styles.betaBadge}>
-                  <Text style={styles.betaText}>EXPRESS</Text>
-                </View>
+              <TouchableOpacity style={styles.logoContainer} onPress={() => router.push('/')}>
+                <Text style={styles.logoText}>{t('header.title')}</Text>
+                <View style={styles.betaBadge}><Text style={styles.betaText}>{t('header.subtitle')}</Text></View>
               </TouchableOpacity>
               
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false}
-                style={styles.actionsScrollContainer}
-                contentContainerStyle={styles.actionsContentContainer}
-              >
-                <TouchableOpacity 
-                  style={styles.supplierButton}
-                  onPress={() => router.push('/suppliers')}
-                >
-                  <Ionicons name="business-outline" size={18} color="#fff" />
-                  <Text style={styles.supplierButtonText}>Fournisseurs</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.actionsScrollContainer} contentContainerStyle={styles.actionsContentContainer}>
+                <TouchableOpacity style={styles.iconButton} onPress={() => setLanguageModalVisible(true)}>
+                  {currentLanguage ? <Text style={styles.languageFlag}>{currentLanguage.flag}</Text> : <Ionicons name="language-outline" size={20} color="#fff" />}
                 </TouchableOpacity>
                 
-                <TouchableOpacity 
-                  style={styles.iconButton}
-                  onPress={() => router.push('/messages')}
-                >
-                  <Ionicons name="chatbubble-ellipses-outline" size={20} color="#fff" />
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationText}>3</Text>
-                  </View>
+                <TouchableOpacity style={styles.supplierButton} onPress={() => router.push('/suppliers')}>
+                  <Ionicons name="business-outline" size={12} color="#fff" />
+                  <Text style={styles.supplierButtonText}>{t('common.suppliers')}</Text>
                 </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.iconButton}
-                  onPress={() => router.push('/notifications')}
-                >
-                  <Ionicons name="notifications-outline" size={20} color="#fff" />
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationText}>5</Text>
-                  </View>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.iconButton}
-                  onPress={() => router.push('/cart')}
-                >
-                  <Ionicons name="cart-outline" size={20} color="#fff" />
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationText}>2</Text>
-                  </View>
+
+                <DesignParticles />
+
+                {/* ✅ BOUTON DEVISE CORRIGÉ */}
+                <TouchableOpacity style={styles.currencyButton} onPress={toggleCurrency}>
+                  <Text style={styles.currencyText}>{currency.label}</Text>
+                  <Ionicons name="caret-down" size={8} color="#fff" style={{ marginLeft: 4 }} />
                 </TouchableOpacity>
               </ScrollView>
             </View>
 
-            {/* Search Section */}
             <View style={styles.searchSection}>
               <View style={styles.searchContainer}>
                 <View style={styles.searchInputContainer}>
                   <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
-                  <TextInput
-                    ref={searchInputRef}
-                    style={styles.searchInput}
-                    placeholder="Rechercher produits, fournisseurs, catégories..."
-                    placeholderTextColor="#999"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    onSubmitEditing={handleSearchSubmit}
-                    returnKeyType="search"
-                    onFocus={() => searchQuery.length >= 2 && setShowSuggestions(true)}
-                  />
-                  {loading && (
-                    <ActivityIndicator size="small" color="#ff6a00" style={styles.searchLoading} />
-                  )}
-                  {searchQuery.length > 0 && !loading && (
-                    <TouchableOpacity 
-                      style={styles.clearButton}
-                      onPress={cleanSearch}
-                    >
-                      <Ionicons name="close-circle" size={18} color="#999" />
-                    </TouchableOpacity>
+                  <TextInput ref={searchInputRef} style={styles.searchInput} placeholder={t('common.search')} placeholderTextColor="#999" value={searchQuery} onChangeText={setSearchQuery} onSubmitEditing={handleSearchSubmit} returnKeyType="search" onFocus={() => { if (searchQuery.length >= 2 && suggestions.length > 0) setShowSuggestions(true); }} />
+                  {loading && <ActivityIndicator size="small" color="#ff6a00" style={styles.searchLoading} />}
+                  {!!(searchQuery.length > 0 && !loading) && (
+                    <TouchableOpacity style={styles.clearButton} onPress={cleanSearch}><Ionicons name="close-circle" size={18} color="#999" /></TouchableOpacity>
                   )}
                 </View>
-                
-                {/* BOUTON CAMÉRA MODIFIÉ : Navigation interne au lieu de système */}
-                <TouchableOpacity 
-                  style={styles.imageSearchButton}
-                  onPress={openCamera}
-                >
-                  <Ionicons name="camera-outline" size={22} color="#fff" />
-                </TouchableOpacity>
+                <View style={styles.premiumBadge}><Ionicons name="sparkles" size={16} color="#FFD700" /><Text style={styles.premiumText}>Pro</Text></View>
               </View>
 
-              {/* Search Results */}
-              {showSuggestions && (
+              {!!showSuggestions && (
                 <View style={styles.searchResultsContainer}>
-                  <SearchResults
-                    results={suggestions}
-                    onSelect={handleSelectSuggestion}
-                    query={searchQuery}
-                  />
-                  
-                  {suggestions.length > 0 && (
-                    <TouchableOpacity
-                      style={styles.seeAllButton}
-                      onPress={handleSearchSubmit}
-                    >
-                      <Text style={styles.seeAllText}>
-                        Voir tous les résultats pour "{searchQuery}"
-                      </Text>
+                  <SearchResults results={suggestions} onSelect={handleSelectSuggestion} query={searchQuery} />
+                  {!!(suggestions.length > 0) && (
+                    <TouchableOpacity style={styles.seeAllButton} onPress={handleSearchSubmit}>
+                      <Text style={styles.seeAllText}>{t('common.seeAll')} "{searchQuery}"</Text>
                       <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
                     </TouchableOpacity>
                   )}
@@ -263,255 +203,56 @@ export default function PremiumHeader() {
               )}
             </View>
 
-            {/* Quick Stats */}
             <View style={styles.statsContainer}>
-              <TouchableOpacity 
-                style={styles.statItem}
-                onPress={() => router.push('/products')}
-              >
-                <Text style={styles.statNumber}>50K+</Text>
-                <Text style={styles.statLabel}>Produits</Text>
-              </TouchableOpacity>
-              
+              <View style={styles.statItem}><Text style={styles.statNumber}>50K+</Text><Text style={styles.statLabel}>{t('common.products')}</Text></View>
               <View style={styles.statDivider} />
-              
-              <TouchableOpacity 
-                style={styles.statItem}
-                onPress={() => router.push('/suppliers')}
-              >
-                <Text style={styles.statNumber}>10K+</Text>
-                <Text style={styles.statLabel}>Fournisseurs</Text>
-              </TouchableOpacity>
-              
+              <View style={styles.statItem}><Text style={styles.statNumber}>10K+</Text><Text style={styles.statLabel}>{t('common.suppliers')}</Text></View>
               <View style={styles.statDivider} />
-              
-              <TouchableOpacity 
-                style={styles.statItem}
-                onPress={() => router.push('/countries')}
-              >
-                <Text style={styles.statNumber}>150+</Text>
-                <Text style={styles.statLabel}>Pays</Text>
-              </TouchableOpacity>
+              <View style={styles.statItem}><Text style={styles.statNumber}>150+</Text><Text style={styles.statLabel}>{t('common.countries')}</Text></View>
             </View>
           </LinearGradient>
         </View>
       </TouchableWithoutFeedback>
+
+      <LanguageSelectorModal visible={languageModalVisible} onClose={() => setLanguageModalVisible(false)} onLanguageSelect={handleLanguageSelect} currentLanguageCode={currentLanguage?.code || 'en'} />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoidingView: {
-    position: 'relative',
-    zIndex: 1001,
-  },
-  container: {
-    paddingTop: Platform.OS === 'ios' ? 35 : 25,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 12,
-      },
-    }),
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-    minHeight: 30,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexShrink: 1,
-    marginRight: 6,
-  },
-  logoText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  betaBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 6,
-    marginLeft: 3,
-  },
-  betaText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  actionsScrollContainer: {
-    flex: 1,
-    maxHeight: 35,
-  },
-  actionsContentContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingRight: 4,
-  },
-  supplierButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginRight: 4,
-    flexShrink: 0,
-  },
-  supplierButtonText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-    marginLeft: 3,
-  },
-  iconButton: {
-    marginLeft: 4,
-    position: 'relative',
-    padding: 3,
-    flexShrink: 0,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: '#ff4444',
-    borderRadius: 6,
-    minWidth: 12,
-    height: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1,
-  },
-  notificationText: {
-    color: '#fff',
-    fontSize: 8,
-    fontWeight: '700',
-  },
-  searchSection: {
-    position: 'relative',
-    zIndex: 1002,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  searchInputContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    marginRight: 6,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  searchIcon: {
-    marginRight: 6,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: '#333',
-  },
-  searchLoading: {
-    marginLeft: 8,
-  },
-  clearButton: {
-    padding: 2,
-    marginLeft: 4,
-  },
-  imageSearchButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchResultsContainer: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    zIndex: 1003,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-  },
-  seeAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
-  },
-  seeAllText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#ff6a00',
-    marginRight: 6,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingTop: 4,
-  },
-  statItem: {
-    alignItems: 'center',
-    padding: 2,
-  },
-  statNumber: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 1,
-  },
-  statLabel: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  statDivider: {
-    width: 1,
-    height: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-  },
+  keyboardAvoidingView: { position: 'relative', zIndex: 1001 },
+  stickyContainer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 1000 },
+  container: { paddingTop: Platform.OS === 'ios' ? 35 : 25, paddingHorizontal: 12, paddingBottom: 12, elevation: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, minHeight: 30 },
+  logoContainer: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, marginRight: 6 },
+  logoText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  betaBadge: { backgroundColor: 'rgba(255, 255, 255, 0.2)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 6, marginLeft: 3 },
+  betaText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  actionsScrollContainer: { flex: 1, maxHeight: 35 },
+  actionsContentContainer: { flexDirection: 'row', alignItems: 'center', paddingRight: 4, gap: 4 },
+  supplierButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.15)', paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6 },
+  supplierButtonText: { color: '#fff', fontSize: 10, fontWeight: '600', marginLeft: 3 },
+  iconButton: { padding: 3 },
+  languageFlag: { fontSize: 18 },
+  currencyButton: { backgroundColor: 'rgba(255, 255, 255, 0.25)', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', flexDirection: 'row', alignItems: 'center', marginLeft: 5 },
+  currencyText: { color: '#fff', fontSize: 9, fontWeight: '800' },
+  particlesContainer: { flexDirection: 'row', alignItems: 'center', width: 40, position: 'relative' },
+  particle: { position: 'absolute', backgroundColor: '#fff', borderRadius: 10 },
+  searchSection: { position: 'relative', zIndex: 1002 },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  searchInputContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 10, marginRight: 6 },
+  searchIcon: { marginRight: 6 },
+  searchInput: { flex: 1, paddingVertical: 8, fontSize: 13, color: '#333' },
+  searchLoading: { marginLeft: 8 },
+  clearButton: { padding: 2 },
+  premiumBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255, 215, 0, 0.15)', width: 40, height: 40, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255, 215, 0, 0.3)' },
+  premiumText: { fontSize: 10, fontWeight: '800', color: '#FFD700', marginLeft: 2 },
+  searchResultsContainer: { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1003, backgroundColor: '#fff', borderRadius: 12, elevation: 8 },
+  seeAllButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#e0e0e0' },
+  seeAllText: { fontSize: 13, fontWeight: '600', color: '#ff6a00', marginRight: 6 },
+  statsContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', paddingTop: 4 },
+  statItem: { alignItems: 'center', padding: 2 },
+  statNumber: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  statLabel: { color: 'rgba(255, 255, 255, 0.9)', fontSize: 10, fontWeight: '500' },
+  statDivider: { width: 1, height: 16, backgroundColor: 'rgba(255, 255, 255, 0.3)' },
 });

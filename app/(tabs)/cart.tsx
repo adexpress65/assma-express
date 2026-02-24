@@ -1,1293 +1,835 @@
-ï»¿import React, { useState, useEffect } from 'react';
+// app/(tabs)/cart.tsx
+import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Image,
-  TextInput,
-  Alert,
   SafeAreaView,
+  FlatList,
+  StyleSheet,
   ActivityIndicator,
-  Animated,
+  Alert,
+  StatusBar,
   Dimensions,
-  FlatList
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import { useCart } from '@/contexts/CartContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { useCart, CartItem as CartItemType } from '@/contexts/CartContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getAllProducts, Product } from '@/services/firebase/productsService';
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { saneQty } from '@/utils/quantity';
 
 const { width } = Dimensions.get('window');
 
+/* -------------------------------------------------- */
+/* Helpers                                            */
+/* -------------------------------------------------- */
+
+const getImageUrl = (item: any): string => {
+  if (item.imageUrl && typeof item.imageUrl === 'string' && item.imageUrl.startsWith('http')) return item.imageUrl;
+  if (item.image && typeof item.image === 'string' && item.image.startsWith('http')) return item.image;
+  return 'https://asma.sn/placeholder.jpg';
+};
+
+/* -------------------------------------------------- */
+/* Cart Item Component - Mémoïsé pour performance    */
+/* -------------------------------------------------- */
+
+interface CartItemProps {
+  item: CartItemType;
+  isSelected: boolean;
+  quantity: number;
+  isUpdating: boolean;
+  onToggle: (id: string) => void;
+  onIncrease: (item: CartItemType) => void;
+  onDecrease: (item: CartItemType) => void;
+  onRemove: (id: string) => void;
+  formatPrice: (priceXOF: number | string) => string;  // Reçu du contexte
+}
+
+const CartItem = memo(({ 
+  item, 
+  isSelected, 
+  quantity, 
+  isUpdating,
+  onToggle,
+  onIncrease,
+  onDecrease,
+  onRemove,
+  formatPrice
+}: CartItemProps) => {
+  
+  // ? Sécurisation des types avec Number()
+  const itemPrice = Number(item.price) || 0;
+  const itemQuantity = Number(quantity) || 1;
+  
+  // Calcul du prix total pour cet item (toujours en XOF - pas de formatage ici)
+  const totalItemPrice = itemPrice * itemQuantity;
+  
+  return (
+    <View style={styles.card}>
+      {/* Checkbox de sélection */}
+      <TouchableOpacity 
+        onPress={() => onToggle(item.cartId)}
+        style={styles.checkbox}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name={isSelected ? 'checkbox' : 'square-outline'}
+          size={24}
+          color="#ff6a00"
+        />
+      </TouchableOpacity>
+
+      {/* Image produit */}
+      <Image source={{ uri: getImageUrl(item) }} style={styles.thumb} />
+
+      {/* Détails produit */}
+      <View style={styles.itemDetails}>
+        <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+        
+        {/* Variantes (taille/couleur) */}
+        {(item.selectedSize || item.selectedColor) && (
+          <View style={styles.variants}>
+            {item.selectedSize && (
+              <View style={styles.variantBadge}>
+                <Text style={styles.variantText}>Taille: {item.selectedSize}</Text>
+              </View>
+            )}
+            {item.selectedColor && (
+              <View style={styles.variantBadge}>
+                <Text style={styles.variantText}>Couleur: {item.selectedColor}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ? Prix unitaire formaté avec la fonction du contexte */}
+        <Text style={styles.price}>
+          {formatPrice(itemPrice)}
+        </Text>
+        
+        {/* ? Indication du prix unitaire */}
+        <Text style={styles.unitPrice}>
+          {formatPrice(itemPrice)} / unité
+        </Text>
+
+        {/* Stepper quantité */}
+        <View style={styles.quantityContainer}>
+          <TouchableOpacity 
+            onPress={() => onDecrease(item)}
+            disabled={isUpdating}
+            style={styles.quantityButton}
+            activeOpacity={0.7}
+          >
+            <Ionicons 
+              name="remove" 
+              size={20} 
+              color={itemQuantity <= 1 ? '#ccc' : '#ff6a00'} 
+            />
+          </TouchableOpacity>
+
+          <View style={styles.quantityValue}>
+            {isUpdating ? (
+              <ActivityIndicator size="small" color="#ff6a00" />
+            ) : (
+              <Text style={styles.quantityText}>{itemQuantity}</Text>
+            )}
+          </View>
+
+          <TouchableOpacity 
+            onPress={() => onIncrease(item)}
+            disabled={isUpdating}
+            style={styles.quantityButton}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={20} color="#ff6a00" />
+          </TouchableOpacity>
+
+          {/* Indicateur de quantité minimum */}
+          {item.minOrder && item.minOrder > 1 && itemQuantity < item.minOrder && (
+            <Text style={styles.minOrderWarning}>Min: {item.minOrder}</Text>
+          )}
+        </View>
+
+        {/* ? Total par article formaté */}
+        <Text style={styles.itemTotal}>
+          Total: {formatPrice(totalItemPrice)}
+        </Text>
+      </View>
+
+      {/* Bouton supprimer */}
+      <TouchableOpacity 
+        onPress={() => onRemove(item.cartId)}
+        style={styles.removeButton}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="trash-outline" size={22} color="#ff4444" />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
+CartItem.displayName = 'CartItem';
+
+/* -------------------------------------------------- */
+/* Composant Empty State                              */
+/* -------------------------------------------------- */
+
+const EmptyCart = memo(({ onContinueShopping }: { onContinueShopping: () => void }) => (
+  <View style={styles.emptyContainer}>
+    <View style={styles.emptyIconContainer}>
+      <Ionicons name="cart-outline" size={80} color="#ff6a00" />
+    </View>
+    <Text style={styles.emptyTitle}>Votre panier est vide</Text>
+    <Text style={styles.emptySubtitle}>
+      Découvrez nos produits et trouvez votre bonheur
+    </Text>
+    <TouchableOpacity 
+      style={styles.shopButton}
+      onPress={onContinueShopping}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.shopButtonText}>Continuer mes achats</Text>
+    </TouchableOpacity>
+  </View>
+));
+
+EmptyCart.displayName = 'EmptyCart';
+
+/* -------------------------------------------------- */
+/* Main Component                                     */
+/* -------------------------------------------------- */
+
 export default function CartScreen() {
-  const { 
-    cartItems, 
-    updateQuantity, 
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  
+  // ? Récupération des fonctions du contexte
+  const { currency, formatPrice } = useCurrency();
+  
+  const {
+    cartItems,
+    updateQuantity,
     removeFromCart,
-    getTotalPrice,
-    getTotalItems,
-    clearCart,
-    addToCart
   } = useCart();
 
-  const { user, loading: authLoading } = useAuth();
-  const router = useRouter();
-  const [promoCode, setPromoCode] = useState('');
-  const [applyingPromo, setApplyingPromo] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
-  const [fadeAnim] = useState(new Animated.Value(0));
-  const [popularProducts, setPopularProducts] = useState<Product[]>([]);
-  const [loadingPopularProducts, setLoadingPopularProducts] = useState(false);
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const insets = useSafeAreaInsets();
+  // State
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [isUpdating, setIsUpdating] = useState<Record<string, boolean>>({});
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [selectAll, setSelectAll] = useState(true);
 
-  // Calcul des totaux
-  const selectedCartItems = cartItems.filter(item => selectedItems.has(item.id));
-  const subtotal = selectedCartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-  const shipping = selectedCartItems.length > 0 ? (subtotal > 50000 ? 0 : 4000) : 0;
-  const discount = promoCode && selectedCartItems.length > 0 ? Math.min(20000, subtotal * 0.1) : 0;
-  const total = Math.max(0, subtotal + shipping - discount);
+  // Refs pour debounce
+  const updateTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
 
-  // Fonction pour extraire le nom du vendeur
-  const getSellerName = (item: any) => {
-    if (item.companyName) return item.companyName;
-    
-    if (item.seller) {
-      if (typeof item.seller === 'object' && item.seller !== null) {
-        return item.seller.name || item.seller.companyName || 'ASMA Express';
+  /* ---------- Initialisation des quantités ---------- */
+  useEffect(() => {
+    const q: Record<string, number> = {};
+    cartItems.forEach(item => {
+      q[item.cartId] = saneQty(item.quantity);
+    });
+    setQuantities(q);
+  }, [cartItems]);
+
+  /* ---------- Auto-sélection de tous les items ---------- */
+  useEffect(() => {
+    if (cartItems.length > 0) {
+      setSelected(new Set(cartItems.map(i => i.cartId)));
+      setSelectAll(true);
+    }
+  }, [cartItems]);
+
+  /* ---------- Calculs mémorisés avec useMemo ---------- */
+  
+  // Items sélectionnés
+  const selectedItems = useMemo(() => 
+    cartItems.filter(i => selected.has(i.cartId)),
+    [cartItems, selected]
+  );
+
+  // ? Sous-total en XOF (calcul PUR - pas de formatage)
+  const subtotalXOF = useMemo(() => 
+    selectedItems.reduce((sum, item) => {
+      const qty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 0;
+      const price = Number(item.price) || 0;
+      return sum + (price * qty);
+    }, 0),
+    [selectedItems, quantities]
+  );
+
+  // Nombre d'articles sélectionnés
+  const selectedCount = selectedItems.length;
+  
+  // Quantité totale d'articles sélectionnés
+  const totalQuantity = useMemo(() => 
+    selectedItems.reduce((sum, item) => {
+      const qty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 0;
+      return sum + qty;
+    }, 0),
+    [selectedItems, quantities]
+  );
+
+  /* ---------- Handlers avec useCallback ---------- */
+
+  // Sélection/déselection de tous les items
+  const toggleSelectAll = useCallback(() => {
+    if (selected.size === cartItems.length) {
+      setSelected(new Set());
+      setSelectAll(false);
+    } else {
+      setSelected(new Set(cartItems.map(i => i.cartId)));
+      setSelectAll(true);
+    }
+  }, [selected, cartItems]);
+
+  // Sélection/déselection d'un item
+  const toggleItem = useCallback((id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
       }
-      return item.seller;
-    }
-    
-    return 'ASMA Express';
-  };
-
-  const getSellerRating = (item: any) => {
-    if (item.seller && typeof item.seller === 'object' && item.seller !== null) {
-      return item.seller.rating || 4.8;
-    }
-    return 4.8;
-  };
-
-  useEffect(() => {
-    console.log('CartScreen - CartItems:', cartItems.length);
-    console.log('Selected items:', selectedItems.size);
-  }, [cartItems, selectedItems]);
-
-  useEffect(() => {
-    loadAllProducts();
+      return next;
+    });
   }, []);
 
-  useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  // Charger TOUS les produits
-  const loadAllProducts = async () => {
-    setLoadingPopularProducts(true);
-    try {
-      console.log('ðŸ“¥ Chargement de TOUS les produits depuis Firebase...');
-      
-      const allProducts = await getAllProducts();
-      console.log(`ðŸ“Š ${allProducts.length} produits rÃ©cupÃ©rÃ©s de la base de donnÃ©es`);
-      
-      // Filtrer les produits dÃ©jÃ  dans le panier
-      const cartProductIds = cartItems.map(item => item.productId || item.id);
-      const filteredProducts = allProducts.filter(
-        product => !cartProductIds.includes(product.id)
-      );
-      
-      // MÃ©langer alÃ©atoirement les produits
-      const shuffledProducts = [...filteredProducts].sort(() => Math.random() - 0.5);
-      
-      // Prendre les 10 premiers pour l'affichage
-      const displayProducts = shuffledProducts.slice(0, 10);
-      
-      setPopularProducts(displayProducts);
-      console.log(`âœ… ${displayProducts.length} produits affichÃ©s`);
-      
-    } catch (error) {
-      console.error('âŒ Erreur chargement des produits:', error);
-      setPopularProducts(generateFallbackProducts());
-    } finally {
-      setLoadingPopularProducts(false);
+  // Mise à jour de quantité avec debounce
+  const updateQuantityWithDebounce = useCallback((cartId: string, newQty: number) => {
+    if (updateTimeoutRef.current[cartId]) {
+      clearTimeout(updateTimeoutRef.current[cartId]);
     }
-  };
 
-  const generateFallbackProducts = (): Product[] => {
-    const categories = ['mode', 'Ã©lectronique', 'maison', 'sport', 'beautÃ©'];
-    const fallbackImages = [
-      'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab',
-      'https://images.unsplash.com/photo-1584917865442-de89df76afd3',
-      'https://images.unsplash.com/photo-1542291026-7eec264c27ff',
-      'https://images.unsplash.com/photo-1523170335258-f5ed11844a49',
-    ];
+    setIsUpdating(prev => ({ ...prev, [cartId]: true }));
+    setQuantities(prev => ({ ...prev, [cartId]: newQty }));
+
+    updateTimeoutRef.current[cartId] = setTimeout(() => {
+      updateQuantity(cartId, newQty);
+      setIsUpdating(prev => ({ ...prev, [cartId]: false }));
+    }, 500);
+  }, [updateQuantity]);
+
+  // Augmenter quantité
+  const handleIncrease = useCallback((item: CartItemType) => {
+    const currentQty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 1;
+    const newQty = currentQty + 1;
+    if (newQty <= 999) {
+      updateQuantityWithDebounce(item.cartId, newQty);
+    }
+  }, [quantities, updateQuantityWithDebounce]);
+
+  // Diminuer quantité
+  const handleDecrease = useCallback((item: CartItemType) => {
+    const currentQty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 1;
     
-    return Array.from({ length: 8 }, (_, i) => ({
-      id: `fallback-${i + 1}`,
-      name: `Produit Tendances ${i + 1}`,
-      description: 'Description du produit tendances',
-      price: Math.floor(Math.random() * 50000) + 10000,
-      image: '',
-      imageUrl: `${fallbackImages[i % fallbackImages.length]}?w=300&h=300&fit=crop`,
-      categoryId: categories[i % categories.length],
-      stock: Math.floor(Math.random() * 100),
-      companyId: `comp${Math.floor(i / 2) + 1}`,
-      companyName: `Fournisseur ${Math.floor(i / 2) + 1}`,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }));
-  };
-
-  const addPopularToCart = async (product: Product) => {
-    try {
-      console.log('âž• Ajout produit populaire:', product.name);
-      
-      const cartProduct = {
-        id: product.id,
-        name: product.name,
-        price: product.price || 0,
-        quantity: 1,
-        image: product.imageUrl || product.image || '',
-        seller: product.companyName || 'Fournisseur ASMA',
-        minOrder: 1,
-        shipping: "Livraison standard",
-        inStock: (product.stock || product.stockQuantity || 0) > 0,
-        companyId: product.companyId,
-        companyName: product.companyName,
-      };
-
-      await addToCart(cartProduct);
-      
+    if (currentQty <= 1) {
       Alert.alert(
-        'âœ… AjoutÃ© au panier', 
-        `${product.name} a Ã©tÃ© ajoutÃ© Ã  votre panier`,
+        'Supprimer l\'article',
+        'Voulez-vous supprimer cet article du panier ?',
         [
+          { text: 'Annuler', style: 'cancel' },
           { 
-            text: "Continuer", 
-            style: "cancel" 
-          },
-          { 
-            text: "Voir mon panier", 
-            onPress: () => {
-              loadAllProducts();
-            }
+            text: 'Supprimer', 
+            onPress: () => removeFromCart(item.cartId),
+            style: 'destructive'
           }
         ]
       );
-      
-    } catch (error) {
-      console.error('âŒ Erreur ajout produit populaire:', error);
-      Alert.alert('Erreur', 'Impossible d\'ajouter ce produit au panier');
-    }
-  };
-
-  // Supprimer tous les articles sÃ©lectionnÃ©s
-  const handleDeleteSelected = () => {
-    if (selectedItems.size === 0) {
-      Alert.alert('Aucune sÃ©lection', 'Veuillez sÃ©lectionner des articles Ã  supprimer');
-      return;
-    }
-    
-    Alert.alert(
-      'Supprimer les articles sÃ©lectionnÃ©s',
-      `ÃŠtes-vous sÃ»r de vouloir supprimer ${selectedItems.size} article(s) ?`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { 
-          text: 'Supprimer', 
-          style: 'destructive',
-          onPress: () => {
-            const itemIds = Array.from(selectedItems);
-            itemIds.forEach(id => {
-              removeFromCart(id);
-            });
-            setSelectedItems(new Set());
-            setIsSelectionMode(false);
-            Alert.alert('SupprimÃ©', `${itemIds.length} article(s) supprimÃ©(s)`);
-          }
-        },
-      ]
-    );
-  };
-
-  const toggleSelectItem = (id: string) => {
-    setSelectedItems(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      
-      // Activer/dÃ©sactiver le mode sÃ©lection
-      if (newSet.size > 0 && !isSelectionMode) {
-        setIsSelectionMode(true);
-      } else if (newSet.size === 0 && isSelectionMode) {
-        setIsSelectionMode(false);
-      }
-      
-      return newSet;
-    });
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedItems.size === cartItems.length) {
-      setSelectedItems(new Set());
-      setIsSelectionMode(false);
     } else {
-      setSelectedItems(new Set(cartItems.map(item => item.id)));
-      setIsSelectionMode(true);
+      updateQuantityWithDebounce(item.cartId, currentQty - 1);
     }
-  };
+  }, [quantities, updateQuantityWithDebounce, removeFromCart]);
 
-  // GÃ©rer le mode sÃ©lection automatiquement
-  useEffect(() => {
-    if (selectedItems.size > 0 && !isSelectionMode) {
-      setIsSelectionMode(true);
-    } else if (selectedItems.size === 0 && isSelectionMode) {
-      setIsSelectionMode(false);
-    }
-  }, [selectedItems.size]);
-
-  const handleUpdateQuantity = (productId: string, newQuantity: number) => {
-    if (newQuantity < 1) {
-      handleRemoveItem(productId);
-      return;
-    }
-    updateQuantity(productId, newQuantity);
-  };
-
-  const handleRemoveItem = (productId: string) => {
+  // Supprimer un article
+  const handleRemove = useCallback((cartId: string) => {
     Alert.alert(
       'Supprimer l\'article',
-      'ÃŠtes-vous sÃ»r de vouloir supprimer cet article du panier ?',
+      'Voulez-vous supprimer cet article du panier ?',
       [
         { text: 'Annuler', style: 'cancel' },
         { 
           text: 'Supprimer', 
-          style: 'destructive',
-          onPress: () => {
-            removeFromCart(productId);
-            setSelectedItems(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(productId);
-              return newSet;
-            });
-          }
-        },
+          onPress: () => removeFromCart(cartId),
+          style: 'destructive'
+        }
       ]
     );
-  };
+  }, [removeFromCart]);
 
-  const handleClearCart = () => {
-    if (cartItems.length === 0) {
-      Alert.alert('Panier vide', 'Votre panier est dÃ©jÃ  vide');
-      return;
-    }
+  // Supprimer les articles sélectionnés
+  const handleRemoveSelected = useCallback(() => {
+    if (selectedItems.length === 0) return;
     
     Alert.alert(
-      'Vider le panier',
-      `ÃŠtes-vous sÃ»r de vouloir supprimer tous les articles (${cartItems.length}) ?`,
+      'Supprimer les articles',
+      `Voulez-vous supprimer ${selectedItems.length} article(s) du panier ?`,
       [
         { text: 'Annuler', style: 'cancel' },
-        { 
-          text: 'Tout supprimer', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await clearCart();
-              setSelectedItems(new Set());
-              setIsSelectionMode(false);
-              Alert.alert('Panier vidÃ©', 'Tous les articles ont Ã©tÃ© supprimÃ©s');
-            } catch (error) {
-              console.error('Erreur vidage panier:', error);
-              Alert.alert('Erreur', 'Impossible de vider le panier');
-            }
-          }
-        },
-      ]
-    );
-  };
-
-  // Annuler la sÃ©lection
-  const cancelSelection = () => {
-    setSelectedItems(new Set());
-    setIsSelectionMode(false);
-  };
-
-  const moveToWishlist = (item: any) => {
-    Alert.alert('AjoutÃ© aux favoris', `${item.name} a Ã©tÃ© ajoutÃ© Ã  vos favoris.`);
-  };
-
-  const applyPromoCode = () => {
-    if (!promoCode.trim()) {
-      Alert.alert('Champ vide', 'Veuillez entrer un code promo');
-      return;
-    }
-    
-    setApplyingPromo(true);
-    setTimeout(() => {
-      setApplyingPromo(false);
-      if (promoCode.toUpperCase() === 'ASMA10') {
-        Alert.alert('SuccÃ¨s!', 'Code promo appliquÃ© -10%');
-      } else if (promoCode.toUpperCase() === 'LIVRAISON') {
-        Alert.alert('SuccÃ¨s!', 'Livraison gratuite activÃ©e!');
-      } else {
-        Alert.alert('Code invalide', 'Ce code promo n\'est pas valide');
-        setPromoCode('');
-      }
-    }, 1000);
-  };
-
-  const handleCheckout = () => {
-    if (selectedCartItems.length === 0) {
-      Alert.alert('Aucun article', 'Veuillez sÃ©lectionner au moins un article');
-      return;
-    }
-    
-    Alert.alert(
-      'Confirmer la commande',
-      `Total: ${total.toFixed(2)} FCFA\n\nArticles: ${selectedCartItems.length}`,
-      [
-        { text: 'Modifier', style: 'cancel' },
-        { 
-          text: 'Payer maintenant', 
+        {
+          text: 'Supprimer',
           onPress: () => {
-            router.push('/checkout');
-          }
-        },
+            selectedItems.forEach(item => removeFromCart(item.cartId));
+            setSelected(new Set());
+          },
+          style: 'destructive'
+        }
       ]
     );
-  };
+  }, [selectedItems, removeFromCart]);
 
-  const handleDiscoverNow = () => {
-    router.push('/categories');
-  };
-
-  const CartItemCard = ({ item, index }: { item: any; index: number }) => {
-    const sellerName = getSellerName(item);
-    const sellerRating = getSellerRating(item);
+  // Checkout
+const handleCheckout = async () => {
+    if (selectedItems.length === 0) return;
     
+    setIsCheckingOut(true);
+    
+    try {
+      // Simulation d'un petit délai pour l'UX
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // ? ON RECONSTRUIT L'OBJET ATTENDU PAR SHIPPING.TSX
+// ? ON RECONSTRUIT L'OBJET ATTENDU PAR L'INDEX DU CHECKOUT (L'ADRESSE)
+const orderData = {
+  items: selectedItems.map(item => ({
+    id: item.cartId,
+    productId: item.id,
+    name: item.name,
+    price: Number(item.price),
+    quantity: quantities[item.cartId] ?? item.quantity,
+    imageUrl: item.image || item.imageUrl,
+    companyName: item.seller || "Kissgroup88"
+  })),
+  summary: {
+    subtotal: Number(subtotalXOF),
+    shipping: 0,
+    discount: 0,
+    total: Number(subtotalXOF)
+  }
+};
+
+// ?? LA RÉPARATION EST ICI :
+// On change '/checkout/shipping' par '/checkout' 
+// pour passer par CheckoutAddress (index.tsx)
+router.push({
+  pathname: '/checkout', 
+  params: {
+    orderData: JSON.stringify(orderData)
+  }
+});
+    } catch (error) {
+      console.error("Erreur transfert commande:", error);
+      Alert.alert("Erreur", "Une erreur est survenue lors de la préparation de la commande.");
+    } finally {
+      setIsCheckingOut(false);
+    }
+  };
+
+  // ? Rendu d'un item de la FlatList - on passe formatPrice du contexte
+  const renderCartItem = useCallback(({ item }: { item: CartItemType }) => (
+    <CartItem
+      item={item}
+      isSelected={selected.has(item.cartId)}
+      quantity={quantities[item.cartId] ?? saneQty(item.quantity)}
+      isUpdating={isUpdating[item.cartId] || false}
+      onToggle={toggleItem}
+      onIncrease={handleIncrease}
+      onDecrease={handleDecrease}
+      onRemove={handleRemove}
+      formatPrice={formatPrice}  // ? Passage de la fonction du contexte
+    />
+  ), [selected, quantities, isUpdating, toggleItem, handleIncrease, handleDecrease, handleRemove, formatPrice]);
+
+  /* ---------- Rendu conditionnel (panier vide) ---------- */
+  if (cartItems.length === 0) {
     return (
-      <Animated.View 
-        style={[
-          styles.cartItem,
-          {
-            opacity: fadeAnim,
-            transform: [{
-              translateY: fadeAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [50, 0],
-              }),
-            }],
-          },
-        ]}
-      >
-        {/* Checkbox de sÃ©lection */}
-        <TouchableOpacity 
-          style={styles.checkboxContainer}
-          onPress={() => toggleSelectItem(item.id)}
-        >
-          <View style={[
-            styles.checkbox,
-            selectedItems.has(item.id) && styles.checkboxSelected
-          ]}>
-            {selectedItems.has(item.id) && (
-              <Ionicons name="checkmark" size={14} color="#fff" />
-            )}
-          </View>
-        </TouchableOpacity>
+      <>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <SafeAreaView style={styles.safeArea}>
+          <EmptyCart onContinueShopping={() => router.push('/')} />
+        </SafeAreaView>
+      </>
+    );
+  }
 
-        {/* Image du produit */}
-        <TouchableOpacity 
-          style={styles.imageContainer}
-          onPress={() => router.push(`/product/${item.productId || item.id}`)}
-        >
-          <Image 
-            source={{ uri: item.image || item.imageUrl }} 
-            style={styles.productImage} 
-          />
-          {(!item.inStock || item.stock === 0) && (
-            <View style={styles.outOfStockOverlay}>
-              <Text style={styles.outOfStockText}>Rupture</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* DÃ©tails du produit */}
-        <View style={styles.itemDetails}>
-          <TouchableOpacity onPress={() => router.push(`/product/${item.productId || item.id}`)}>
-            <Text style={styles.productName} numberOfLines={2}>
-              {item.name}
-            </Text>
+  /* ---------- Rendu principal ---------- */
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      
+      {/* Header avec sélection */}
+      <View style={[styles.headerWrapper, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <TouchableOpacity 
+            onPress={() => router.back()}
+            style={styles.headerButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           
-          <View style={styles.sellerInfo}>
-            <Text style={styles.sellerName}>
-              {sellerName}
+          <Text style={styles.headerTitle}>
+            Mon Panier <Text style={styles.headerCount}>({cartItems.length})</Text>
+          </Text>
+          
+          <TouchableOpacity 
+            onPress={toggleSelectAll}
+            style={styles.headerButton}
+          >
+            <Text style={styles.selectAllText}>
+              {selectAll ? 'Tout désél.' : 'Tout sél.'}
             </Text>
-            <View style={styles.ratingContainer}>
-              <Ionicons name="star" size={12} color="#ffa726" />
-              <Text style={styles.ratingText}>{sellerRating.toFixed(1)}</Text>
-            </View>
-          </View>
-
-          {/* Badges */}
-          <View style={styles.badgesContainer}>
-            <View style={styles.freeShippingBadge}>
-              <MaterialIcons name="local-shipping" size={10} color="#4caf50" />
-              <Text style={styles.badgeText}>Livraison</Text>
-            </View>
-            {item.minOrder > 1 && (
-              <View style={styles.minOrderBadge}>
-                <Text style={styles.minOrderText}>MOQ: {item.minOrder}</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Prix et quantitÃ© */}
-          <View style={styles.priceQuantityRow}>
-            <View style={styles.priceContainer}>
-              <Text style={styles.currentPrice}>{item.price.toLocaleString()} FCFA</Text>
-            </View>
-
-            <View style={styles.quantityControls}>
-              <TouchableOpacity 
-                style={[
-                  styles.quantityBtn,
-                  item.quantity <= 1 && styles.quantityBtnDisabled
-                ]}
-                onPress={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
-                disabled={item.quantity <= 1}
-              >
-                <Text style={styles.quantityBtnText}>-</Text>
-              </TouchableOpacity>
-              
-              <Text style={styles.quantityText}>{item.quantity}</Text>
-              
-              <TouchableOpacity 
-                style={styles.quantityBtn}
-                onPress={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
-              >
-                <Text style={styles.quantityBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Actions */}
-          <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={styles.actionBtn}
-              onPress={() => moveToWishlist(item)}
-            >
-              <Ionicons name="heart-outline" size={16} color="#666" />
-              <Text style={styles.actionText}>Favoris</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionBtn}
-              onPress={() => handleRemoveItem(item.productId)}
-            >
-              <Ionicons name="trash-outline" size={16} color="#666" />
-              <Text style={styles.actionText}>Supprimer</Text>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         </View>
-      </Animated.View>
-    );
-  };
+      </View>
 
-  const PopularProductCard = ({ product }: { product: Product }) => (
-    <View style={styles.popularProductCard}>
-      <TouchableOpacity onPress={() => router.push(`/product/${product.id}`)}>
-        <Image 
-          source={{ uri: product.imageUrl || product.image }} 
-          style={styles.popularProductImage} 
-        />
-      </TouchableOpacity>
-      <View style={styles.popularProductInfo}>
-        <TouchableOpacity onPress={() => router.push(`/product/${product.id}`)}>
-          <Text style={styles.popularProductName} numberOfLines={2}>
-            {product.name}
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.popularProductPrice}>
-          {product.price?.toLocaleString() || '0'} FCFA
-        </Text>
-        {product.companyName && (
-          <Text style={styles.popularProductSeller} numberOfLines={1}>
-            {product.companyName}
-          </Text>
-        )}
-        <TouchableOpacity 
-          style={styles.addPopularBtn}
-          onPress={() => addPopularToCart(product)}
-        >
-          <Ionicons name="cart-outline" size={14} color="#fff" />
-          <Text style={styles.addPopularBtnText}>Ajouter</Text>
-        </TouchableOpacity>
+      {/* Liste des articles */}
+      <FlatList
+        data={cartItems}
+        keyExtractor={item => item.cartId}
+        renderItem={renderCartItem}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.listContent,
+          { 
+            paddingBottom: 100 + (insets.bottom || 0),
+            paddingTop: 8,
+          }
+        ]}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        initialNumToRender={5}
+      />
+
+      {/* Footer sticky */}
+      <View style={[styles.footerWrapper, { paddingBottom: insets.bottom || 0 }]}>
+        <View style={styles.footer}>
+          {/* Ligne supérieure du footer */}
+          <View style={styles.footerRow}>
+            <View style={styles.footerLeft}>
+              <Text style={styles.footerLabel}>
+                {selectedCount} article{selectedCount > 1 ? 's' : ''}
+              </Text>
+              {/* ? Affichage formaté du sous-total avec la fonction du contexte */}
+              <Text style={styles.footerPrice}>
+                {formatPrice(subtotalXOF)}
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={[
+                styles.checkoutBtn,
+                (selectedCount === 0 || isCheckingOut) && styles.checkoutBtnDisabled
+              ]}
+              onPress={handleCheckout}
+              disabled={selectedCount === 0 || isCheckingOut}
+              activeOpacity={0.8}
+            >
+              {isCheckingOut ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.checkoutBtnTxt}>Commander</Text>
+                  <Text style={styles.checkoutBtnSubTxt}>
+                    ({totalQuantity})
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Actions supplémentaires */}
+          {selectedCount > 0 && (
+            <View style={styles.footerActions}>
+              <TouchableOpacity 
+                style={styles.deleteSelected}
+                onPress={handleRemoveSelected}
+              >
+                <Ionicons name="trash-outline" size={18} color="#ff4444" />
+                <Text style={styles.deleteSelectedText}>
+                  Supprimer ({selectedCount})
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );
-
-  const PopularProductsSection = () => {
-    if (popularProducts.length === 0 && !loadingPopularProducts) {
-      return null;
-    }
-
-    return (
-      <View style={styles.popularProductsSection}>
-        <View style={styles.popularProductsHeader}>
-          <MaterialIcons name="trending-up" size={20} color="#ff6a00" />
-          <Text style={styles.popularProductsTitle}>Produits Tendances</Text>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={loadAllProducts}
-            disabled={loadingPopularProducts}
-          >
-            <Ionicons 
-              name="refresh" 
-              size={16} 
-              color={loadingPopularProducts ? '#ccc' : '#ff6a00'} 
-            />
-          </TouchableOpacity>
-        </View>
-        
-        <Text style={styles.popularProductsSubtitle}>
-          {loadingPopularProducts ? 
-            "Chargement des produits depuis la base de donnÃ©es..." : 
-            `DÃ©couvrez ${popularProducts.length} produits tendances`
-          }
-        </Text>
-        
-        {loadingPopularProducts ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#ff6a00" />
-            <Text style={styles.loadingText}>Chargement en cours...</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={popularProducts}
-            renderItem={({ item }) => <PopularProductCard product={item} />}
-            keyExtractor={(item) => item.id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.popularProductsList}
-            snapToInterval={160}
-            decelerationRate="fast"
-          />
-        )}
-      </View>
-    );
-  };
-
-  const footerHeight = 100 + insets.bottom;
-
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header dynamique */}
-      <View style={styles.header}>
-        {isSelectionMode ? (
-          <View style={styles.selectionHeader}>
-            <TouchableOpacity 
-              style={styles.cancelSelectionButton}
-              onPress={cancelSelection}
-            >
-              <Ionicons name="close" size={22} color="#666" />
-            </TouchableOpacity>
-            <Text style={styles.selectionHeaderTitle}>
-              {selectedItems.size} article(s) sÃ©lectionnÃ©(s)
-            </Text>
-            <TouchableOpacity 
-              style={styles.deleteSelectedButton}
-              onPress={handleDeleteSelected}
-              disabled={selectedItems.size === 0}
-            >
-              <Ionicons name="trash-outline" size={20} color={selectedItems.size > 0 ? "#dc3545" : "#ccc"} />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <>
-            <Text style={styles.headerTitle}>Panier ({getTotalItems()})</Text>
-            <View style={styles.headerActions}>
-              {cartItems.length > 0 && (
-                <TouchableOpacity 
-                  style={styles.clearCartButton}
-                  onPress={handleClearCart}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#dc3545" />
-                </TouchableOpacity>
-              )}
-              <TouchableOpacity style={styles.headerButton}>
-                <Ionicons name="ellipsis-horizontal" size={22} color="#333" />
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-      </View>
-
-      <ScrollView 
-        style={styles.scrollView} 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        {cartItems.length > 0 && !isSelectionMode && (
-          <View style={styles.bulkActions}>
-            <TouchableOpacity 
-              style={styles.selectAllButton}
-              onPress={toggleSelectAll}
-            >
-              <View style={[
-                styles.checkbox,
-                selectedItems.size === cartItems.length && styles.checkboxSelected
-              ]}>
-                {selectedItems.size === cartItems.length && (
-                  <Ionicons name="checkmark" size={14} color="#fff" />
-                )}
-              </View>
-              <Text style={styles.selectAllText}>
-                Tout sÃ©lectionner ({selectedItems.size}/{cartItems.length})
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.startSelectionButton}
-              onPress={() => {
-                if (selectedItems.size === 0 && cartItems.length > 0) {
-                  setSelectedItems(new Set([cartItems[0].id]));
-                  setIsSelectionMode(true);
-                }
-              }}
-            >
-              <Text style={styles.startSelectionText}>SÃ©lectionner</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {cartItems.length === 0 ? (
-          <View style={styles.emptyState}>
-            <FontAwesome5 name="shopping-basket" size={80} color="#e0e0e0" />
-            <Text style={styles.emptyStateTitle}>Panier vide</Text>
-            <Text style={styles.emptyStateSubtitle}>
-              DÃ©couvrez nos produits tendance et profitez de nos meilleures offres
-            </Text>
-            <TouchableOpacity 
-              style={styles.shopButton}
-              onPress={handleDiscoverNow}
-            >
-              <Text style={styles.shopButtonText}>DÃ©couvrir maintenant</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          cartItems.map((item, index) => (
-            <CartItemCard
-              key={item.id}
-              item={item}
-              index={index}
-            />
-          ))
-        )}
-
-        <PopularProductsSection />
-
-        {(selectedCartItems.length > 0 && !isSelectionMode) && (
-          <View style={styles.promoSection}>
-            <View style={styles.promoHeader}>
-              <MaterialIcons name="local-offer" size={20} color="#ff6a00" />
-              <Text style={styles.promoTitle}>Codes promo disponibles</Text>
-            </View>
-            <View style={styles.promoInputRow}>
-              <TextInput
-                style={styles.promoInput}
-                placeholder="Entrez le code promo"
-                value={promoCode}
-                onChangeText={setPromoCode}
-                placeholderTextColor="#999"
-              />
-              <TouchableOpacity 
-                style={[
-                  styles.applyButton,
-                  applyingPromo && styles.applyButtonDisabled
-                ]}
-                onPress={applyPromoCode}
-                disabled={applyingPromo}
-              >
-                {applyingPromo ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.applyButtonText}>Appliquer</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* âœ… CORRECTION IMPORTANTE : Footer toujours visible quand il y a des articles sÃ©lectionnÃ©s */}
-      {(cartItems.length > 0 && selectedItems.size > 0) && (
-        <View style={[styles.footer, { height: footerHeight, paddingBottom: insets.bottom }]}>
-          <View style={styles.footerContent}>
-            <View style={styles.footerSummary}>
-              {isSelectionMode ? (
-                <>
-                  <Text style={styles.selectionTotalLabel}>
-                    SÃ©lection: <Text style={styles.selectionCount}>{selectedItems.size} article(s)</Text>
-                  </Text>
-                  <Text style={styles.totalLabel}>
-                    Total: <Text style={styles.totalAmount}>{total.toLocaleString()} FCFA</Text>
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.totalLabel}>
-                    Total: <Text style={styles.totalAmount}>{total.toLocaleString()} FCFA</Text>
-                  </Text>
-                  <Text style={styles.shippingInfo}>
-                    {shipping === 0 ? 'Livraison gratuite' : `+${shipping.toLocaleString()} FCFA livraison`}
-                    {discount > 0 && ` - Ã‰conomie: ${discount.toLocaleString()} FCFA`}
-                  </Text>
-                </>
-              )}
-            </View>
-            
-            <TouchableOpacity 
-              style={[
-                styles.checkoutButton,
-                (selectedCartItems.length === 0) && styles.checkoutButtonDisabled
-              ]}
-              onPress={handleCheckout}
-              disabled={selectedCartItems.length === 0}
-            >
-              <Text style={styles.checkoutButtonText}>
-                {isSelectionMode ? 'Payer la sÃ©lection' : 'Payer'} ({selectedCartItems.length})
-              </Text>
-              <MaterialIcons name="arrow-forward-ios" size={16} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </SafeAreaView>
-  );
 }
+
+/* -------------------------------------------------- */
+/* Styles - inchangés                                 */
+/* -------------------------------------------------- */
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#f5f5f5',
   },
-  header: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  headerWrapper: {
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  selectionHeader: {
+  header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  cancelSelectionButton: {
-    padding: 4,
-  },
-  selectionHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    flex: 1,
-    textAlign: 'center',
-  },
-  deleteSelectedButton: {
-    padding: 4,
-  },
-  headerActions: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-  },
-  clearCartButton: {
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: '#fff0f0',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
   },
   headerButton: {
     padding: 4,
   },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 120,
-  },
-  bulkActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  selectAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  startSelectionButton: {
-    backgroundColor: '#f0f8ff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#007AFF',
-  },
-  startSelectionText: {
-    color: '#007AFF',
-    fontSize: 12,
+  headerTitle: {
+    fontSize: 18,
     fontWeight: '600',
+    color: '#333',
   },
-  checkboxContainer: {
-    padding: 8,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: '#ff6a00',
-    borderColor: '#ff6a00',
+  headerCount: {
+    color: '#999',
+    fontSize: 14,
+    fontWeight: '400',
   },
   selectAllText: {
+    color: '#ff6a00',
+    fontWeight: '600',
     fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
   },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 40,
+  listContent: {
+    flexGrow: 1,
   },
-  emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  shopButton: {
-    backgroundColor: '#ff6a00',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 25,
-    shadowColor: '#ff6a00',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  shopButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cartItem: {
+  card: {
     flexDirection: 'row',
     backgroundColor: '#fff',
+    marginVertical: 4,
     marginHorizontal: 16,
-    marginVertical: 6,
     padding: 12,
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
   },
-  imageContainer: {
-    position: 'relative',
-    marginRight: 12,
+  checkbox: {
+    justifyContent: 'center',
+    marginRight: 8,
   },
-  productImage: {
+  thumb: {
     width: 80,
     height: 80,
     borderRadius: 8,
-    backgroundColor: '#f5f5f5',
-  },
-  outOfStockOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  outOfStockText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+    backgroundColor: '#f9f9f9',
   },
   itemDetails: {
     flex: 1,
+    marginLeft: 12,
   },
-  productName: {
+  name: {
+    fontWeight: '500',
     fontSize: 14,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    lineHeight: 18,
+    color: '#333',
+    marginBottom: 4,
+  },
+  variants: {
+    flexDirection: 'row',
+    marginBottom: 4,
+    flexWrap: 'wrap',
+  },
+  variantBadge: {
+    backgroundColor: '#f5f5f5',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginRight: 4,
+    marginBottom: 2,
+  },
+  variantText: {
+    fontSize: 10,
+    color: '#666',
+  },
+  price: {
+    color: '#ff6a00',
+    fontWeight: '700',
+    fontSize: 15,
+    marginBottom: 2,
+  },
+  unitPrice: {
+    fontSize: 11,
+    color: '#999',
     marginBottom: 6,
   },
-  sellerInfo: {
+  quantityContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
+    marginBottom: 4,
   },
-  sellerName: {
-    fontSize: 12,
-    color: '#666',
-  },
-  ratingContainer: {
-    flexDirection: 'row',
+  quantityButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 2,
   },
-  ratingText: {
-    fontSize: 11,
-    color: '#666',
-  },
-  badgesContainer: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 8,
-  },
-  freeShippingBadge: {
-    backgroundColor: '#e8f5e8',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    flexDirection: 'row',
+  quantityValue: {
+    minWidth: 40,
     alignItems: 'center',
-    gap: 4,
-  },
-  minOrderBadge: {
-    backgroundColor: '#fff3e0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#4caf50',
-  },
-  minOrderText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#ff9800',
-  },
-  priceQuantityRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  currentPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ff6a00',
-  },
-  quantityControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    borderRadius: 8,
-  },
-  quantityBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: '#f8f9fa',
-  },
-  quantityBtnDisabled: {
-    opacity: 0.5,
-  },
-  quantityBtnText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '600',
   },
   quantityText: {
-    paddingHorizontal: 14,
-    fontSize: 14,
     fontWeight: '600',
-    color: '#333',
-    minWidth: 24,
-    textAlign: 'center',
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  actionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  actionText: {
-    fontSize: 12,
-    color: '#666',
-  },
-  popularProductsSection: {
-    backgroundColor: '#fff',
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  popularProductsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  popularProductsTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#333',
-    flex: 1,
-  },
-  refreshButton: {
-    padding: 4,
-  },
-  popularProductsSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 16,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#666',
-  },
-  popularProductsList: {
-    paddingRight: 16,
-  },
-  popularProductCard: {
-    width: 140,
-    marginRight: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  popularProductImage: {
-    width: '100%',
-    height: 100,
-    borderRadius: 6,
-    backgroundColor: '#fff',
-    marginBottom: 8,
-  },
-  popularProductInfo: {
-    flex: 1,
-  },
-  popularProductName: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 4,
-    lineHeight: 14,
-  },
-  popularProductPrice: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ff6a00',
-    marginBottom: 4,
-  },
-  popularProductSeller: {
-    fontSize: 10,
-    color: '#666',
-    marginBottom: 8,
-  },
-  addPopularBtn: {
-    backgroundColor: '#ff6a00',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  addPopularBtnText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  promoSection: {
-    backgroundColor: '#fff',
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  promoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  promoTitle: {
     fontSize: 16,
+    color: '#333',
+  },
+  minOrderWarning: {
+    fontSize: 10,
+    color: '#ff6a00',
+    marginLeft: 8,
+  },
+  itemTotal: {
+    fontSize: 12,
     fontWeight: '600',
     color: '#333',
+    marginTop: 4,
   },
-  promoInputRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  promoInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e0e0f0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: '#333',
-  },
-  applyButton: {
-    backgroundColor: '#ff6a00',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-    minWidth: 80,
-    alignItems: 'center',
+  removeButton: {
+    padding: 8,
     justifyContent: 'center',
   },
-  applyButtonDisabled: {
-    opacity: 0.6,
-  },
-  applyButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  footer: {
+  footerWrapper: {
+    backgroundColor: '#fff',
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
+  },
+  footer: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
     elevation: 8,
   },
-  footerContent: {
+  footerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    alignItems: 'center',
   },
-  footerSummary: {
+  footerLeft: {
     flex: 1,
   },
-  // âœ… NOUVEAU : Style pour le label de sÃ©lection
-  selectionTotalLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 4,
-  },
-  selectionCount: {
-    color: '#ff6a00',
-    fontWeight: '700',
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+  footerLabel: {
+    fontSize: 12,
+    color: '#999',
     marginBottom: 2,
   },
-  totalAmount: {
-    color: '#ff6a00',
+  footerPrice: {
+    fontSize: 20,
     fontWeight: '700',
+    color: '#ff6a00',
   },
-  shippingInfo: {
-    fontSize: 12,
-    color: '#666',
-  },
-  checkoutButton: {
+  checkoutBtn: {
     backgroundColor: '#ff6a00',
-    paddingHorizontal: 20,
     paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
+    minWidth: 140,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  checkoutBtnDisabled: {
+    backgroundColor: '#ccc',
+  },
+  checkoutBtnTxt: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  checkoutBtnSubTxt: {
+    color: '#fff',
+    fontSize: 12,
+    opacity: 0.9,
+  },
+  footerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  deleteSelected: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    minWidth: 140,
+    paddingVertical: 4,
+  },
+  deleteSelectedText: {
+    color: '#ff4444',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    flex: 1,
     justifyContent: 'center',
-    shadowColor: '#ff6a00',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    backgroundColor: '#fff',
   },
-  checkoutButtonDisabled: {
-    backgroundColor: '#ccc',
-    shadowColor: '#ccc',
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#fff3e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
   },
-  checkoutButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  emptyTitle: {
+    fontSize: 20,
     fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  shopButton: {
+    backgroundColor: '#ff6a00',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 8,
+    width: '100%',
+    alignItems: 'center',
+  },
+  shopButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });

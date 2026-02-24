@@ -1,0 +1,70 @@
+{
+  "common": {
+    "search": "Buscar productos, proveedores, categorías...",
+    "suppliers": "Proveedores",
+    "products": "Productos",
+    "countries": "Países",
+    "seeAll": "Ver todo",
+    "addToCart": "Añadir al carrito",
+    "buyNow": "Comprar ahora",
+    "chat": "Chat",
+    "login": "Iniciar sesión",
+    "logout": "Cerrar sesión",
+    "profile": "Perfil",
+    "settings": "Configuración",
+    "language": "Idioma",
+    "currency": "Moneda",
+    "help": "Ayuda",
+    "contact": "Contacto"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "MERCADO",
+    "camera": "Búsqueda por imagen",
+    "messages": "Mensajes",
+    "notifications": "Notificaciones",
+    "cart": "Carrito"
+  },
+  "product": {
+    "price": "Precio especial",
+    "originalPrice": "Precio original",
+    "minOrder": "Pedido mínimo",
+    "bulkDiscount": "Descuento por volumen según cantidad",
+    "inStock": "En stock",
+    "outOfStock": "Agotado",
+    "delivery": "Entrega",
+    "reviews": "Opiniones",
+    "description": "Descripción",
+    "specifications": "Especificaciones",
+    "similarProducts": "Productos similares",
+    "wholesale": "Venta al por mayor",
+    "shipping": "Opciones de envío",
+    "seller": "Información del vendedor",
+    "addToCartSuccess": "Producto añadido al carrito"
+  },
+  "auth": {
+    "loginTitle": "Inicia sesión en tu cuenta",
+    "registerTitle": "Crear una nueva cuenta",
+    "email": "Correo electrónico",
+    "password": "Contraseña",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
+    "noAccount": "¿No tienes una cuenta?",
+    "hasAccount": "¿Ya tienes una cuenta?",
+    "signUp": "Registrarse",
+    "signIn": "Iniciar sesión"
+  },
+  "navigation": {
+    "home": "Inicio",
+    "categories": "Categorías",
+    "orders": "Pedidos",
+    "favorites": "Favoritos",
+    "messages": "Mensajes",
+    "account": "Cuenta"
+  },
+  "errors": {
+    "required": "Este campo es obligatorio",
+    "invalidEmail": "Dirección de correo no válida",
+    "networkError": "Error de red. Inténtalo de nuevo.",
+    "serverError": "Error del servidor. Inténtalo más tarde."
+  }
+}

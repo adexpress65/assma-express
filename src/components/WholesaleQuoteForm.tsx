@@ -1,4 +1,3 @@
-// components/WholesaleQuoteForm.tsx
 import React, { useState } from 'react';
 import {
   View,
@@ -10,7 +9,7 @@ import {
   Alert,
   ScrollView,
   ActivityIndicator,
-  Linking  // ← AJOUTEZ CETTE IMPORTATION
+  Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -51,6 +50,10 @@ export default function WholesaleQuoteForm({
 
   const [loading, setLoading] = useState(false);
 
+  const updateFormData = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
   const handleSubmit = async () => {
     // Validation
     if (!formData.fullName.trim() || !formData.email.trim() || !formData.phone.trim()) {
@@ -63,42 +66,38 @@ export default function WholesaleQuoteForm({
     try {
       // Construire le message
       const message = `
-        📋 NOUVELLE DEMANDE DE DEVIS GROSSISTE
-        ======================================
-        
-        👤 INFORMATIONS CLIENT:
-        ---------------------
-        • Nom complet: ${formData.fullName}
-        • Email: ${formData.email}
-        • Téléphone: ${formData.phone}
-        • Société: ${formData.company || 'Non spécifiée'}
-        
-        📦 DÉTAILS DE LA COMMANDE:
-        -------------------------
-        • Produit concerné: ${productName || 'Non spécifié'}
-        • ID Produit: ${productId || 'N/A'}
-        • Quantité souhaitée: ${formData.quantity || 'À préciser'}
-        • Budget estimé: ${formData.budget || 'À discuter'} FCFA
-        
-        🚚 LIVRAISON:
-        -------------
-        • Adresse de livraison: ${formData.deliveryAddress || 'À préciser'}
-        
-        📝 EXIGENCES SPÉCIALES:
-        ----------------------
-        ${formData.specialRequirements || 'Aucune exigence particulière'}
-        
-        ======================================
-        📧 Cette demande a été envoyée depuis l'application Assma Express
-        ⏰ Date: ${new Date().toLocaleString('fr-FR')}
+🚀 NOUVELLE DEMANDE DE DEVIS GROSSISTE
+---------------------------------------
+
+👤 INFORMATIONS CLIENT:
+• Nom complet: ${formData.fullName}
+• Email: ${formData.email}
+• Téléphone: ${formData.phone}
+• Société: ${formData.company || 'Non spécifiée'}
+
+📦 DÉTAILS DE LA COMMANDE:
+• Produit concerné: ${productName || 'Non spécifié'}
+• ID Produit: ${productId || 'N/A'}
+• Quantité souhaitée: ${formData.quantity || 'À préciser'}
+• Budget estimé: ${formData.budget || 'À discuter'} FCFA
+
+🚚 LIVRAISON:
+• Adresse de livraison: ${formData.deliveryAddress || 'À préciser'}
+
+📝 EXIGENCES SPÉCIALES:
+${formData.specialRequirements || 'Aucune exigence particulière'}
+
+---------------------------------------
+📩 Cette demande a été envoyée depuis l'application Assma Express
+⏰ Date: ${new Date().toLocaleString('fr-FR')}
       `;
 
       // Construire l'URL mailto
       const subject = `🔔 Demande Devis Grossiste - ${productName || 'Produit'}`;
       const body = encodeURIComponent(message);
-      const toEmails = 'sayon82649500@gmail.com,cheicksy1988@gmail.com';
+      const toEmails = 'sayon82649500@gmail.com, cheicksy1980@gmail.com';
       const ccEmails = formData.email; // Copie au client
-      
+
       const mailtoUrl = `mailto:${toEmails}?cc=${ccEmails}&subject=${encodeURIComponent(subject)}&body=${body}`;
 
       // Vérifier si Linking est disponible
@@ -108,55 +107,37 @@ export default function WholesaleQuoteForm({
         return;
       }
 
-      // Ouvrir l'application email
       const canOpen = await Linking.canOpenURL(mailtoUrl);
-      
+
       if (canOpen) {
         await Linking.openURL(mailtoUrl);
         
         Alert.alert(
           'Demande envoyée !',
           'Votre demande de devis a été transférée à notre service commercial. Vous recevrez une réponse dans les 24h.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                onClose();
-                setFormData({
-                  fullName: '',
-                  email: '',
-                  phone: '',
-                  company: '',
-                  quantity: '',
-                  deliveryAddress: '',
-                  specialRequirements: '',
-                  budget: ''
-                });
-              }
+          [{ 
+            text: 'OK', 
+            onPress: () => {
+              onClose();
+              setFormData({
+                fullName: '', email: '', phone: '', company: '',
+                quantity: '', deliveryAddress: '', specialRequirements: '', budget: ''
+              });
             }
-          ]
+          }]
         );
       } else {
         Alert.alert(
           'Application email non trouvée',
-          'Veuillez configurer une application de messagerie sur votre appareil.',
-          [{ text: 'OK' }]
+          'Veuillez configurer une application de messagerie sur votre appareil.'
         );
       }
     } catch (error) {
       console.error('Erreur envoi email:', error);
-      Alert.alert(
-        'Erreur',
-        'Impossible d\'ouvrir l\'application email. Veuillez vérifier votre configuration.',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application email.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const updateFormData = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
   };
 
   return (
@@ -186,12 +167,10 @@ export default function WholesaleQuoteForm({
               </View>
             )}
 
-            <Text style={styles.sectionTitle}>📋 Informations personnelles</Text>
-            
+            <Text style={styles.sectionTitle}>👤 Informations personnelles</Text>
+
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>
-                Nom complet <Text style={styles.required}>*</Text>
-              </Text>
+              <Text style={styles.label}>Nom complet <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={styles.input}
                 placeholder="Votre nom complet"
@@ -201,9 +180,7 @@ export default function WholesaleQuoteForm({
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>
-                Email <Text style={styles.required}>*</Text>
-              </Text>
+              <Text style={styles.label}>Email <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={styles.input}
                 placeholder="votre@email.com"
@@ -215,12 +192,10 @@ export default function WholesaleQuoteForm({
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>
-                Téléphone <Text style={styles.required}>*</Text>
-              </Text>
+              <Text style={styles.label}>Téléphone <Text style={styles.required}>*</Text></Text>
               <TextInput
                 style={styles.input}
-                placeholder="+223 XX XX XX XX"
+                placeholder="+223 ..."
                 value={formData.phone}
                 onChangeText={(text) => updateFormData('phone', text)}
                 keyboardType="phone-pad"
@@ -326,14 +301,15 @@ export default function WholesaleQuoteForm({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '90%',
+    height: '90%',
+    paddingBottom: 20,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -347,10 +323,9 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.text,
-    flex: 1,
   },
   closeButton: {
-    padding: 4,
+    padding: 5,
   },
   formContainer: {
     padding: 20,
@@ -358,33 +333,32 @@ const styles = StyleSheet.create({
   productInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
     backgroundColor: COLORS.primaryLight,
     padding: 12,
     borderRadius: 8,
     marginBottom: 20,
+    gap: 10
   },
   productInfoText: {
-    fontSize: 14,
+    color: COLORS.primary,
     fontWeight: '600',
-    color: COLORS.text,
-    flex: 1,
+    fontSize: 14,
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: COLORS.text,
-    marginTop: 16,
-    marginBottom: 12,
+    marginBottom: 15,
+    marginTop: 10,
   },
   inputGroup: {
-    marginBottom: 16,
+    marginBottom: 15,
   },
   label: {
     fontSize: 14,
-    fontWeight: '600',
     color: COLORS.text,
-    marginBottom: 6,
+    marginBottom: 8,
+    fontWeight: '500',
   },
   required: {
     color: COLORS.error,
@@ -393,56 +367,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    padding: 12,
     fontSize: 14,
     color: COLORS.text,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FAFAFA',
   },
   textArea: {
-    minHeight: 80,
+    height: 80,
     textAlignVertical: 'top',
   },
   infoBox: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    backgroundColor: '#F0F9FF',
-    padding: 16,
+    backgroundColor: '#F0F7FF',
+    padding: 12,
     borderRadius: 8,
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: 10,
+    marginBottom: 30,
+    gap: 10,
+    alignItems: 'center'
   },
   infoText: {
-    fontSize: 13,
-    color: COLORS.text,
+    fontSize: 12,
+    color: '#0056b3',
     flex: 1,
-    lineHeight: 18,
+    lineHeight: 18
   },
   modalFooter: {
     flexDirection: 'row',
     padding: 20,
-    gap: 12,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
+    gap: 12,
   },
   cancelButton: {
     flex: 1,
-    padding: 14,
+    padding: 15,
     borderRadius: 8,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: COLORS.border,
-    alignItems: 'center',
   },
   cancelButtonText: {
-    fontSize: 16,
+    color: COLORS.textLight,
     fontWeight: '600',
-    color: COLORS.text,
   },
   submitButton: {
     flex: 2,
     backgroundColor: COLORS.primary,
-    padding: 14,
+    padding: 15,
     borderRadius: 8,
     flexDirection: 'row',
     alignItems: 'center',
@@ -450,8 +422,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   submitButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
     color: COLORS.white,
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

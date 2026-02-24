@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth'; //  À SUPPRIMER (Auth centralisé) //  À SUPPRIMER (Auth centralisé)
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 

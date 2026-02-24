@@ -1,8 +1,8 @@
-ï»¿import { collection, addDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';  // Chemin corrigÃ©
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';  // Chemin corrigé
 
 export const runSeed = async () => {
-  console.log(' DÃ©marrage de la crÃ©ation des donnÃ©es Firebase...');
+  console.log(' Démarrage de la création des données Firebase...');
 
   const products = [
     {
@@ -21,7 +21,7 @@ export const runSeed = async () => {
       isNew: true,
       supplierId: "supp_tech001",
       vendorName: "Tech Manufacturer Co.",
-      description: "Smartphone haute performance avec Ã©cran 6.5 pouces OLED, 8GB RAM, 128GB stockage.",
+      description: "Smartphone haute performance avec écran 6.5 pouces OLED, 8GB RAM, 128GB stockage.",
       createdAt: new Date()
     },
     {
@@ -39,7 +39,7 @@ export const runSeed = async () => {
       isVerified: true,
       supplierId: "supp_tech001",
       vendorName: "Tech Manufacturer Co.",
-      description: "Casque audio sans fil avec rÃ©duction de bruit active. Autonomie de 30 heures.",
+      description: "Casque audio sans fil avec réduction de bruit active. Autonomie de 30 heures.",
       createdAt: new Date()
     }
   ];
@@ -48,9 +48,9 @@ export const runSeed = async () => {
     console.log(' Ajout des produits...');
     for (const product of products) {
       const docRef = await addDoc(collection(db, 'products'), product);
-      console.log(' Produit ajoutÃ©:', product.name);
+      console.log(' Produit ajouté:', product.name);
     }
-    console.log(' DonnÃ©es crÃ©Ã©es avec succÃ¨s!');
+    console.log(' Données créées avec succès!');
   } catch (error) {
     console.error(' Erreur:', error);
   }

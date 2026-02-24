@@ -3,7 +3,7 @@ import Constants from "expo-constants";
 /* ===============================
    🔧 CONFIGURATION DE BASE
 ================================ */
-export const API_HOST = "http://10.224.106.242:4000"; // ✅ Adresse locale de ton serveur Express
+export const API_HOST = "http://10.203.128.242:4000"; // ✅ Adresse locale de ton serveur Express
 export const API_BASE =
   Constants.expoConfig?.extra?.API_URL || `${API_HOST}/api`;
 

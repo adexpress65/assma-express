@@ -1,4 +1,4 @@
-// apps/mobile/app/search-results.tsx - NOUVELLE PAGE
+// apps/mobile/app/search-results.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { SearchService } from '@/services/firebase/searchService';
-import { SearchResultItem } from '@/components/search/SearchResults';
+
+// ✅ CORRECTION 1: Bon chemin et imports nommés
+import { searchGlobal } from '@/services/searchService';
+import type { SearchResultItem } from '@/services/searchService';
 
 const { width } = Dimensions.get('window');
 
@@ -32,8 +34,8 @@ export default function SearchResultsPage() {
   const loadSearchResults = async () => {
     setLoading(true);
     try {
-      // Utiliser la recherche complète
-      const searchResults = await SearchService.searchAllProducts(query, { limit: 50 });
+      // ✅ CORRECTION 2: Appel direct de searchGlobal (pas SearchService.searchAllProducts)
+      const searchResults = await searchGlobal(query);
       setResults(searchResults);
     } catch (error) {
       console.error('Erreur chargement résultats:', error);
@@ -45,15 +47,33 @@ export default function SearchResultsPage() {
   const handleSelectProduct = (item: SearchResultItem) => {
     switch(item.type) {
       case 'product':
-        router.push(`/product/${item.id}`);
+        // ✅ CORRECTION 3: Syntaxe expo-router v2 compatible avec vos autres fichiers
+        router.push({
+          pathname: '/product/[id]',
+          params: { id: item.id }
+        });
         break;
       case 'category':
-        router.push(`/category/${item.id}?name=${encodeURIComponent(item.name)}`);
+        router.push({
+          pathname: '/category/[id]',
+          params: { 
+            id: item.id,
+            name: item.name
+          }
+        });
         break;
       case 'company':
-      case 'supplier':
-        router.push(`/company/${item.id}?name=${encodeURIComponent(item.name)}`);
+        router.push({
+          pathname: '/company/[id]',
+          params: { 
+            id: item.id,
+            name: item.name
+          }
+        });
         break;
+      default:
+        // Fallback si type inconnu
+        console.warn('Type inconnu:', item.type);
     }
   };
 

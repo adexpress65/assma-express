@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCart } from '@/contexts/CartContext';
+
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 
@@ -23,13 +23,65 @@ export default function ActionFooter({ product, onChat, onAddToCart, addingToCar
   // const [quantity, setQuantity] = useState(2);
   // const [showQuantitySelector, setShowQuantitySelector] = useState(false);
 
-  const handleChat = () => {
-    if (!user) {
-      Alert.alert('Connexion requise', 'Veuillez vous connecter pour chatter');
-      return;
-    }
-    onChat?.();
+const handleChat = () => {
+  if (!user) {
+    Alert.alert("Connexion requise", "Veuillez vous connecter pour chatter");
+    return;
+  }
+
+  // Identification vendeur FIABLE
+  const sellerId =
+    product?.sellerId ||
+    product?.creatorId ||
+    product?.vendorId ||
+    product?.userId ||
+    null;
+
+  if (!sellerId) {
+    console.warn("⚠️ sellerId introuvable → produit incomplet :", product);
+    Alert.alert(
+      "Erreur",
+      "Impossible d'ouvrir le chat. ID vendeur manquant."
+    );
+    return;
+  }
+
+  // ❌ Empêche chat avec soi-même
+  if (sellerId === user.uid) {
+    Alert.alert("Information", "Vous ne pouvez pas chatter avec vous-même.");
+    return;
+  }
+
+  const chatParams = {
+    productId: String(product.id),
+    productName: String(product.name || ""),
+    productImage: String(
+      product?.imageUrl ||
+      product?.images?.[0] ||
+      product?.mainImage ||
+      ""
+    ),
+    productPrice: String(product.price ?? ""),
+    sellerId: String(sellerId),
+
+    // IMPORTANT pour ton système multi-boutiques
+    companyId: String(product.companyId || ""),
+    companyName: String(product.companyName || "")
   };
+
+  console.log("📨 Ouverture chat avec params :", chatParams);
+
+  if (onChat) {
+    onChat(chatParams);
+    return;
+  }
+
+  router.push({
+    pathname: `/conversation/${sellerId}`,
+    params: chatParams
+  });
+};
+
 
   // ✅ MODIFICATION : Utilisation du handler parent pour l'ajout au panier
   const handleAddToCart = () => {

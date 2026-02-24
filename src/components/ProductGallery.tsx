@@ -1,158 +1,117 @@
-// mobile/src/components/ProductGallery.tsx
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image, Dimensions, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useRef, useCallback } from 'react';
+import { View, Text, TouchableOpacity, Dimensions, StyleSheet, ScrollView } from 'react-native';
+import { Image } from 'expo-image';
 
 const { width } = Dimensions.get('window');
+const blurhash = '|rF?hV%2WCj[ayj[a|j[az_NaeWBj@ayfRayfQfQM{M|azj[azf6fQfQfQIpWXofj[ayj[j[fQayWCoeoeaya}j[ayfQa{olj[ayj[j[fQayayayayayayayaya{j[ayj[ayj[ayayayayayayayayoJ';
 
 interface ProductGalleryProps {
   images: string[];
   productName: string;
 }
 
+const cleanFirebaseUrl = (url: string): string => {
+  if (!url) return '';
+  if (url.includes('alt=media')) return url;
+  return url.includes('?') ? `${url}&alt=media` : `${url}?alt=media`;
+};
+
 export default function ProductGallery({ images = [], productName }: ProductGalleryProps) {
   const [selectedImage, setSelectedImage] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // Fallback si pas d'images
-  if (!images || images.length === 0) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.placeholderImage}>
-          <Text style={styles.placeholderText}>Aucune image</Text>
-        </View>
-      </View>
-    );
-  }
+  const processedImages = React.useMemo(() => {
+    const cleaned = images.map(cleanFirebaseUrl);
+    return cleaned.length > 0 ? cleaned : ['https://via.placeholder.com/400'];
+  }, [images]);
+
+  const onScroll = useCallback((event: any) => {
+    const slideSize = event.nativeEvent.layoutMeasurement.width;
+    const index = event.nativeEvent.contentOffset.x / slideSize;
+    setSelectedImage(Math.round(index));
+  }, []);
 
   return (
     <View style={styles.container}>
-      {/* Image principale */}
       <View style={styles.mainImageContainer}>
-        <Image
-          source={{ uri: images[selectedImage] }}
-          style={styles.mainImage}
-          resizeMode="cover"
-        />
-        <View style={styles.imageCounter}>
-          <Text style={styles.imageCounterText}>Photos {selectedImage + 1}/{images.length}</Text>
-        </View>
-        <TouchableOpacity style={styles.nextButton}>
-          <Text style={styles.nextButtonText}>Plus &gt;</Text>
-        </TouchableOpacity>
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+        >
+          {processedImages.map((imageUri, index) => (
+            <View key={index.toString()} style={styles.imageSlide}>
+              <Image
+                source={{ uri: imageUri }}
+                style={styles.mainImage}
+                contentFit="contain"
+                transition={300}
+                placeholder={blurhash}
+                cachePolicy="memory-disk"
+              />
+            </View>
+          ))}
+        </ScrollView>
+
+        {processedImages.length > 1 && (
+          <View style={styles.imageCounter}>
+            <Text style={styles.imageCounterText}>
+              {selectedImage + 1}/{processedImages.length}
+            </Text>
+          </View>
+        )}
       </View>
 
-      {/* Miniatures */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbnailsContainer}>
-        {images.map((image, index) => (
-          <TouchableOpacity
-            key={index}
-            onPress={() => setSelectedImage(index)}
-            style={[
-              styles.thumbnail,
-              selectedImage === index && styles.thumbnailSelected
-            ]}
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false} 
+        style={styles.thumbnailsContainer}
+        contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}
+      >
+        {processedImages.map((image, index) => (
+          <TouchableOpacity 
+            key={`thumb-${index}`} 
+            onPress={() => scrollViewRef.current?.scrollTo({ x: index * width, animated: true })}
+            style={[styles.thumbnail, selectedImage === index && styles.thumbnailSelected]}
           >
             <Image
               source={{ uri: image }}
               style={styles.thumbnailImage}
-              resizeMode="cover"
+              contentFit="cover"
             />
           </TouchableOpacity>
         ))}
       </ScrollView>
 
-      {/* Options et Points forts */}
-      <View style={styles.optionsContainer}>
-        <Text style={styles.optionsText}>Options</Text>
-        <Text style={styles.highlightsText}>Points forts</Text>
+      <View style={styles.productInfo}>
+        <Text style={styles.productName}>{productName}</Text>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    marginBottom: 16,
-  },
-  mainImageContainer: {
-    position: 'relative',
-  },
-  mainImage: {
-    width: width,
-    height: width * 0.8,
-  },
-  placeholderImage: {
-    width: width,
-    height: width * 0.8,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  placeholderText: {
-    color: '#666',
-    fontSize: 16,
-  },
+  container: { backgroundColor: '#FFF' },
+  mainImageContainer: { height: width, position: 'relative' },
+  imageSlide: { width: width, height: width },
+  mainImage: { width: '100%', height: '100%' },
   imageCounter: {
     position: 'absolute',
-    top: 16,
-    left: 16,
+    bottom: 15,
+    right: 15,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 4,
+    borderRadius: 12,
   },
-  imageCounterText: {
-    color: '#fff',
-    fontSize: 12,
-  },
-  nextButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
-  },
-  nextButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  thumbnailsContainer: {
-    padding: 16,
-  },
-  thumbnail: {
-    width: 60,
-    height: 60,
-    marginRight: 8,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    overflow: 'hidden',
-  },
-  thumbnailSelected: {
-    borderColor: '#ff6a00',
-  },
-  thumbnailImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 6,
-  },
-  optionsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  optionsText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '600',
-  },
-  highlightsText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '600',
-  },
+  imageCounterText: { color: '#FFF', fontSize: 12, fontWeight: 'bold' },
+  thumbnailsContainer: { marginTop: 10, height: 70 },
+  thumbnail: { width: 60, height: 60, borderRadius: 8, borderWidth: 1, borderColor: '#EEE', overflow: 'hidden' },
+  thumbnailSelected: { borderColor: '#FF6A00', borderWidth: 2 },
+  thumbnailImage: { width: '100%', height: '100%' },
+  productInfo: { padding: 16 },
+  productName: { fontSize: 18, fontWeight: 'bold', color: '#333' }
 });

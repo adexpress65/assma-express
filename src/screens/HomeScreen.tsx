@@ -1,4 +1,4 @@
-ï»¿// apps/mobile/src/screens/HomeScreen.tsx
+// apps/mobile/src/screens/HomeScreen.tsx
 import React from 'react';
 import { 
   View, 
@@ -27,7 +27,7 @@ const HomeScreen = () => {
       </View>
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* CatÃ©gories */}
+        {/* Catégories */}
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false} 
@@ -44,14 +44,14 @@ const HomeScreen = () => {
             <View style={styles.categoryIcon}>
               <Ionicons name="phone-portrait-outline" size={24} color="#555" />
             </View>
-            <Text style={styles.categoryText}>TÃ©lÃ©phone</Text>
+            <Text style={styles.categoryText}>Téléphone</Text>
           </View>
           
           <View style={styles.category}>
             <View style={styles.categoryIcon}>
               <Ionicons name="laptop-outline" size={24} color="#555" />
             </View>
-            <Text style={styles.categoryText}>Ã‰lectronique</Text>
+            <Text style={styles.categoryText}>Électronique</Text>
           </View>
           
           <View style={styles.category}>
@@ -76,10 +76,10 @@ const HomeScreen = () => {
           </View>
         </ScrollView>
         
-        {/* BanniÃ¨re promo */}
+        {/* Bannière promo */}
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>Jusqu'Ã  -60%</Text>
-          <Text style={styles.bannerText}>Valable uniquement sur les articles sÃ©lectionnÃ©s</Text>
+          <Text style={styles.bannerTitle}>Jusqu'à -60%</Text>
+          <Text style={styles.bannerText}>Valable uniquement sur les articles sélectionnés</Text>
         </View>
         
         {/* Grille de produits */}

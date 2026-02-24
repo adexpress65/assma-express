@@ -6,12 +6,20 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "resourceClass": "default"
+      "resourceClass": "default",
+      "channel": "development"
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "preview"
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
-      }
+      },
+      "channel": "production"
     }
   }
 }

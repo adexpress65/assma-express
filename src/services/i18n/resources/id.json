@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "Cari produk, pemasok, kategori...",
+    "suppliers": "Pemasok",
+    "products": "Produk",
+    "countries": "Negara",
+    "seeAll": "Lihat semua"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "PASAR"
+  }
+}

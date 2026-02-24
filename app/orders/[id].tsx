@@ -66,7 +66,11 @@ export default function OrderDetailScreen() {
               setIsUpdating(true);
               await updateOrderStatus(id as string, newStatus);
               // Mettre à jour l'ordre local
-              setOrder({ ...order, status: newStatus, updatedAt: new Date() });
+              setOrder({ 
+                ...order, 
+                status: newStatus, 
+                updatedAt: new Date() 
+              });
               Alert.alert('Succès', 'Statut mis à jour avec succès');
             } catch (error) {
               console.error('Erreur:', error);
@@ -98,7 +102,8 @@ export default function OrderDetailScreen() {
     }
   };
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | null) => {
+    if (!date) return "Non disponible";
     return new Date(date).toLocaleDateString('fr-FR', {
       day: 'numeric',
       month: 'long',
@@ -108,8 +113,37 @@ export default function OrderDetailScreen() {
     });
   };
 
-  const formatPrice = (price: number) => {
+  const formatPrice = (price: number | undefined) => {
+    if (!price && price !== 0) return "0 FCFA";
     return `${price.toLocaleString()} FCFA`;
+  };
+
+  // Récupérer les valeurs avec fallback
+  const getShipping = () => {
+    return order?.shipping || {
+      method: 'Standard',
+      cost: 0,
+      deliveryTime: '5-7 jours',
+      trackingNumber: undefined
+    };
+  };
+
+  const getAddress = () => {
+    return order?.address || {
+      fullName: 'Non spécifié',
+      street: 'Non spécifié',
+      city: 'Non spécifié',
+      postalCode: 'Non spécifié',
+      country: 'Non spécifié',
+      phone: 'Non spécifié'
+    };
+  };
+
+  const getWholesale = () => {
+    return order?.wholesale || {
+      totalQuantity: order?.items?.length || 0,
+      savings: 0
+    };
   };
 
   if (contextLoading || isUpdating) {
@@ -137,6 +171,11 @@ export default function OrderDetailScreen() {
   }
 
   const statusInfo = statusConfig[order.status] || statusConfig.pending;
+  const shipping = getShipping();
+  const address = getAddress();
+  const wholesale = getWholesale();
+  const subtotal = order.subtotal || order.total || 0;
+  const tax = order.tax || 0;
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -168,13 +207,13 @@ export default function OrderDetailScreen() {
           <Text style={styles.cardTitle}>Adresse de livraison</Text>
         </View>
         <View style={styles.cardContent}>
-          <Text style={styles.addressName}>{order.address.fullName}</Text>
-          <Text style={styles.addressText}>{order.address.street}</Text>
+          <Text style={styles.addressName}>{address.fullName}</Text>
+          <Text style={styles.addressText}>{address.street}</Text>
           <Text style={styles.addressText}>
-            {order.address.postalCode} {order.address.city}
+            {address.postalCode} {address.city}
           </Text>
-          <Text style={styles.addressText}>{order.address.country}</Text>
-          <Text style={styles.phoneText}>📱 {order.address.phone}</Text>
+          <Text style={styles.addressText}>{address.country}</Text>
+          <Text style={styles.phoneText}>📱 {address.phone}</Text>
         </View>
       </View>
 
@@ -187,20 +226,20 @@ export default function OrderDetailScreen() {
         <View style={styles.cardContent}>
           <View style={styles.shippingRow}>
             <Text style={styles.shippingLabel}>Méthode:</Text>
-            <Text style={styles.shippingValue}>{order.shipping.method}</Text>
+            <Text style={styles.shippingValue}>{shipping.method}</Text>
           </View>
           <View style={styles.shippingRow}>
             <Text style={styles.shippingLabel}>Délai:</Text>
-            <Text style={styles.shippingValue}>{order.shipping.deliveryTime}</Text>
+            <Text style={styles.shippingValue}>{shipping.deliveryTime}</Text>
           </View>
           <View style={styles.shippingRow}>
             <Text style={styles.shippingLabel}>Coût:</Text>
-            <Text style={styles.shippingValue}>{formatPrice(order.shipping.cost)}</Text>
+            <Text style={styles.shippingValue}>{formatPrice(shipping.cost)}</Text>
           </View>
-          {order.shipping.trackingNumber && (
+          {shipping.trackingNumber && (
             <View style={styles.shippingRow}>
               <Text style={styles.shippingLabel}>N° de suivi:</Text>
-              <Text style={styles.shippingValue}>{order.shipping.trackingNumber}</Text>
+              <Text style={styles.shippingValue}>{shipping.trackingNumber}</Text>
             </View>
           )}
           {order.status === 'shipped' && (
@@ -215,17 +254,19 @@ export default function OrderDetailScreen() {
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
-          <Text style={styles.cardTitle}>Articles ({order.items.length})</Text>
+          <Text style={styles.cardTitle}>Articles ({order.items?.length || 0})</Text>
         </View>
-        {order.items.map((item, index) => (
+        {order.items?.map((item, index) => (
           <View key={index} style={styles.itemRow}>
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
               <Text style={styles.itemDetails}>
-                {item.quantity} × {formatPrice(item.price)} • {item.color} • Taille: {item.size}
+                {item.quantity || 1} × {formatPrice(item.price)} • {item.color || 'Non spécifié'} • Taille: {item.size || 'Non spécifié'}
               </Text>
             </View>
-            <Text style={styles.itemTotal}>{formatPrice(item.price * item.quantity)}</Text>
+            <Text style={styles.itemTotal}>
+              {formatPrice(item.price * (item.quantity || 1))}
+            </Text>
           </View>
         ))}
       </View>
@@ -238,25 +279,25 @@ export default function OrderDetailScreen() {
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Sous-total</Text>
-          <Text style={styles.summaryValue}>{formatPrice(order.subtotal)}</Text>
+          <Text style={styles.summaryValue}>{formatPrice(subtotal)}</Text>
         </View>
-        {order.wholesale.savings > 0 && (
+        {wholesale.savings > 0 && (
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, styles.discountText]}>
-              Économies gros ({order.wholesale.totalQuantity} articles)
+              Économies gros ({wholesale.totalQuantity} articles)
             </Text>
             <Text style={[styles.summaryValue, styles.discountText]}>
-              -{formatPrice(order.wholesale.savings)}
+              -{formatPrice(wholesale.savings)}
             </Text>
           </View>
         )}
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Livraison</Text>
-          <Text style={styles.summaryValue}>{formatPrice(order.shipping.cost)}</Text>
+          <Text style={styles.summaryValue}>{formatPrice(shipping.cost)}</Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Taxes</Text>
-          <Text style={styles.summaryValue}>{formatPrice(order.tax)}</Text>
+          <Text style={styles.summaryValue}>{formatPrice(tax)}</Text>
         </View>
         <View style={[styles.summaryRow, styles.totalRow]}>
           <Text style={styles.totalLabel}>Total</Text>
@@ -323,6 +364,7 @@ export default function OrderDetailScreen() {
   );
 }
 
+// Les styles restent les mêmes que dans votre code précédent
 const styles = StyleSheet.create({
   container: {
     flex: 1,

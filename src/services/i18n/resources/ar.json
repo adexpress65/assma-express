@@ -1,0 +1,147 @@
+﻿{
+  "homeScreen": {
+    "defaultProductName": "منتج أسمى اكسبريس",
+    "defaultSupplier": "أسمى اكسبريس",
+    "defaultDeliveryTime": "٣-٥ أيام",
+    "defaultCategory": "الموضة والإكسسوارات",
+    "searchLog": "🔍 بحث:",
+    "loadingSuppliers": "🔄 جاري تحميل الموردين مع المنتجات...",
+    "suppliersFound": "🏪 تم العثور على {{count}} موردًا",
+    "supplierProductsError": "⚠️ خطأ في منتجات {{name}}:",
+    "validSuppliers": "📦 {{count}} مورد صالح مع المنتجات",
+    "suppliersLoadError": "❌ خطأ في تحميل الموردين:",
+    "loadingData": "🚀 بدء تحميل البيانات...",
+    "totalProducts": "📊 إجمالي المنتجات في فايرستور: {{count}}",
+    "results": "📈 النتائج:\n- المنتجات المميزة: {{featured}}\n- المنتجات الشائعة: {{trending}}\n- العروض الخاصة: {{specialOffers}}\n- الواصل حديثًا: {{newArrivals}}\n- الآلات الصناعية: {{industrial}}\n- الموردون المتميزون: {{premium}}\n- المنتجات الشعبية: {{popular}}\n- جميع المنتجات: {{all}}\n- الموردون مع المنتجات: {{suppliers}}",
+    "fallbackProductName": "موديل حذاء {{number}}",
+    "fallbackSupplier": "أسمى اكسبريس",
+    "firestoreError": "❌ خطأ فايرستور:",
+    "productNavigationLog": "👉 التنقل للمنتج:",
+    "featuredProductsTitle": "المنتجات المميزة",
+    "featuredProductsSubtitle": "اكتشف منتجاتنا البارزة",
+    "specialOffersTitle": "العروض الخاصة",
+    "specialOffersSubtitle": "عروض وصفقات جيدة"
+  },
+  "productCard": {
+    "imagePlaceholder": "صورة",
+    "verified": "تم التحقق",
+    "currency": "فرنك CFA",
+    "minOrder": "الحد الأدنى: {{value}}",
+    "inStock": "متوفر",
+    "limitedStock": "كمية محدودة",
+    "order": "اطلب",
+    "viewDetails": "عرض التفاصيل",
+    "uncategorized": "غير مصنف"
+  },
+  "header": {
+    "title": "أسمى اكسبريس",
+    "subtitle": "بيتا",
+    "languageChangeError": "فشل تغيير اللغة:",
+    "searchError": "خطأ في البحث:"
+  },
+  "common": {
+    "search": "ابحث عن منتجات، موردين...",
+    "seeAll": "عرض كل النتائج لـ",
+    "suppliers": "الموردين",
+    "products": "المنتجات",
+    "countries": "الدول"
+  },
+  "languages": {
+    "english": "الإنجليزية",
+    "french": "الفرنسية",
+    "spanish": "الإسبانية",
+    "arabic": "العربية",
+    "chinese": "الصينية",
+    "russian": "الروسية",
+    "portuguese": "البرتغالية",
+    "turkish": "التركية",
+    "german": "الألمانية",
+    "italian": "الإيطالية",
+    "dutch": "الهولندية",
+    "japanese": "اليابانية",
+    "korean": "الكورية",
+    "vietnamese": "الفيتنامية",
+    "indonesian": "الإندونيسية"
+  },
+  "newArrivals": {
+    "navigationLog": "🆕 التنقل لمنتج جديد:",
+    "categoryTitle": "وصل حديثًا",
+    "badge": "جديد",
+    "newBadge": "جديد",
+    "title": "منتجات جديدة",
+    "seeAll": "رؤية المزيد",
+    "countdown": {
+      "title": "الوصلات القادمة خلال:",
+      "days": "أيام",
+      "hours": "ساعات",
+      "minutes": "دقائق"
+    }
+  },
+  "trending": {
+    "loadingLog": "🔥 جاري تحميل المنتجات الشائعة...",
+    "usingProps": "✅ استخدام المنتجات الممررة كخاصية",
+    "loadedFromFirestore": "🔥 {{count}} منتج شائع تم تحميله من فايرستور",
+    "queryFailed": "⚠️ فشل استعلام المنتجات الشائعة، جاري المحاولة التالية...",
+    "usingSampleProducts": "🔄 لم يتم العثور على منتجات، استخدام منتجات شائعة كمثال",
+    "loadError": "❌ خطأ في تحميل المنتجات الشائعة:",
+    "navigationLog": "🔥 التنقل لمنتج شائع:",
+    "categoryTitle": "المنتجات الشائعة",
+    "bestSeller": "الأكثر مبيعاً",
+    "loading": "جاري تحميل الاتجاهات...",
+    "title": "الاتجاهات الحالية",
+    "explore": "استكشاف",
+    "defaultProductName": "منتج شائع",
+    "defaultSupplier": "مورد مميز",
+    "defaultDeliveryTime": "٥-١٠ أيام",
+    "stats": {
+      "viewsToday": "المشاهدات اليوم",
+      "orders": "الطلبات",
+      "satisfaction": "الرضا"
+    },
+    "promoBanner": "توصيل EXPRESS مجاني على المنتجات الشائعة",
+    "sampleProducts": {
+      "smartphone": "هاتف ذكي أندرويد 5G فاخر",
+      "headphones": "سماعات لاسلكية احترافية",
+      "watch": "ساعة ذكية فاخرة",
+      "camera": "كاميرا احترافية",
+      "laptop": "لابتوب للألعاب",
+      "speaker": "مكبر صوت بلوتوث قوي"
+    },
+    "sampleSuppliers": {
+      "tech": "شركة الابتكار التقني",
+      "audio": "حلول الصوت الاحترافية",
+      "watch": "شركة الساعات الفاخرة",
+      "photo": "مجموعة خبراء التصوير",
+      "computers": "أجهزة الكمبيوتر غير المحدودة"
+    }
+  },
+  "quickActions": {
+    "navigationLog": "🔄 التنقل السريع:",
+    "flashDeal": "صفقة فلاش",
+    "trending": "شائع",
+    "premium": "مميز",
+    "suppliers": "الموردين",
+    "wholesale": "الجملة",
+    "verified": "تم التحقق",
+    "express": "إكسبريس",
+    "global": "عالمي",
+    "new": "جديد",
+    "verifiedProducts": "منتجات تم التحقق منها",
+    "expressDelivery": "توصيل إكسبريس",
+    "globalProducts": "منتجات عالمية"
+  },
+  "category": {
+    "electronics": "إلكترونيات",
+    "clothing": "ملابس",
+    "machinery": "آلات",
+    "materials": "مواد",
+    "automotive": "سيارات",
+    "medicalEquipment": "معدات طبية",
+    "furniture": "أثاث",
+    "gardening": "بستنة"
+  },
+  "footer": {
+    "email": "info@assma-expresse.com",
+    "copyright": "© {{year}} أسمى اكسبريس"
+  }
+}

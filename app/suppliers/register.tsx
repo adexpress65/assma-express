@@ -1,15 +1,21 @@
-// app/suppliers/register.tsx - VERSION COMPLÈTE AVEC CATÉGORIES FIRESTORE
-import { useState, useEffect } from 'react';
+// app/suppliers/register.tsx - VERSION CORRIGÉE
+import { useState, useEffect, useRef } from 'react';
 import { 
   View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
-  Image, Platform, ActivityIndicator
+  Image, Platform, ActivityIndicator, Dimensions, Modal, SafeAreaView
 } from 'react-native';
-import { Stack, router } from 'expo-router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, collection, getDocs } from 'firebase/firestore';
-import { auth, db } from '../../src/config/firebase';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
+
+// FIREBASE SERVICES
+import { auth, db, storage } from '../../src/config/firebase';
+import { createUserWithEmailAndPassword, updatePassword } from 'firebase/auth';
+import { doc, setDoc, collection, getDocs, getDoc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+// EXPO & UI
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 interface Category {
   id: string;
@@ -50,40 +56,14 @@ interface SupplierForm {
   logo: string;
   coverImage: string;
   
-  // Catégories (NOUVEAUX CHAMPS)
+  // Catégories
   categories: string[];
   mainCategory: string;
   selectedCategories: string[];
 }
 
-const BUSINESS_TYPES = [
-  'Fabricant',
-  'Grossiste',
-  'Société de commerce',
-  'Détaillant',
-  'Prestataire de services',
-  'Autre'
-];
-
-const EMPLOYEE_RANGES = [
-  '1-10 personnes',
-  '11-50 personnes',
-  '51-100 personnes',
-  '101-200 personnes',
-  '201-500 personnes',
-  '501-1000 personnes',
-  '1000+ personnes'
-];
-
-const REVENUE_RANGES = [
-  'Moins de 1 million USD',
-  '1-5 million USD',
-  '5-10 million USD',
-  '10-50 million USD',
-  '50-100 million USD',
-  '100-500 million USD',
-  '500 million+ USD'
-];
+// Obtenir la largeur de l'écran
+const { width: screenWidth } = Dimensions.get('window');
 
 // Fonction pour obtenir l'icône selon la catégorie
 const getCategoryIcon = (categoryName: string): any => {
@@ -102,53 +82,119 @@ const getCategoryIcon = (categoryName: string): any => {
   if (name.includes('agriculture') || name.includes('ferme')) return 'leaf';
   if (name.includes('chimie') || name.includes('plastique')) return 'flask';
   
-  return 'pricetag'; // icône par défaut
+  return 'pricetag';
 };
 
 export default function SupplierRegistration() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const isEditMode = !!id;
+  
   const [form, setForm] = useState<SupplierForm>({
-    // Informations de base
     name: '',
     email: '',
     password: '',
     phone: '',
-    
-    // Localisation
     location: '',
     address: '',
     city: '',
     country: '',
-    
-    // Description entreprise
     description: '',
     businessType: '',
     mainProducts: '',
     type: '',
-    
-    // Statistiques entreprise
     employees: '',
     annualRevenue: '',
     yearsEstablished: '',
-    
-    // Certifications
     certifications: '',
-    
-    // Images
     logo: '',
     coverImage: '',
-    
-    // Catégories
     categories: [],
     mainCategory: '',
     selectedCategories: [],
   });
   
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(isEditMode);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageType, setImageType] = useState<'logo' | 'cover'>('logo');
+  const [showImagePreview, setShowImagePreview] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  // Charger les catégories depuis Firestore
+  // Charger les données de l'entreprise en mode édition
+  useEffect(() => {
+    if (isEditMode && id) {
+      loadCompanyData();
+    }
+  }, [id]);
+
+  const loadCompanyData = async () => {
+    try {
+      console.log(`🔍 Chargement de l'entreprise ${id} pour modification...`);
+      const companyDoc = await getDoc(doc(db, 'companies', id));
+      
+      if (!companyDoc.exists()) {
+        Alert.alert('Erreur', 'Entreprise non trouvée');
+        router.back();
+        return;
+      }
+
+      const data = companyDoc.data();
+      
+      // Formater les catégories sélectionnées
+      const selectedCats = data.categories || [];
+      const mainCat = data.mainCategory || (selectedCats[0] || '');
+      
+      // Formater l'adresse
+      const addressData = data.address || {};
+      
+      setForm({
+        name: data.name || '',
+        email: data.email || '',
+        password: '', // Ne pas charger le mot de passe
+        phone: data.phone || '',
+        location: data.location || '',
+        address: addressData.street || '',
+        city: addressData.city || '',
+        country: addressData.country || '',
+        description: data.description || '',
+        businessType: data.businessType || '',
+        mainProducts: data.mainProducts || '',
+        type: data.type || data.businessType || '',
+        employees: data.employees || '',
+        annualRevenue: data.annualRevenue || '',
+        yearsEstablished: data.yearEstablished?.toString() || '',
+        certifications: Array.isArray(data.certifications) ? data.certifications.join(', ') : '',
+        logo: data.logo || '',
+        coverImage: data.coverImage || '',
+        categories: selectedCats,
+        mainCategory: mainCat,
+        selectedCategories: selectedCats,
+      });
+
+      console.log('✅ Entreprise chargée avec succès');
+      
+    } catch (error) {
+      console.error('❌ Erreur chargement entreprise:', error);
+      Alert.alert('Erreur', 'Impossible de charger les données de l\'entreprise');
+    } finally {
+      setInitialLoading(false);
+    }
+  };
+
+  // Demander les permissions
+  useEffect(() => {
+    (async () => {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission requise', 'Nous avons besoin de la permission pour accéder à vos photos.');
+      }
+    })();
+  }, []);
+
+  // Charger les catégories
   useEffect(() => {
     fetchCategories();
   }, []);
@@ -172,12 +218,10 @@ export default function SupplierRegistration() {
         }
       });
       
-      // Trier par nom
       categoriesData.sort((a, b) => a.name.localeCompare(b.name));
       setCategories(categoriesData);
     } catch (error) {
       console.error('Erreur chargement catégories:', error);
-      // Catégories par défaut si Firestore échoue
       setCategories([
         { id: 'mode', name: 'Mode & Accessoires', description: 'Vêtements, chaussures, accessoires', isActive: true, productCount: 0 },
         { id: 'electronique', name: 'Électronique', description: 'Appareils électroniques et composants', isActive: true, productCount: 0 },
@@ -190,39 +234,105 @@ export default function SupplierRegistration() {
     }
   };
 
-  // Sélectionner une image
-  const pickImage = async (type: 'logo' | 'cover') => {
-    try {
-      setUploadingImage(true);
-      
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: type === 'logo' ? [1, 1] : [4, 1],
-        quality: 0.8,
-      });
+// Sélectionner et uploader une image
+const pickImage = async (type: 'logo' | 'cover') => {
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: type === 'logo',
+      aspect: type === 'logo' ? [1, 1] : [16, 9],
+      quality: 0.7, 
+    });
 
-      if (!result.canceled) {
-        setForm(prev => ({
-          ...prev,
-          [type]: result.assets[0].uri
-        }));
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const localUri = result.assets[0].uri;
+      
+      console.log(`🚀 Début de l'upload pour ${type}...`);
+      // Si tu as un state loading : setUploading(true);
+
+      try {
+        // 1. Transformer l'image en BLOB (indispensable pour Firebase Storage)
+        const response = await fetch(localUri);
+        const blob = await response.blob();
+
+        // 2. Créer le nom de fichier et la référence
+        // Syntaxe modulaire : ref(instance_storage, chemin)
+        const filename = `company_${Date.now()}_${type}.jpg`;
+        const storageRef = ref(storage, `companies/${filename}`);
+
+        // 3. Envoyer le BLOB vers Firebase
+        const snapshot = await uploadBytes(storageRef, blob);
+        
+        // 4. Récupérer l'URL finale HTTPS
+        const downloadURL = await getDownloadURL(snapshot.ref);
+        
+        // 5. Nettoyage de la mémoire du téléphone
+        blob.close();
+
+        console.log(`✅ URL récupérée :`, downloadURL);
+
+        // 6. Mise à jour de ton formulaire (State)
+        if (type === 'logo') {
+          setForm(prev => ({ ...prev, logo: downloadURL }));
+        } else {
+          // Mise à jour pour la photo de couverture
+          if (typeof setSelectedImage === 'function') setSelectedImage(downloadURL); 
+          if (typeof setShowImagePreview === 'function') setShowImagePreview(true);
+          
+          setForm(prev => ({ ...prev, coverImage: downloadURL }));
+        }
+
+        Alert.alert('Succès', 'Image téléchargée avec succès !');
+
+      } catch (uploadError: any) {
+        console.error("❌ Erreur pendant l'upload:", uploadError);
+        Alert.alert('Erreur Firebase', `Le transfert a échoué: ${uploadError.message}`);
+      } finally {
+        // setUploading(false);
       }
-    } catch (error) {
-      Alert.alert('Erreur', 'Impossible de sélectionner l\'image');
-    } finally {
-      setUploadingImage(false);
+    }
+  } catch (error) {
+    console.error('❌ Erreur sélection image:', error);
+    Alert.alert('Erreur', 'Impossible de sélectionner l\'image');
+  }
+};
+
+  // Confirmer la sélection de l'image de couverture
+  const confirmCoverImage = () => {
+    if (selectedImage) {
+      setForm(prev => ({ ...prev, coverImage: selectedImage }));
+      setShowImagePreview(false);
+      setSelectedImage(null);
+      
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      }, 100);
     }
   };
 
-  const handleRegister = async () => {
-    // Validation des champs obligatoires
-    if (!form.name || !form.email || !form.password) {
-      Alert.alert('Erreur', 'Veuillez remplir les champs obligatoires (Nom, Email, Mot de passe)');
+  // Annuler la sélection de l'image de couverture
+  const cancelCoverImage = () => {
+    setSelectedImage(null);
+    setShowImagePreview(false);
+  };
+
+  // Retirer une image
+  const removeImage = (type: 'logo' | 'cover') => {
+    setForm(prev => ({ ...prev, [type]: '' }));
+  };
+
+  const handleSubmit = async () => {
+    // Validation
+    if (!form.name || !form.email) {
+      Alert.alert('Erreur', 'Veuillez remplir les champs obligatoires (Nom, Email)');
+      return;
+    }
+
+    if (!isEditMode && !form.password) {
+      Alert.alert('Erreur', 'Le mot de passe est requis pour créer un compte');
       return;
     }
     
-    // Validation catégorie principale
     if (!form.mainCategory) {
       Alert.alert('Erreur', 'Veuillez sélectionner une catégorie principale pour votre entreprise');
       return;
@@ -230,125 +340,226 @@ export default function SupplierRegistration() {
 
     setLoading(true);
     try {
-      // 1. Créer le compte utilisateur
-      const userCredential = await createUserWithEmailAndPassword(
-        auth, 
-        form.email, 
-        form.password
-      );
-      const user = userCredential.user;
-
-      // 2. Préparer les données pour Firestore
-      const companyData = {
-        // Identifiants
-        id: user.uid,
-        uid: user.uid,
-        
-        // CATÉGORIES (TRÈS IMPORTANT !)
-        categories: form.categories.length > 0 ? form.categories : [form.mainCategory],
-        mainCategory: form.mainCategory,
-        
-        // Informations de base
-        name: form.name,
-        email: form.email,
-        phone: form.phone,
-        
-        // Localisation
-        location: form.location || `${form.city}, ${form.country}`,
-        address: {
-          street: form.address,
-          city: form.city,
-          country: form.country,
-        },
-        
-        // Description entreprise
-        description: form.description,
-        businessType: form.businessType,
-        mainProducts: form.mainProducts,
-        type: form.type || form.businessType,
-        
-        // Statistiques entreprise
-        employees: form.employees,
-        annualRevenue: form.annualRevenue,
-        yearsOnPlatform: 0, // Nouveau sur la plateforme
-        yearEstablished: parseInt(form.yearsEstablished) || new Date().getFullYear(),
-        
-        // Certifications
-        certifications: form.certifications ? form.certifications.split(',').map(c => c.trim()) : [],
-        
-        // Images
-        logo: form.logo || 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO',
-        coverImage: form.coverImage || 'https://via.placeholder.com/800x200/007AFF/ffffff?text=BANNER',
-        
-        // Statistiques et performance (valeurs par défaut)
-        rating: 0,
-        responseRate: 85, // Taux de réponse par défaut
-        responseTime: '24-48 heures',
-        totalOrders: 0,
-        totalProducts: 0,
-        yearsOnPlatform: 1, // Par défaut 1 an
-        
-        // Vérification et badges
-        verified: false,
-        goldSupplier: false,
-        tradeAssurance: false,
-        verification: {
-          badges: ['new_supplier'],
-          status: 'pending',
-          verified: false,
-        },
-        
-        // Stats pour le dashboard
-        stats: {
-          productCount: 0,
-          orderCount: 0,
-          rating: 0,
-          reviewCount: 0,
-        },
-        
-        // Métadonnées
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        isActive: true,
-      };
-
-      await setDoc(doc(db, 'companies', user.uid), companyData);
-
-      // 3. Créer aussi un document utilisateur
-      const userData = {
-        uid: user.uid,
-        email: user.email,
-        displayName: form.name,
-        userType: 'seller',
-        companyId: user.uid,
-        companyName: form.name,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
+      let companyId = id || '';
       
-      await setDoc(doc(db, 'users', user.uid), userData);
+      if (isEditMode && id) {
+        // ✅ MODIFICATION : Mise à jour de l'entreprise existante
+        console.log('🔄 Mise à jour de l\'entreprise:', id);
+        
+        const updateData = {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          location: form.location || `${form.city}, ${form.country}`,
+          address: {
+            street: form.address,
+            city: form.city,
+            country: form.country,
+          },
+          description: form.description,
+          businessType: form.businessType,
+          mainProducts: form.mainProducts,
+          type: form.type || form.businessType,
+          employees: form.employees,
+          annualRevenue: form.annualRevenue,
+          yearEstablished: parseInt(form.yearsEstablished) || new Date().getFullYear(),
+          certifications: form.certifications ? form.certifications.split(',').map(c => c.trim()) : [],
+          logo: form.logo || 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO',
+          coverImage: form.coverImage || 'https://via.placeholder.com/800x200/007AFF/ffffff?text=BANNER',
+          categories: form.categories.length > 0 ? form.categories : [form.mainCategory],
+          mainCategory: form.mainCategory,
+          updatedAt: new Date(),
+        };
 
-      Alert.alert(
-        'Succès', 
-        'Votre compte fournisseur a été créé avec succès! Notre équipe va vérifier vos informations sous 24h.'
-      );
-      router.replace('/suppliers/dashboard');
+        await updateDoc(doc(db, 'companies', id), updateData);
+
+        // Mettre à jour aussi le document utilisateur
+        await updateDoc(doc(db, 'users', id), {
+          displayName: form.name,
+          companyName: form.name,
+          updatedAt: new Date(),
+        });
+
+        // Si l'utilisateur a fourni un nouveau mot de passe
+        if (form.password && auth.currentUser) {
+          try {
+            await updatePassword(auth.currentUser, form.password);
+          } catch (error) {
+            console.error('Erreur mise à jour mot de passe:', error);
+          }
+        }
+
+        Alert.alert(
+          '✅ Succès',
+          'Votre profil fournisseur a été mis à jour avec succès!',
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+
+      } else {
+        // ✅ CRÉATION : Nouvelle entreprise
+        console.log('🆕 Création d\'une nouvelle entreprise');
+        
+        const userCredential = await createUserWithEmailAndPassword(auth, form.email, form.password);
+        const user = userCredential.user;
+        companyId = user.uid;
+
+        const companyData = {
+          id: user.uid,
+          uid: user.uid,
+          categories: form.categories.length > 0 ? form.categories : [form.mainCategory],
+          mainCategory: form.mainCategory,
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          location: form.location || `${form.city}, ${form.country}`,
+          address: {
+            street: form.address,
+            city: form.city,
+            country: form.country,
+          },
+          description: form.description,
+          businessType: form.businessType,
+          mainProducts: form.mainProducts,
+          type: form.type || form.businessType,
+          employees: form.employees,
+          annualRevenue: form.annualRevenue,
+          yearsOnPlatform: 0,
+          yearEstablished: parseInt(form.yearsEstablished) || new Date().getFullYear(),
+          certifications: form.certifications ? form.certifications.split(',').map(c => c.trim()) : [],
+          logo: form.logo || 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO',
+          coverImage: form.coverImage || 'https://via.placeholder.com/800x200/007AFF/ffffff?text=BANNER',
+          rating: 0,
+          responseRate: 85,
+          responseTime: '24-48 heures',
+          totalOrders: 0,
+          totalProducts: 0,
+          verified: false,
+          goldSupplier: false,
+          tradeAssurance: false,
+          verification: {
+            badges: ['new_supplier'],
+            status: 'pending',
+            verified: false,
+          },
+          stats: {
+            productCount: 0,
+            orderCount: 0,
+            rating: 0,
+            reviewCount: 0,
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isActive: true,
+        };
+
+        await setDoc(doc(db, 'companies', user.uid), companyData);
+
+        const userData = {
+          uid: user.uid,
+          email: user.email,
+          displayName: form.name,
+          userType: 'seller',
+          companyId: user.uid,
+          companyName: form.name,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        await setDoc(doc(db, 'users', user.uid), userData);
+
+        Alert.alert(
+          '✅ Succès',
+          'Votre compte fournisseur a été créé avec succès! Notre équipe va vérifier vos informations sous 24h.',
+          [{ text: 'OK', onPress: () => router.replace('/suppliers/dashboard') }]
+        );
+      }
       
     } catch (error: any) {
-      console.error('Registration error:', error);
-      Alert.alert('Erreur', error.message || 'Une erreur est survenue lors de l\'inscription');
+      console.error('Erreur:', error);
+      Alert.alert(
+        'Erreur',
+        error.message || `Une erreur est survenue lors de ${isEditMode ? 'la mise à jour' : 'l\'inscription'}`
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  // MODAL POUR PRÉVISUALISATION DE L'IMAGE DE COUVERTURE
+  const ImagePreviewModal = () => (
+    <Modal
+      visible={showImagePreview}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={cancelCoverImage}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Prévisualisation de la bannière</Text>
+            <TouchableOpacity onPress={cancelCoverImage} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.imagePreviewContainer}>
+            {selectedImage && (
+              <Image 
+                source={{ uri: selectedImage }} 
+                style={styles.previewImage}
+                resizeMode="cover"
+              />
+            )}
+          </View>
+          
+          <Text style={styles.previewHint}>
+            Cette image sera utilisée comme bannière de votre profil
+          </Text>
+          
+          <View style={styles.modalButtons}>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.cancelButton]}
+              onPress={cancelCoverImage}
+            >
+              <Text style={styles.cancelButtonText}>Changer d'image</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.confirmButton]}
+              onPress={confirmCoverImage}
+            >
+              <Ionicons name="checkmark" size={20} color="#fff" />
+              <Text style={styles.confirmButtonText}>Utiliser cette image</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  if (initialLoading) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#ff6a00" />
+        <Text style={styles.loadingText}>Chargement de votre profil...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <ScrollView style={styles.container}>
-      <Stack.Screen options={{ title: 'Inscription Fournisseur' }} />
+    <ScrollView style={styles.container} ref={scrollViewRef}>
+      <Stack.Screen options={{ 
+        title: isEditMode ? 'Modifier mon profil' : 'Inscription Fournisseur' 
+      }} />
       
-      <Text style={styles.title}>Devenir Fournisseur ASMA Express</Text>
+      <Text style={styles.title}>
+        {isEditMode ? 'Modifier votre profil' : 'Devenir Fournisseur ASMA Express'}
+      </Text>
       <Text style={styles.subtitle}>
-        Rejoignez notre plateforme B2B et développez votre business à l'international
+        {isEditMode 
+          ? 'Mettez à jour les informations de votre entreprise'
+          : 'Rejoignez notre plateforme B2B et développez votre business à l\'international'
+        }
       </Text>
 
       <View style={styles.form}>
@@ -358,18 +569,43 @@ export default function SupplierRegistration() {
         
         {/* Logo */}
         <View style={styles.imageSection}>
-          <Text style={styles.label}>Logo de l'entreprise</Text>
+          <View style={styles.imageHeader}>
+            <Text style={styles.label}>Logo de l'entreprise</Text>
+            {form.logo && (
+              <TouchableOpacity 
+                style={styles.removeButton}
+                onPress={() => removeImage('logo')}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                <Text style={styles.removeButtonText}>Supprimer</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
           <TouchableOpacity 
-            style={styles.imageUpload}
+            style={styles.imageUploadContainer}
             onPress={() => pickImage('logo')}
-            disabled={uploadingImage}
+            activeOpacity={0.8}
           >
             {form.logo ? (
-              <Image source={{ uri: form.logo }} style={styles.uploadedImage} />
+              <View style={styles.selectedImageContainer}>
+                <Image 
+                  source={{ uri: form.logo }} 
+                  style={styles.selectedLogo}
+                  resizeMode="cover"
+                />
+                <View style={styles.imageOverlay}>
+                  <Ionicons name="camera" size={24} color="#fff" />
+                  <Text style={styles.overlayText}>Changer le logo</Text>
+                </View>
+              </View>
             ) : (
               <View style={styles.uploadPlaceholder}>
-                <Ionicons name="camera" size={32} color="#666" />
+                <View style={styles.uploadIconContainer}>
+                  <Ionicons name="camera" size={32} color="#007AFF" />
+                </View>
                 <Text style={styles.uploadText}>Ajouter un logo</Text>
+                <Text style={styles.uploadHint}>Format carré • JPG/PNG</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -377,18 +613,43 @@ export default function SupplierRegistration() {
 
         {/* Cover Image */}
         <View style={styles.imageSection}>
-          <Text style={styles.label}>Image de couverture</Text>
+          <View style={styles.imageHeader}>
+            <Text style={styles.label}>Image de couverture</Text>
+            {form.coverImage && (
+              <TouchableOpacity 
+                style={styles.removeButton}
+                onPress={() => removeImage('cover')}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FF4444" />
+                <Text style={styles.removeButtonText}>Supprimer</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
           <TouchableOpacity 
-            style={[styles.imageUpload, styles.coverUpload]}
+            style={styles.imageUploadContainer}
             onPress={() => pickImage('cover')}
-            disabled={uploadingImage}
+            activeOpacity={0.8}
           >
             {form.coverImage ? (
-              <Image source={{ uri: form.coverImage }} style={styles.uploadedCoverImage} />
+              <View style={styles.selectedImageContainer}>
+                <Image 
+                  source={{ uri: form.coverImage }} 
+                  style={styles.selectedCover}
+                  resizeMode="cover"
+                />
+                <View style={styles.imageOverlay}>
+                  <Ionicons name="image" size={24} color="#fff" />
+                  <Text style={styles.overlayText}>Changer la bannière</Text>
+                </View>
+              </View>
             ) : (
-              <View style={styles.uploadPlaceholder}>
-                <Ionicons name="image" size={32} color="#666" />
+              <View style={[styles.uploadPlaceholder, styles.coverPlaceholder]}>
+                <View style={styles.uploadIconContainer}>
+                  <Ionicons name="image" size={32} color="#007AFF" />
+                </View>
                 <Text style={styles.uploadText}>Ajouter une bannière</Text>
+                <Text style={styles.uploadHint}>Format paysage 16:9 recommandé</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -413,16 +674,37 @@ export default function SupplierRegistration() {
           placeholder="contact@votre-entreprise.com"
           keyboardType="email-address"
           autoCapitalize="none"
+          editable={!isEditMode} // L'email n'est modifiable qu'à la création
         />
 
-        <Text style={styles.label}>Mot de passe *</Text>
-        <TextInput
-          style={styles.input}
-          value={form.password}
-          onChangeText={(text) => setForm({...form, password: text})}
-          placeholder="Minimum 6 caractères"
-          secureTextEntry
-        />
+        {isEditMode ? (
+          // En mode édition, le mot de passe est optionnel
+          <>
+            <Text style={styles.label}>Nouveau mot de passe (optionnel)</Text>
+            <Text style={styles.hint}>
+              Laissez vide pour conserver votre mot de passe actuel
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={form.password}
+              onChangeText={(text) => setForm({...form, password: text})}
+              placeholder="Minimum 6 caractères"
+              secureTextEntry
+            />
+          </>
+        ) : (
+          // En création, le mot de passe est obligatoire
+          <>
+            <Text style={styles.label}>Mot de passe *</Text>
+            <TextInput
+              style={styles.input}
+              value={form.password}
+              onChangeText={(text) => setForm({...form, password: text})}
+              placeholder="Minimum 6 caractères"
+              secureTextEntry
+            />
+          </>
+        )}
 
         <Text style={styles.label}>Téléphone</Text>
         <TextInput
@@ -473,7 +755,7 @@ export default function SupplierRegistration() {
           placeholder="Ex: Shenzhen, Guangdong, China"
         />
 
-        {/* SECTION CATÉGORIES (NOUVELLE SECTION) */}
+        {/* SECTION CATÉGORIES */}
         <Text style={styles.sectionTitle}>Catégories de produits *</Text>
         
         {loadingCategories ? (
@@ -499,7 +781,6 @@ export default function SupplierRegistration() {
                       form.mainCategory === category.id && styles.selectedCategory
                     ]}
                     onPress={() => {
-                      // Ajouter automatiquement aux catégories si pas déjà présent
                       const newCategories = form.selectedCategories.includes(category.id) 
                         ? form.selectedCategories 
                         : [...form.selectedCategories, category.id];
@@ -543,10 +824,8 @@ export default function SupplierRegistration() {
                     let newSelectedCategories;
                     
                     if (form.selectedCategories.includes(category.id)) {
-                      // Retirer la catégorie
                       newSelectedCategories = form.selectedCategories.filter(id => id !== category.id);
                       
-                      // Si c'était la catégorie principale, la changer
                       const newMainCategory = form.mainCategory === category.id 
                         ? (newSelectedCategories[0] || '')
                         : form.mainCategory;
@@ -558,7 +837,6 @@ export default function SupplierRegistration() {
                         mainCategory: newMainCategory
                       });
                     } else {
-                      // Ajouter la catégorie
                       newSelectedCategories = [...form.selectedCategories, category.id];
                       setForm({
                         ...form,
@@ -586,7 +864,6 @@ export default function SupplierRegistration() {
               Sélectionnez votre activité principale et les catégories correspondant à vos produits
             </Text>
             
-            {/* Aperçu des catégories sélectionnées */}
             {form.selectedCategories.length > 0 && (
               <View style={styles.selectedPreview}>
                 <Text style={styles.previewTitle}>Catégories sélectionnées :</Text>
@@ -686,21 +963,29 @@ export default function SupplierRegistration() {
           numberOfLines={3}
         />
 
-        {/* BOUTON D'INSCRIPTION */}
+        {/* BOUTON D'INSCRIPTION / MISE À JOUR */}
         <TouchableOpacity 
           style={[styles.button, (loading || loadingCategories) && styles.buttonDisabled]}
-          onPress={handleRegister}
+          onPress={handleSubmit}
           disabled={loading || loadingCategories}
         >
           {loading ? (
             <ActivityIndicator color="#fff" size="small" />
           ) : (
             <Text style={styles.buttonText}>
-              {loadingCategories ? 'Chargement...' : 'Créer mon compte fournisseur'}
+              {loadingCategories 
+                ? 'Chargement...' 
+                : isEditMode 
+                  ? 'Mettre à jour mon profil' 
+                  : 'Créer mon compte fournisseur'
+              }
             </Text>
           )}
         </TouchableOpacity>
       </View>
+
+      {/* MODAL DE PRÉVISUALISATION */}
+      <ImagePreviewModal />
     </ScrollView>
   );
 }
@@ -709,6 +994,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'white',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     fontSize: 24,
@@ -764,42 +1054,181 @@ const styles = StyleSheet.create({
   halfInput: {
     flex: 1,
   },
-  // Styles pour l'upload d'images
+  
+  // STYLES POUR LES IMAGES
   imageSection: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
-  imageUpload: {
-    height: 100,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    justifyContent: 'center',
+  imageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fafafa',
+    marginBottom: 8,
   },
-  coverUpload: {
-    height: 80,
+  removeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#FFF0F0',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FFDDDD',
   },
-  uploadedImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
+  removeButtonText: {
+    fontSize: 12,
+    color: '#FF4444',
+    marginLeft: 4,
+    fontWeight: '500',
   },
-  uploadedCoverImage: {
+  imageUploadContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+  },
+  selectedImageContainer: {
+    width: '100%',
+    height: 120,
+    position: 'relative',
+  },
+  selectedLogo: {
     width: '100%',
     height: '100%',
-    borderRadius: 8,
   },
-  uploadPlaceholder: {
+  selectedCover: {
+    width: '100%',
+    height: '100%',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  uploadText: {
-    marginTop: 8,
-    color: '#666',
+  overlayText: {
+    color: '#fff',
     fontSize: 12,
+    fontWeight: '600',
+    marginTop: 8,
   },
-  // Styles pour les catégories
+  uploadPlaceholder: {
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  coverPlaceholder: {
+    height: 100,
+  },
+  uploadIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#E8F4FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  uploadText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
+  },
+  uploadHint: {
+    fontSize: 11,
+    color: '#666',
+    textAlign: 'center',
+  },
+  
+  // MODAL STYLES
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: screenWidth * 0.9,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    overflow: 'hidden',
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  imagePreviewContainer: {
+    width: '100%',
+    height: 200,
+    backgroundColor: '#000',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewHint: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    padding: 16,
+    fontStyle: 'italic',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cancelButton: {
+    backgroundColor: '#f8f9fa',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    marginRight: 8,
+  },
+  confirmButton: {
+    backgroundColor: '#007AFF',
+    marginLeft: 8,
+  },
+  cancelButtonText: {
+    color: '#495057',
+    fontWeight: '600',
+  },
+  confirmButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  
+  // STYLES POUR LES CATÉGORIES
   loadingContainer: {
     alignItems: 'center',
     padding: 20,

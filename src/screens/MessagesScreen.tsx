@@ -1,10 +1,10 @@
-﻿import React from 'react';
+import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 const MessagesScreen: React.FC = () => {
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Messagerie - En développement</Text>
+      <Text style={styles.text}>Messagerie - En d�veloppement</Text>
     </View>
   );
 };

@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "Ürünleri, tedarikçileri, kategorileri ara...",
+    "suppliers": "Tedarikçiler",
+    "products": "Ürünler",
+    "countries": "Ülkeler",
+    "seeAll": "Tümünü gör"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "PAZAR"
+  }
+}

@@ -1,5 +1,4 @@
-// src/components/premium/TrendingProductsPremium.tsx - VERSION CORRIGÉE
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,475 +7,600 @@ import {
   Dimensions,
   ActivityIndicator,
   FlatList,
-  Image,
+  Animated,
+  Platform,
+  ViewToken,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-
-import { collection, query, limit, orderBy, getDocs, where } from 'firebase/firestore';
+import { useRouter } from 'expo-router';
+import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
+import { collection, query, limit, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-
-// ✅ UTILISER VOTRE HOOK EXISTANT
-import useAppNavigation from '../../hooks/useAppNavigation';
 import ProductCardPremium from './ProductCardPremium';
 
-const { width } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// 🔧 CORRECTION : Carte plus large (85% au lieu de 70%)
+const HORIZONTAL_PADDING = 16;
+const PRODUCT_CARD_WIDTH = SCREEN_WIDTH * 0.85; // Augmenté de 0.72 à 0.85
+const ITEM_SPACING = 12; // Réduit pour plus d'espace utile
+const ITEM_FULL_WIDTH = PRODUCT_CARD_WIDTH + ITEM_SPACING;
+
+const COLORS = {
+  primary: '#FF6B35',
+  primaryLight: '#FFF0EB',
+  secondary: '#004E89',
+  accent: '#FFD700',
+  background: '#F8F9FA',
+  surface: '#FFFFFF',
+  text: '#1A1A2E',
+  textMuted: '#6B7280',
+  success: '#10B981',
+  gradient: ['#FF6B35', '#F7931E'] as const,
+};
 
 interface Product {
   id: string;
   name: string;
   price: number;
-  originalPrice?: number;
-  imageUrl: string;
-  rating: number;
-  supplier: string;
-  minOrder: number;
-  deliveryTime: string;
-  isVerified: boolean;
-  stock: number;
-  orders?: number;
-  views?: number;
-  categoryId?: string;
+  imageUrl?: string;
+  isActive?: boolean;
+  [key: string]: any;
 }
 
-interface TrendingProductsPremiumProps {
-  products?: Product[];
+interface BannerItem {
+  id: string;
+  icon: string;
+  text: string;
+  sub: string;
+  gradient: readonly [string, string, ...string[]];
 }
 
-// ✅ PRODUITS TENDANCES D'EXEMPLE AVEC CATEGORYID
-const TRENDING_SAMPLE_PRODUCTS: Product[] = [
-  {
-    id: "trend-1",
-    name: "Smartphone Android 5G Haut de Gamme",
-    price: 18900,
-    originalPrice: 22000,
-    imageUrl: "https://images.unsplash.com/photo-1592899677977-9c10ca588bbd?w=300&h=200&fit=crop",
-    rating: 4.7,
-    supplier: "Tech Innovation Ltd",
-    minOrder: 1,
-    deliveryTime: "3-5 jours",
-    isVerified: true,
-    stock: 25,
-    orders: 1247,
-    views: 5689,
-    categoryId: "electronique"
+const RAMADAN_BANNERS: BannerItem[] = [
+  { 
+    id: '1', 
+    icon: 'moon', 
+    text: 'Ramadan 2026', 
+    sub: 'Offres exclusives jusqu\'à -50%',
+    gradient: ['#0F2027', '#203A43', '#2C5364'] as const,
   },
-  // ... autres produits avec categoryId
+  { 
+    id: '2', 
+    icon: 'utensils', 
+    text: 'Alimentaire Halal', 
+    sub: 'Stock limité - Commandez vite',
+    gradient: ['#11998e', '#38ef7d'] as const,
+  },
+  { 
+    id: '3', 
+    icon: 'star', 
+    text: 'Déco & Fête', 
+    sub: 'Livraison express 24h',
+    gradient: ['#8E2DE2', '#4A00E0'] as const,
+  },
 ];
 
-export default function TrendingProductsPremium({ products: propProducts }: TrendingProductsPremiumProps) {
-  // ✅ UTILISER VOTRE HOOK EXISTANT
-  const { navigateTo } = useAppNavigation();
+export default function TrendingProductsPremium({ products: propProducts }: { products?: Product[] }) {
+  const { t } = useTranslation();
+  const router = useRouter();
   
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeBannerIndex, setActiveBannerIndex] = useState(0);
+  const [activeProductIndex, setActiveProductIndex] = useState(0);
+  
+  const productsListRef = useRef<FlatList<Product>>(null);
+  const ramadanListRef = useRef<FlatList<BannerItem>>(null);
+  const scrollIndexRef = useRef(0);
+  
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
 
   useEffect(() => {
     const loadTrendingProducts = async () => {
       try {
-        console.log("🔥 Chargement des produits tendances...");
+        setLoading(true);
+        const productsRef = collection(db, "products");
+        const q = query(productsRef, limit(100));
+
+        const snapshot = await getDocs(q);
         
-        if (propProducts && propProducts.length > 0) {
-          console.log("✅ Utilisation des produits passés en props");
-          const productsWithImages = propProducts.map(product => ({
-            ...product,
-            imageUrl: product.imageUrl || `https://images.unsplash.com/photo-${1500000000000 + product.id.charCodeAt(0)}?w=300&h=300&fit=crop`
-          }));
-          setProducts(productsWithImages);
-          setLoading(false);
-          return;
-        }
+        const rawProducts = snapshot.docs.map(doc => ({ 
+          id: doc.id, 
+          ...doc.data() 
+        } as Product));
 
-        let foundProducts: Product[] = [];
+        const uniqueProducts = Array.from(
+          new Map(rawProducts.map(item => [item.id, item])).values()
+        );
 
-        const queries = [
-          query(collection(db, "products"), orderBy("orders", "desc"), limit(6)),
-          query(collection(db, "products"), orderBy("createdAt", "desc"), limit(6)),
-          query(collection(db, "products"), where("stock", ">", 20), limit(6)),
-          query(collection(db, "products"), limit(6))
-        ];
+        const shuffled = uniqueProducts
+          .filter((p) => p.isActive !== false)
+          .sort(() => Math.random() - 0.5);
 
-        for (const q of queries) {
-          try {
-            const snapshot = await getDocs(q);
-            if (snapshot.docs.length > 0) {
-              foundProducts = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                  id: doc.id,
-                  name: data.name || "Produit Tendances",
-                  price: data.price || Math.floor(Math.random() * 50000) + 5000,
-                  originalPrice: data.originalPrice || Math.floor(Math.random() * 60000) + 6000,
-                  imageUrl: data.images?.[0] || data.imageUrl || `https://images.unsplash.com/photo-${1500000000000 + doc.id.charCodeAt(0)}?w=300&h=300&fit=crop`,
-                  rating: data.rating || 4.0 + Math.random() * 1.0,
-                  supplier: data.supplier || "Fournisseur Premium",
-                  minOrder: data.minOrder || Math.floor(Math.random() * 5) + 1,
-                  deliveryTime: data.deliveryTime || "5-10 jours",
-                  isVerified: data.isVerified !== undefined ? data.isVerified : true,
-                  stock: data.stock || Math.floor(Math.random() * 100) + 10,
-                  orders: data.orders || Math.floor(Math.random() * 1000) + 100,
-                  views: data.views || Math.floor(Math.random() * 5000) + 500,
-                  categoryId: data.categoryId || 'trending' // ✅ IMPORTANT
-                };
-              });
-              console.log(`🔥 ${foundProducts.length} produits tendances chargés depuis Firestore`);
-              break;
-            }
-          } catch (error) {
-            console.log(`⚠️ Requête tendances échouée, tentative suivante...`);
-          }
-        }
+        setProducts(shuffled.slice(0, 60));
 
-        if (foundProducts.length === 0) {
-          console.log("🔄 Aucun produit trouvé, utilisation des produits tendances d'exemple");
-          foundProducts = TRENDING_SAMPLE_PRODUCTS;
-        }
-
-        setProducts(foundProducts);
-        
       } catch (error) {
-        console.error("❌ Erreur chargement produits tendances:", error);
-        setProducts(TRENDING_SAMPLE_PRODUCTS);
+        console.error("🔥 Erreur Trending:", error);
       } finally {
         setLoading(false);
       }
     };
 
     loadTrendingProducts();
-  }, [propProducts]);
-
-  // ✅ Grouper les produits par 2
-  const groupedProducts = products.reduce((acc: Product[][], _, i, arr) => {
-    if (i % 2 === 0) acc.push(arr.slice(i, i + 2));
-    return acc;
   }, []);
 
-  // ✅ NAVIGATION EN 2 ÉTAPES
-  const handleProductPress = (product: Product) => {
-    console.log('🔥 Navigation produit tendance:', product.id);
-    navigateTo.productDetail(product.id, product.categoryId || 'trending');
-  };
+  const getItemLayout = useCallback((_: any, index: number) => ({
+    length: ITEM_FULL_WIDTH,
+    offset: ITEM_FULL_WIDTH * index,
+    index,
+  }), []);
 
-  const navigateToTrendingExplore = () => {
-    navigateTo.category('trending', 'Produits Tendances');
-  };
+  const onScrollToIndexFailed = useCallback((info: { index: number }) => {
+    setTimeout(() => {
+      if (productsListRef.current && products.length > 0 && info.index < products.length) {
+        productsListRef.current.scrollToIndex({
+          index: info.index,
+          animated: true,
+          viewPosition: 0.5,
+        });
+      }
+    }, 100);
+  }, [products.length]);
 
-  // ✅ Rendu des groupes
-  const renderProductGroup = ({ item, index }: { item: Product[], index: number }) => (
-    <View style={styles.productGroup}>
-      {item.map((product, productIndex) => (
-        <View key={product.id} style={styles.productWrapper}>
-          <ProductCardPremium 
-            product={product}
-            onPress={() => handleProductPress(product)}
-            style={styles.productCard}
+  useEffect(() => {
+    if (products.length === 0) return;
+    
+    const interval = setInterval(() => {
+      scrollIndexRef.current = (scrollIndexRef.current + 1) % Math.min(products.length, 10);
+      if (productsListRef.current) {
+        try {
+          productsListRef.current.scrollToIndex({
+            index: scrollIndexRef.current,
+            animated: true,
+            viewPosition: 0.5,
+          });
+        } catch (error) {
+          console.log('Auto-scroll error');
+        }
+      }
+    }, 4000);
+    
+    return () => clearInterval(interval);
+  }, [products]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveBannerIndex((prev) => {
+        const next = (prev + 1) % RAMADAN_BANNERS.length;
+        if (ramadanListRef.current) {
+          try {
+            ramadanListRef.current.scrollToIndex({ 
+              index: next, 
+              animated: true,
+              viewPosition: 0.5,
+            });
+          } catch (error) {
+            console.log('Ramadan scroll error');
+          }
+        }
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    if (viewableItems.length > 0 && viewableItems[0].index !== null) {
+      setActiveProductIndex(viewableItems[0].index);
+    }
+  }, []);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+  }).current;
+
+  const handleProductPress = useCallback((product: Product) => {
+    router.push(`/product/${product.id}`);
+  }, [router]);
+
+  const renderRankBadge = useCallback((index: number) => {
+    const isTop3 = index < 3;
+    const rankColors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+    
+    return (
+      <View style={[
+        styles.rankBadge,
+        isTop3 ? { backgroundColor: rankColors[index] } : styles.rankDefault
+      ]}>
+        <Text style={styles.rankText}>#{index + 1}</Text>
+        {isTop3 && (
+          <Ionicons 
+            name="trophy" 
+            size={10} 
+            color="#FFF" 
+            style={styles.trophyIcon} 
           />
-          
-          {/* Badge de rang */}
-          <View style={[
-            styles.rankBadge,
-            (index * 2 + productIndex) === 0 && styles.rankOne,
-            (index * 2 + productIndex) === 1 && styles.rankTwo,
-            (index * 2 + productIndex) === 2 && styles.rankThree,
-          ]}>
-            <Text style={styles.rankText}>#{index * 2 + productIndex + 1}</Text>
-          </View>
+        )}
+      </View>
+    );
+  }, []);
 
-          {/* Indicateur de popularité */}
-          <View style={styles.popularityBar}>
-            <View 
-              style={[
-                styles.popularityFill,
-                { width: `${85 - ((index * 2 + productIndex) * 15)}%` }
-              ]} 
-            />
-          </View>
+  const renderProductItem = useCallback(({ item, index }: { item: Product; index: number }) => (
+    <Animated.View 
+      style={[
+        styles.productWrapper, 
+        { width: PRODUCT_CARD_WIDTH },
+        activeProductIndex === index && styles.activeProduct
+      ]}
+    >
+      <ProductCardPremium 
+        product={item} 
+        onPress={() => handleProductPress(item)} 
+      />
+      {renderRankBadge(index)}
+    </Animated.View>
+  ), [activeProductIndex, handleProductPress, renderRankBadge]);
 
-          {/* Badge "Vendu" */}
-          {(index * 2 + productIndex) < 2 && (
-            <View style={styles.bestSellerBadge}>
-              <Ionicons name="flash" size={10} color="#fff" />
-              <Text style={styles.bestSellerText}>Vendu</Text>
-            </View>
-          )}
+  const renderBannerItem = useCallback(({ item }: { item: BannerItem }) => (
+    <View style={styles.bannerSlide}>
+      <LinearGradient 
+        colors={item.gradient} 
+        start={{ x: 0, y: 0 }} 
+        end={{ x: 1, y: 0 }} 
+        style={styles.bannerGradient}
+      >
+        <View style={styles.bannerContent}>
+          <View style={styles.bannerIconContainer}>
+            <FontAwesome5 name={item.icon as any} size={24} color="#FFD700" />
+          </View>
+          <View style={styles.bannerTextContainer}>
+            <Text style={styles.bannerTitle}>{item.text}</Text>
+            <Text style={styles.bannerSubtitle}>{item.sub}</Text>
+          </View>
         </View>
-      ))}
+        <View style={styles.bannerDecoration}>
+          <Ionicons name="sparkles" size={20} color="rgba(255,215,0,0.3)" />
+        </View>
+      </LinearGradient>
     </View>
-  );
+  ), []);
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ff6a00" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Chargement des tendances...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <Animated.View 
+      style={[
+        styles.container,
+        {
+          opacity: fadeAnim,
+          transform: [
+            { translateY: slideAnim },
+            { scale: scaleAnim }
+          ]
+        }
+      ]}
+    >
       <View style={styles.header}>
-        <View style={styles.titleContainer}>
-          <Ionicons name="trending-up" size={24} color="#ff6a00" />
-          <Text style={styles.title}>Tendances du Moment</Text>
-          <View style={styles.trendIndicator}>
-            <Ionicons name="arrow-up" size={14} color="#4CAF50" />
-            <Text style={styles.trendText}>+24%</Text>
+        <View style={styles.titleSection}>
+          <View style={styles.iconContainer}>
+            <LinearGradient
+              colors={COLORS.gradient}
+              style={styles.gradientIcon}
+            >
+              <Ionicons name="trending-up" size={22} color="#FFF" />
+            </LinearGradient>
+          </View>
+          <View>
+            <Text style={styles.title}>{t('trending.title')}</Text>
+            <Text style={styles.subtitle}>Les plus populaires cette semaine</Text>
           </View>
         </View>
+        
         <TouchableOpacity 
           style={styles.seeAllButton}
-          onPress={navigateToTrendingExplore}
+          onPress={() => router.push('/category/trending')}
+          activeOpacity={0.8}
         >
-          <Text style={styles.seeAllText}>Explorer</Text>
-          <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
+          <Text style={styles.seeAllText}>{t('trending.explore')}</Text>
+          <View style={styles.arrowContainer}>
+            <Ionicons name="arrow-forward" size={14} color="#FFF" />
+          </View>
         </TouchableOpacity>
       </View>
 
-      {/* Liste des produits */}
-      <FlatList
-        data={groupedProducts}
-        renderItem={renderProductGroup}
-        keyExtractor={(_, index) => `trending-group-${index}`}
-        scrollEnabled={false}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.productsContainer}
-      />
-
-      {/* Statistiques */}
-      <View style={styles.statsContainer}>
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>
-            {products.reduce((sum, p) => sum + (p.views || 0), 0).toLocaleString().substring(0, 3)}K
-          </Text>
-          <Text style={styles.statLabel}>Vues aujourd'hui</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>
-            {products.reduce((sum, p) => sum + (p.orders || 0), 0).toLocaleString().substring(0, 3)}
-          </Text>
-          <Text style={styles.statLabel}>Commandes</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statNumber}>94%</Text>
-          <Text style={styles.statLabel}>Satisfaction</Text>
-        </View>
+      <View style={styles.progressContainer}>
+        {products.slice(0, 5).map((_, index) => (
+          <View 
+            key={index}
+            style={[
+              styles.progressDot,
+              activeProductIndex === index && styles.progressDotActive
+            ]} 
+          />
+        ))}
       </View>
 
-      {/* Bannière promotionnelle */}
-      <TouchableOpacity 
-        style={styles.promoBanner}
-        onPress={navigateToTrendingExplore}
-      >
-        <LinearGradient
-          colors={['#ff6a00', '#ff8c00']}
-          style={styles.promoGradient}
-        >
-          <View style={styles.promoContent}>
-            <Ionicons name="flash" size={20} color="#fff" />
-            <Text style={styles.promoText}>Livraison EXPRESS offerte sur les produits tendances</Text>
-          </View>
-        </LinearGradient>
-      </TouchableOpacity>
-    </View>
+      <FlatList
+        ref={productsListRef}
+        data={products}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={ITEM_FULL_WIDTH}
+        decelerationRate="fast"
+        keyExtractor={(item, index) => `product-${item.id}-${index}`}
+        contentContainerStyle={styles.productsList}
+        getItemLayout={getItemLayout}
+        onScrollToIndexFailed={onScrollToIndexFailed}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        renderItem={renderProductItem}
+      />
+
+      <View style={styles.bannerContainer}>
+        <FlatList
+          ref={ramadanListRef}
+          data={RAMADAN_BANNERS}
+          keyExtractor={(item) => `banner-${item.id}`}
+          horizontal
+          pagingEnabled
+          scrollEnabled={false}
+          showsHorizontalScrollIndicator={false}
+          getItemLayout={(_, index) => ({
+            length: SCREEN_WIDTH - (HORIZONTAL_PADDING * 2),
+            offset: (SCREEN_WIDTH - (HORIZONTAL_PADDING * 2)) * index,
+            index,
+          })}
+          renderItem={renderBannerItem}
+        />
+        
+        <View style={styles.bannerIndicators}>
+          {RAMADAN_BANNERS.map((_, index) => (
+            <View 
+              key={`indicator-${index}`}
+              style={[
+                styles.bannerIndicator,
+                activeBannerIndex === index && styles.bannerIndicatorActive
+              ]} 
+            />
+          ))}
+        </View>
+      </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
     paddingVertical: 20,
-    marginTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f8f9fa',
+    borderRadius: 24,
+    marginHorizontal: 8, // Réduit pour plus d'espace
+    marginVertical: 8,
   },
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
+  
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingHorizontal: HORIZONTAL_PADDING,
+    marginBottom: 12,
   },
-  titleContainer: {
+  titleSection: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconContainer: {
+    marginRight: 10,
+  },
+  gradientIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   title: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#333',
-    marginLeft: 8,
-    marginRight: 12,
+    color: COLORS.text,
+    letterSpacing: -0.5,
   },
-  trendIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(76, 175, 80, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  trendText: {
-    color: '#4CAF50',
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 2,
+  subtitle: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 1,
+    fontWeight: '500',
   },
   seeAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 106, 0, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
   seeAllText: {
-    color: '#ff6a00',
-    fontSize: 14,
-    fontWeight: '600',
-    marginRight: 4,
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
+    marginRight: 6,
   },
-  productsContainer: {
-    paddingHorizontal: 12,
+  arrowContainer: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 10,
+    padding: 3,
   },
-  productGroup: {
+
+  progressContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     marginBottom: 12,
+    gap: 6,
+  },
+  progressDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#D1D5DB',
+  },
+  progressDotActive: {
+    width: 24,
+    backgroundColor: COLORS.primary,
+    borderRadius: 3,
+  },
+
+  // 🔧 CORRECTION PRINCIPALE : Padding réduit pour carte plus large
+  productsList: {
+    paddingHorizontal: HORIZONTAL_PADDING, // 16px au lieu de 20px
+    paddingBottom: 8,
   },
   productWrapper: {
-    flex: 1,
-    marginHorizontal: 4,
+    marginRight: ITEM_SPACING, // 12px au lieu de 16px
     position: 'relative',
+    transform: [{ scale: 0.98 }],
+    opacity: 0.9,
   },
-  productCard: {
-    width: '100%',
+  activeProduct: {
+    transform: [{ scale: 1 }],
+    opacity: 1,
   },
+
   rankBadge: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    zIndex: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: 12,
+    left: 12,
+    minWidth: 32,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    flexDirection: 'row',
+    paddingHorizontal: 8,
+    zIndex: 10,
   },
-  rankOne: {
-    backgroundColor: '#FFD700',
-  },
-  rankTwo: {
-    backgroundColor: '#C0C0C0',
-  },
-  rankThree: {
-    backgroundColor: '#CD7F32',
+  rankDefault: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
   },
   rankText: {
-    color: '#fff',
-    fontSize: 10,
+    color: '#FFF',
+    fontSize: 11,
     fontWeight: '900',
   },
-  popularityBar: {
-    position: 'absolute',
-    bottom: 60,
-    left: 12,
-    right: 12,
-    height: 4,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  popularityFill: {
-    height: '100%',
-    backgroundColor: '#ff6a00',
-    borderRadius: 2,
-  },
-  bestSellerBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 68, 68, 0.9)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    zIndex: 10,
-  },
-  bestSellerText: {
-    color: '#fff',
-    fontSize: 8,
-    fontWeight: '700',
+  trophyIcon: {
     marginLeft: 2,
   },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginTop: 20,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#ff6a00',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '500',
-  },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#f0f0f0',
-  },
-  promoBanner: {
+
+  bannerContainer: {
+    marginHorizontal: HORIZONTAL_PADDING,
     marginTop: 16,
-    marginHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
   },
-  promoGradient: {
-    padding: 12,
+  bannerSlide: {
+    width: SCREEN_WIDTH - (HORIZONTAL_PADDING * 2),
+    height: 80,
   },
-  promoContent: {
+  bannerGradient: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
   },
-  promoText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 8,
-    textAlign: 'center',
+  bannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  bannerIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,215,0,0.3)',
+  },
+  bannerTextContainer: {
+    flex: 1,
+  },
+  bannerTitle: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  bannerSubtitle: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  bannerDecoration: {
+    opacity: 0.6,
+  },
+  bannerIndicators: {
+    position: 'absolute',
+    bottom: 10,
+    right: 16,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  bannerIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  bannerIndicatorActive: {
+    backgroundColor: '#FFD700',
+    width: 18,
+  },
+
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+    margin: 12,
+    borderRadius: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    color: COLORS.textMuted,
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

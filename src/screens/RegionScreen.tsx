@@ -1,1 +1,1 @@
-﻿export default function RegionScreen(){return null}
+export default function RegionScreen(){return null}

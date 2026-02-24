@@ -1,1 +1,1 @@
-﻿export default function ManufacturerScreen(){return null}
+export default function ManufacturerScreen(){return null}

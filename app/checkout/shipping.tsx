@@ -6,13 +6,13 @@ import {
   StyleSheet, 
   ScrollView,
   Alert,
-  SafeAreaView 
+  SafeAreaView,
+  ActivityIndicator
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useCart } from '../../src/contexts/CartContext';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useCurrency } from '../../src/contexts/CurrencyContext'; // Ajout du contexte
 
-// COULEURS COHÉRENTES
 const COLORS = {
   primary: '#FF6A00',
   primaryLight: '#FFF0E6',
@@ -25,113 +25,142 @@ const COLORS = {
   white: '#FFFFFF'
 };
 
+interface OrderItem {
+  id: string;
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+  imageUrl?: string;
+  companyName?: string;
+}
+
+interface ShippingOption {
+  id: string;
+  name: string;
+  price: number;
+  deliveryTime: string;
+  description: string;
+  type: 'local' | 'air' | 'sea';
+  details: string;
+  features?: string[];
+  coverage?: string[];
+  recommended?: boolean;
+}
+
 export default function CheckoutShipping() {
   const router = useRouter();
-  const { cartItems, getTotalItems } = useCart();
+  const params = useLocalSearchParams();
+  const { formatPrice } = useCurrency(); // Hook pour la devise
   
-  // VÉRIFICATION PANIER VIDE
-  if (cartItems.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Ionicons name="cart-outline" size={64} color={COLORS.textLight} />
-        <Text style={styles.emptyTitle}>Panier vide</Text>
-        <Text style={styles.emptyText}>Impossible de continuer avec un panier vide.</Text>
-        <TouchableOpacity 
-          style={styles.emptyButton}
-          onPress={() => router.replace('/(tabs)')}
-        >
-          <Text style={styles.emptyButtonText}>Retour aux achats</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  const [selectedShipping, setSelectedShipping] = useState('tellimani_bamako'); // ✅ DÉFAUT : TELLIMANI
-  const [isWholesaleOrder, setIsWholesaleOrder] = useState(false);
+  const [selectedShipping, setSelectedShipping] = useState('tellimani_bamako');
+  const [loading, setLoading] = useState(true);
+  const [orderData, setOrderData] = useState<any>(null);
+  const [selectedItems, setSelectedItems] = useState<OrderItem[]>([]);
   const [totalQuantity, setTotalQuantity] = useState(0);
   const [totalWeight, setTotalWeight] = useState(0);
   const [totalVolume, setTotalVolume] = useState(0);
+  const [isWholesaleOrder, setIsWholesaleOrder] = useState(false);
+  const [summary, setSummary] = useState({
+    subtotal: 0,
+    shipping: 0,
+    discount: 0,
+    total: 0
+  });
 
-  // DÉTECTION WHOLESALE ET CALCULS POIDS/VOLUME
-  useEffect(() => {
-    const quantity = getTotalItems();
-    setTotalQuantity(quantity);
-    setIsWholesaleOrder(quantity >= 10 || cartItems.some(item => item.quantity >= 10));
-
-    // CALCUL POIDS TOTAL (estimation: 1 produit = 0.5kg)
-    const weight = cartItems.reduce((total, item) => total + (item.quantity * 0.5), 0);
-    setTotalWeight(weight);
-
-    // CALCUL VOLUME TOTAL (estimation: 1 produit = 0.01 CBM)
-    const volume = cartItems.reduce((total, item) => total + (item.quantity * 0.01), 0);
-    setTotalVolume(volume);
-  }, [cartItems]);
-
-  // CALCUL DES PRIX WHOLESALE
-  const getWholesalePrice = (item) => {
-    if (item.quantity >= 100) return item.price * 0.70;
-    if (item.quantity >= 50) return item.price * 0.75;
-    if (item.quantity >= 20) return item.price * 0.80;
-    if (item.quantity >= 10) return item.price * 0.85;
-    if (totalQuantity >= 50) return item.price * 0.90;
-    return item.price;
-  };
-
-  // SOUS-TOTAL WHOLESALE
-  const getWholesaleSubtotal = () => {
-    return cartItems.reduce((total, item) => {
-      return total + (getWholesalePrice(item) * item.quantity);
-    }, 0);
-  };
-
-  // ✅ OPTIONS DE LIVRAISON AVEC TELLIMANI À BAMAKO
-  const shippingOptions = [
+  const shippingOptions: ShippingOption[] = [
     {
       id: 'tellimani_bamako',
       name: '🚚 Tellimani à Bamako',
-      price: 2000, // ✅ PRIX FIXE DE 2000 FCFA
+      price: 0,
       deliveryTime: '24-48 heures',
-      description: 'Livraison locale rapide et économique dans Bamako et environs',
+      description: 'Livraison locale rapide et gratuite dans Bamako et environs',
       type: 'local',
-      details: 'Prix fixe de 2000 FCFA',
-      features: ['Livraison porte à porte', 'Suivi en temps réel', 'Prix fixe sans surprise'],
+      details: 'Livraison GRATUITE',
+      features: ['Livraison porte à porte', 'Suivi en temps réel', '100% gratuit'],
       coverage: ['Bamako', 'Kati', 'Koulikoro', 'Sébénikoro'],
       recommended: true
     },
     {
       id: 'vol_express',
       name: '✈️ Vol Express',
-      price: Math.ceil(totalWeight * 12000), // 12,000 FCFA/kg
+      price: Math.ceil(totalWeight * 12000),
       deliveryTime: '5 jours',
       description: 'Livraison express par avion - Idéal pour les urgences',
       type: 'air',
-      details: `${totalWeight.toFixed(1)} kg × 12,000 FCFA`
+      details: `${totalWeight.toFixed(1)} kg × ${formatPrice(12000)}`
     },
     {
       id: 'vol_cargo', 
       name: '✈️ Vol Cargo',
-      price: Math.ceil(totalWeight * 10000), // 10,000 FCFA/kg
+      price: Math.ceil(totalWeight * 10000),
       deliveryTime: '2 semaines',
       description: 'Livraison économique par cargo aérien',
       type: 'air',
-      details: `${totalWeight.toFixed(1)} kg × 10,000 FCFA`
+      details: `${totalWeight.toFixed(1)} kg × ${formatPrice(10000)}`
     },
     {
       id: 'voie_maritime',
       name: '🚢 Voie Maritime',
-      price: Math.ceil(totalVolume * 295000), // 295,000 FCFA/CBM
+      price: Math.ceil(totalVolume * 295000),
       deliveryTime: '12 semaines',
       description: 'Livraison la plus économique par bateau',
       type: 'sea',
-      details: `${totalVolume.toFixed(2)} CBM × 295,000 FCFA`
+      details: `${totalVolume.toFixed(2)} CBM × ${formatPrice(295000)}`
     }
   ];
 
-  // CONVERSION FCFA À USD
-  const convertToUSD = (fcfAmount: number) => {
-    const exchangeRate = 600; // 1 USD = 600 FCFA (à ajuster selon taux réel)
-    return (fcfAmount / exchangeRate).toFixed(2);
-  };
+  useEffect(() => {
+    const loadOrderData = async () => {
+      try {
+        if (!params.orderData) {
+          Alert.alert('Erreur', 'Aucune donnée de commande reçue. Retour au panier.');
+          router.replace('/cart');
+          return;
+        }
+
+        const parsedData = JSON.parse(params.orderData as string);
+
+        if (!parsedData.items || parsedData.items.length === 0) {
+          Alert.alert('Panier vide', 'Aucun article sélectionné');
+          router.replace('/cart');
+          return;
+        }
+
+        setOrderData(parsedData);
+        setSelectedItems(parsedData.items || []);
+        setSummary(parsedData.summary || {
+          subtotal: 0,
+          shipping: 0,
+          discount: 0,
+          total: 0
+        });
+
+        const quantity = parsedData.items.reduce((total: number, item: OrderItem) => 
+          total + item.quantity, 0);
+        setTotalQuantity(quantity);
+        
+        setIsWholesaleOrder(quantity >= 10 || 
+          parsedData.items.some((item: OrderItem) => item.quantity >= 10));
+
+        const weight = parsedData.items.reduce((total: number, item: OrderItem) => 
+          total + (item.quantity * 0.5), 0);
+        setTotalWeight(weight);
+
+        const volume = parsedData.items.reduce((total: number, item: OrderItem) => 
+          total + (item.quantity * 0.01), 0);
+        setTotalVolume(volume);
+
+      } catch (error) {
+        Alert.alert('Erreur', 'Impossible de charger les données de la commande');
+        router.replace('/cart');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadOrderData();
+  }, [params.orderData]);
 
   const getSelectedShippingOption = () => {
     return shippingOptions.find(option => option.id === selectedShipping);
@@ -145,20 +174,41 @@ export default function CheckoutShipping() {
       return;
     }
 
+    if (!orderData || selectedItems.length === 0) {
+      Alert.alert('Erreur', 'Données de commande manquantes');
+      return;
+    }
+
+    const newTotal = summary.subtotal + selectedOption.price - summary.discount;
+    
+    const completeOrderData = {
+      ...orderData,
+      items: selectedItems,
+      shipping: {
+        method: selectedShipping,
+        option: selectedOption,
+        cost: selectedOption.price,
+        details: `${selectedOption.name} - ${selectedOption.deliveryTime}`
+      },
+      summary: {
+        ...summary,
+        shipping: selectedOption.price,
+        total: newTotal
+      },
+      selectedItems: selectedItems,
+      timestamp: new Date().toISOString()
+    };
+
     router.push({
       pathname: '/checkout/payment',
       params: {
-        shippingMethod: selectedShipping,
-        shippingCost: selectedOption.price.toString(),
-        shippingDetails: `${selectedOption.name} - ${selectedOption.deliveryTime}`
+        orderData: JSON.stringify(completeOrderData)
       }
     });
   };
 
-  // ✅ FONCTION POUR AFFICHER LES ZONES DE COUVERTURE
   const renderCoverage = (coverage: string[]) => {
     if (!coverage || coverage.length === 0) return null;
-    
     return (
       <View style={styles.coverageSection}>
         <Text style={styles.coverageLabel}>📍 Zones couvertes:</Text>
@@ -173,10 +223,8 @@ export default function CheckoutShipping() {
     );
   };
 
-  // ✅ FONCTION POUR AFFICHER LES FEATURES
   const renderFeatures = (features: string[]) => {
     if (!features || features.length === 0) return null;
-    
     return (
       <View style={styles.featuresSection}>
         <View style={styles.featuresContainer}>
@@ -191,10 +239,19 @@ export default function CheckoutShipping() {
     );
   };
 
-  // AFFICHAGE DES INFORMATIONS DE CALCUL
   const renderShippingCalculations = () => (
     <View style={styles.calculationsSection}>
       <Text style={styles.calculationsTitle}>Calcul des frais de transport</Text>
+      
+      <View style={styles.calculationRow}>
+        <Text style={styles.calculationLabel}>Articles commandés:</Text>
+        <Text style={styles.calculationValue}>{selectedItems.length} produit(s)</Text>
+      </View>
+      
+      <View style={styles.calculationRow}>
+        <Text style={styles.calculationLabel}>Quantité totale:</Text>
+        <Text style={styles.calculationValue}>{totalQuantity} unité(s)</Text>
+      </View>
       
       <View style={styles.calculationRow}>
         <Text style={styles.calculationLabel}>Poids total estimé:</Text>
@@ -215,53 +272,108 @@ export default function CheckoutShipping() {
     </View>
   );
 
-  const renderWholesaleBenefits = () => {
-    if (!isWholesaleOrder) return null;
+  const renderOrderSummary = () => {
+    if (!orderData || selectedItems.length === 0) return null;
 
     return (
-      <View style={styles.wholesaleBenefits}>
-        <View style={styles.benefitsHeader}>
-          <Ionicons name="business" size={20} color={COLORS.primary} />
-          <Text style={styles.benefitsTitle}>Avantages Professionnels</Text>
+      <View style={styles.orderSummary}>
+        <View style={styles.summaryHeader}>
+          <Ionicons name="receipt-outline" size={20} color={COLORS.primary} />
+          <Text style={styles.summaryTitle}>Résumé de votre commande</Text>
         </View>
         
-        <View style={styles.benefitsList}>
-          <View style={styles.benefitItem}>
-            <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
-            <Text style={styles.benefitText}>Tarifs wholesale sur les articles</Text>
+        <View style={styles.summaryItems}>
+          {selectedItems.slice(0, 3).map((item, index) => (
+            <View key={index} style={styles.summaryItem}>
+              <Text style={styles.summaryItemName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={styles.summaryItemQty}>
+                ×{item.quantity}
+              </Text>
+              <Text style={styles.summaryItemPrice}>
+                {formatPrice(item.price * item.quantity)}
+              </Text>
+            </View>
+          ))}
+          {selectedItems.length > 3 && (
+            <Text style={styles.moreItemsText}>
+              +{selectedItems.length - 3} autre(s) article(s)
+            </Text>
+          )}
+        </View>
+        
+        <View style={styles.summaryTotals}>
+          <View style={styles.summaryTotalRow}>
+            <Text style={styles.summaryTotalLabel}>Sous-total:</Text>
+            <Text style={styles.summaryTotalValue}>
+              {formatPrice(summary.subtotal)}
+            </Text>
           </View>
-          <View style={styles.benefitItem}>
-            <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
-            <Text style={styles.benefitText}>Support dédié aux professionnels</Text>
-          </View>
+          
+          {summary.discount > 0 && (
+            <View style={styles.summaryTotalRow}>
+              <Text style={styles.summaryDiscountLabel}>Réduction:</Text>
+              <Text style={styles.summaryDiscountValue}>
+                -{formatPrice(summary.discount)}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     );
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Chargement de votre commande...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!orderData || selectedItems.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.emptyContainer}>
+          <Ionicons name="cart-outline" size={64} color={COLORS.textLight} />
+          <Text style={styles.emptyTitle}>Commande invalide</Text>
+          <TouchableOpacity 
+            style={styles.emptyButton}
+            onPress={() => router.replace('/cart')}
+          >
+            <Text style={styles.emptyButtonText}>Retour au panier</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
-        {/* En-tête avec progression */}
+      <ScrollView 
+        style={styles.container} 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.progressHeader}>
           <View style={styles.progressStep}>
             <View style={[styles.stepIndicator, styles.stepCompleted]}>
               <Ionicons name="checkmark" size={16} color={COLORS.white} />
             </View>
-            <Text style={styles.stepTextCompleted}>Adresse</Text>
+            <Text style={styles.stepTextCompleted}>Panier</Text>
           </View>
-          
           <View style={styles.progressLineCompleted} />
-          
           <View style={styles.progressStep}>
             <View style={[styles.stepIndicator, styles.stepActive]}>
               <Text style={styles.stepNumber}>2</Text>
             </View>
             <Text style={styles.stepTextActive}>Livraison</Text>
           </View>
-          
           <View style={styles.progressLine} />
-          
           <View style={styles.progressStep}>
             <View style={styles.stepIndicator}>
               <Text style={styles.stepNumber}>3</Text>
@@ -272,7 +384,8 @@ export default function CheckoutShipping() {
 
         <Text style={styles.title}>Mode de livraison</Text>
 
-        {/* Badge Wholesale */}
+        {renderOrderSummary()}
+
         {isWholesaleOrder && (
           <View style={styles.wholesaleBadge}>
             <Ionicons name="business" size={16} color={COLORS.white} />
@@ -282,16 +395,13 @@ export default function CheckoutShipping() {
           </View>
         )}
 
-        {/* Avantages wholesale */}
-        {renderWholesaleBenefits()}
-
-        {/* CALCULS DES FRAIS */}
         {renderShippingCalculations()}
         
         <View style={styles.shippingOptions}>
           {shippingOptions.map(option => {
             const isSelected = selectedShipping === option.id;
             const isLocal = option.type === 'local';
+            const isFree = option.price === 0;
             
             return (
               <TouchableOpacity
@@ -312,6 +422,11 @@ export default function CheckoutShipping() {
                           <Text style={styles.recommendedBadgeText}>Recommandé</Text>
                         </View>
                       )}
+                      {isFree && (
+                        <View style={styles.freeBadge}>
+                          <Text style={styles.freeBadgeText}>GRATUIT</Text>
+                        </View>
+                      )}
                     </View>
                     <View style={[
                       styles.typeBadge,
@@ -328,25 +443,17 @@ export default function CheckoutShipping() {
                   <Text style={styles.shippingDescription}>{option.description}</Text>
                   <Text style={styles.shippingDetails}>{option.details}</Text>
                   
-                  {/* ✅ ZONES DE COUVERTURE POUR TELLIMANI */}
                   {option.coverage && renderCoverage(option.coverage)}
-                  
-                  {/* ✅ FEATURES POUR TELLIMANI */}
                   {option.features && renderFeatures(option.features)}
                 </View>
                 
                 <View style={styles.shippingPriceContainer}>
-                  <Text style={[
-                    styles.shippingPrice,
-                    isLocal && styles.localPrice
-                  ]}>
-                    {option.price.toLocaleString()} FCFA
-                  </Text>
-                  <Text style={styles.usdPrice}>
-                    {convertToUSD(option.price)} USD
-                  </Text>
-                  {isLocal && (
-                    <Text style={styles.fixedPriceBadge}>💰 Prix Fixe</Text>
+                  {isFree ? (
+                    <Text style={[styles.shippingPrice, styles.freePrice]}>GRATUIT</Text>
+                  ) : (
+                    <Text style={[styles.shippingPrice, isLocal && styles.localPrice]}>
+                      {formatPrice(option.price)}
+                    </Text>
                   )}
                 </View>
 
@@ -360,32 +467,34 @@ export default function CheckoutShipping() {
           })}
         </View>
 
-        {/* Informations importantes */}
         <View style={styles.infoSection}>
           <View style={styles.infoHeader}>
             <Ionicons name="alert-circle" size={20} color={COLORS.primary} />
             <Text style={styles.infoTitle}>Informations importantes</Text>
           </View>
           <View style={styles.infoList}>
-            <Text style={styles.infoItem}>• 🚚 <Text style={styles.infoBold}>Tellimani à Bamako</Text>: Livraison locale rapide en 24-48h (2000 FCFA fixe)</Text>
-            <Text style={styles.infoItem}>• ✈️ <Text style={styles.infoBold}>Vol Express</Text>: Idéal pour les commandes urgentes (12,000 FCFA/kg)</Text>
-            <Text style={styles.infoItem}>• ✈️ <Text style={styles.infoBold}>Vol Cargo</Text>: Équilibre entre prix et délai (10,000 FCFA/kg)</Text>
-            <Text style={styles.infoItem}>• 🚢 <Text style={styles.infoBold}>Voie Maritime</Text>: Solution la plus économique (295,000 FCFA/CBM)</Text>
-            <Text style={styles.infoItem}>• Les frais réels seront confirmés après pesage</Text>
+            <Text style={styles.infoItem}>• 🚚 <Text style={styles.infoBold}>Tellimani</Text>: Livraison locale GRATUITE</Text>
+            <Text style={styles.infoItem}>• ✈️ <Text style={styles.infoBold}>Vol Express</Text>: {formatPrice(12000)}/kg</Text>
+            <Text style={styles.infoItem}>• 🚢 <Text style={styles.infoBold}>Maritime</Text>: {formatPrice(295000)}/CBM</Text>
           </View>
         </View>
-
-        {/* ✅ ESPACE POUR LE BOUTON FLOATING */}
-        <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* ✅ BOUTON FLOATING POUR CONTINUER VERS LE PAIEMENT */}
-      <View style={styles.floatingButtonContainer}>
-        <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-          <Text style={styles.continueButtonText}>
-            Continuer vers le paiement
-          </Text>
-          <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
+      <View style={styles.fixedBottomContainer}>
+        <TouchableOpacity 
+          style={styles.continueButton} 
+          onPress={handleContinue}
+          activeOpacity={0.8}
+        >
+          <View style={styles.buttonContent}>
+            <View>
+              <Text style={styles.continueButtonText}>Continuer vers le paiement</Text>
+              <Text style={styles.continueButtonSubtext}>
+                Total: {formatPrice(summary.subtotal + (shippingOptions.find(o => o.id === selectedShipping)?.price || 0) - summary.discount)}
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
+          </View>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -393,438 +502,94 @@ export default function CheckoutShipping() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#f8f9fa',
-  },
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 100, // ✅ ESPACE POUR LE BOUTON FLOATING
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
-    backgroundColor: '#f8f9fa',
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.text,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: COLORS.textLight,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  emptyButton: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  emptyButtonText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    marginBottom: 10,
-  },
-  progressStep: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepIndicator: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  stepActive: {
-    backgroundColor: COLORS.primary,
-  },
-  stepCompleted: {
-    backgroundColor: COLORS.primary,
-  },
-  stepNumber: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  stepText: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    fontWeight: '500',
-  },
-  stepTextActive: {
-    fontSize: 12,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  stepTextCompleted: {
-    fontSize: 12,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  progressLine: {
-    width: 40,
-    height: 2,
-    backgroundColor: COLORS.border,
-    marginHorizontal: 8,
-  },
-  progressLineCompleted: {
-    width: 40,
-    height: 2,
-    backgroundColor: COLORS.primary,
-    marginHorizontal: 8,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-    color: COLORS.text,
-  },
-  wholesaleBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginBottom: 16,
-    alignSelf: 'center',
-  },
-  wholesaleBadgeText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  wholesaleBenefits: {
-    backgroundColor: COLORS.primaryLight,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
-  },
-  benefitsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  benefitsTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  benefitsList: {
-    gap: 6,
-  },
-  benefitItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  benefitText: {
-    fontSize: 14,
-    color: COLORS.text,
-  },
-  // STYLES POUR LES CALCULS
-  calculationsSection: {
-    backgroundColor: COLORS.white,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  calculationsTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 12,
-  },
-  calculationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  calculationLabel: {
-    fontSize: 14,
-    color: COLORS.textLight,
-  },
-  calculationValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-  calculationNote: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: COLORS.background,
-    borderRadius: 8,
-  },
-  calculationNoteText: {
-    flex: 1,
-    fontSize: 12,
-    color: COLORS.textLight,
-    lineHeight: 16,
-  },
-  shippingOptions: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  shippingCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    backgroundColor: COLORS.white,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    position: 'relative',
-  },
-  localCard: {
-    borderColor: '#8B5CF6',
-    backgroundColor: '#F5F3FF',
-  },
-  shippingCardSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryLight,
-  },
-  shippingInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  shippingHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 4,
-  },
-  shippingTitleContainer: {
-    flex: 1,
-    marginRight: 8,
-  },
-  shippingName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  recommendedBadge: {
-    backgroundColor: COLORS.success,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-  },
-  recommendedBadgeText: {
-    color: COLORS.white,
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  typeBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  typeAir: {
-    backgroundColor: '#E3F2FD',
-  },
-  typeSea: {
-    backgroundColor: '#E8F5E8',
-  },
-  typeLocal: {
-    backgroundColor: '#EDE9FE',
-  },
-  typeBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  shippingTime: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    marginBottom: 4,
-  },
-  shippingDescription: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    marginBottom: 4,
-    lineHeight: 16,
-  },
-  shippingDetails: {
-    fontSize: 11,
-    color: COLORS.primary,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  // ✅ STYLES POUR ZONES DE COUVERTURE
-  coverageSection: {
-    marginBottom: 8,
-  },
-  coverageLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textLight,
-    marginBottom: 4,
-  },
-  coverageTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  coverageTag: {
-    backgroundColor: '#E0E7FF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  coverageText: {
-    fontSize: 10,
-    color: '#4F46E5',
-    fontWeight: '500',
-  },
-  // ✅ STYLES POUR FEATURES
-  featuresSection: {
-    marginTop: 4,
-  },
-  featuresContainer: {
-    gap: 4,
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  featureText: {
-    fontSize: 11,
-    color: '#7C3AED',
-    fontWeight: '500',
-  },
-  shippingPriceContainer: {
-    alignItems: 'flex-end',
-  },
-  shippingPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-  },
-  localPrice: {
-    color: '#8B5CF6',
-  },
-  usdPrice: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    marginTop: 2,
-  },
-  fixedPriceBadge: {
-    fontSize: 10,
-    color: '#8B5CF6',
-    fontWeight: '600',
-    marginTop: 4,
-    backgroundColor: '#EDE9FE',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  selectedIndicator: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-  },
-  // SECTION INFORMATIONS
-  infoSection: {
-    backgroundColor: COLORS.primaryLight,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.primary,
-  },
-  infoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
-  infoList: {
-    gap: 6,
-  },
-  infoItem: {
-    fontSize: 12,
-    color: COLORS.text,
-    lineHeight: 16,
-  },
-  infoBold: {
-    fontWeight: '600',
-  },
-  // ✅ ESPACE POUR LE BOUTON FLOATING
-  bottomSpacer: {
-    height: 80,
-  },
-  // ✅ BOUTON FLOATING CONTAINER
-  floatingButtonContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#f8f9fa',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  continueButton: {
-    backgroundColor: COLORS.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 18,
-    borderRadius: 12,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  continueButtonText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  safeArea: { flex: 1, backgroundColor: '#f8f9fa' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, fontSize: 16, color: COLORS.textLight },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
+  emptyTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text, marginTop: 16 },
+  emptyButton: { backgroundColor: COLORS.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8, marginTop: 20 },
+  emptyButtonText: { color: COLORS.white, fontSize: 16, fontWeight: '600' },
+  container: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 120 },
+  progressHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 20 },
+  progressStep: { alignItems: 'center', gap: 8 },
+  stepIndicator: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.border, justifyContent: 'center', alignItems: 'center' },
+  stepActive: { backgroundColor: COLORS.primary },
+  stepCompleted: { backgroundColor: COLORS.primary },
+  stepNumber: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
+  stepText: { fontSize: 12, color: COLORS.textLight },
+  stepTextActive: { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  stepTextCompleted: { fontSize: 12, color: COLORS.primary, fontWeight: '600' },
+  progressLine: { width: 40, height: 2, backgroundColor: COLORS.border, marginHorizontal: 8 },
+  progressLineCompleted: { width: 40, height: 2, backgroundColor: COLORS.primary, marginHorizontal: 8 },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, textAlign: 'center', color: COLORS.text },
+  orderSummary: { backgroundColor: COLORS.white, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border, elevation: 2 },
+  summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  summaryTitle: { fontSize: 16, fontWeight: '700', color: COLORS.primary },
+  summaryItems: { marginBottom: 12 },
+  summaryItem: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 6 },
+  summaryItemName: { flex: 1, fontSize: 12, color: COLORS.text },
+  summaryItemQty: { fontSize: 12, color: COLORS.textLight, marginHorizontal: 8 },
+  summaryItemPrice: { fontSize: 12, fontWeight: '600', color: COLORS.primary },
+  moreItemsText: { fontSize: 11, color: COLORS.textLight, textAlign: 'center' },
+  summaryTotals: { borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
+  summaryTotalRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  summaryTotalLabel: { fontSize: 14, fontWeight: '600' },
+  summaryTotalValue: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  summaryDiscountLabel: { fontSize: 13, color: COLORS.textLight },
+  summaryDiscountValue: { fontSize: 13, fontWeight: '600', color: '#e53935' },
+  wholesaleBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.primary, padding: 8, borderRadius: 20, marginBottom: 16, alignSelf: 'center' },
+  wholesaleBadgeText: { color: COLORS.white, fontSize: 12, fontWeight: '600' },
+  calculationsSection: { backgroundColor: COLORS.white, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
+  calculationsTitle: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  calculationRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  calculationLabel: { fontSize: 14, color: COLORS.textLight },
+  calculationValue: { fontSize: 14, fontWeight: '600', color: COLORS.primary },
+  calculationNote: { flexDirection: 'row', gap: 8, marginTop: 12, padding: 12, backgroundColor: COLORS.background, borderRadius: 8 },
+  calculationNoteText: { flex: 1, fontSize: 12, color: COLORS.textLight },
+  shippingOptions: { gap: 12, marginBottom: 20 },
+  shippingCard: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: COLORS.white, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: COLORS.border },
+  localCard: { borderColor: '#8B5CF6', backgroundColor: '#F5F3FF' },
+  shippingCardSelected: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
+  shippingInfo: { flex: 1 },
+  shippingHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  shippingTitleContainer: { flex: 1 },
+  shippingName: { fontSize: 16, fontWeight: '600' },
+  recommendedBadge: { backgroundColor: COLORS.success, paddingHorizontal: 6, borderRadius: 4, marginBottom: 2 },
+  recommendedBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: 'bold' },
+  freeBadge: { backgroundColor: '#10b981', paddingHorizontal: 6, borderRadius: 4, marginTop: 2 },
+  freeBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: 'bold' },
+  typeBadge: { paddingHorizontal: 6, borderRadius: 4 },
+  typeAir: { backgroundColor: '#E3F2FD' },
+  typeSea: { backgroundColor: '#E8F5E8' },
+  typeLocal: { backgroundColor: '#EDE9FE' },
+  typeBadgeText: { fontSize: 10, fontWeight: '700' },
+  shippingTime: { fontSize: 14, color: COLORS.textLight, marginBottom: 4 },
+  shippingDescription: { fontSize: 12, color: COLORS.textLight, lineHeight: 16 },
+  shippingDetails: { fontSize: 11, color: COLORS.primary, fontWeight: '600' },
+  coverageSection: { marginTop: 8 },
+  coverageLabel: { fontSize: 12, fontWeight: '600', color: COLORS.textLight },
+  coverageTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  coverageTag: { backgroundColor: '#E0E7FF', paddingHorizontal: 6, borderRadius: 4 },
+  coverageText: { fontSize: 10, color: '#4F46E5' },
+  featuresSection: { marginTop: 8 },
+  featuresContainer: { gap: 4 },
+  featureItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  featureText: { fontSize: 11, color: '#7C3AED' },
+  shippingPriceContainer: { alignItems: 'flex-end', justifyContent: 'center' },
+  shippingPrice: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary },
+  localPrice: { color: '#8B5CF6' },
+  freePrice: { color: '#10b981', fontSize: 18 },
+  selectedIndicator: { position: 'absolute', top: 12, right: 12 },
+  infoSection: { backgroundColor: COLORS.primaryLight, padding: 16, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: COLORS.primary },
+  infoHeader: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  infoTitle: { fontSize: 16, fontWeight: '700', color: COLORS.primary },
+  infoList: { gap: 6 },
+  infoItem: { fontSize: 12, color: COLORS.text },
+  infoBold: { fontWeight: '600' },
+  fixedBottomContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#f8f9fa', padding: 16, paddingBottom: 68, borderTopWidth: 1, borderTopColor: COLORS.border, elevation: 8 },
+  continueButton: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 12 },
+  buttonContent: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  continueButtonText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+  continueButtonSubtext: { color: 'rgba(255, 255, 255, 0.9)', fontSize: 12 },
 });

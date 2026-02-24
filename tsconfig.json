@@ -2,9 +2,11 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-
     "target": "esnext",
-    "lib": ["esnext", "dom"],
+    "lib": [
+      "esnext",
+      "dom"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -12,33 +14,43 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "jsx": "react-jsx",
-
-    // 🔴 CORRECTION ICI
     "moduleResolution": "node",
-
     "resolveJsonModule": true,
     "isolatedModules": true,
-
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-
-      // (OPTIONNELS mais cohérents)
-      "@components/*": ["src/components/*"],
-      "@screens/*": ["src/screens/*"],
-      "@services/*": ["src/services/*"],
-      "@config/*": ["src/config/*"],
-      "@hooks/*": ["src/hooks/*"],
-      "@contexts/*": ["src/contexts/*"],
-      "@assets/*": ["src/assets/*"],
-      "@utils/*": ["src/utils/*"]
+      "@/*": [
+        "src/*"
+      ],
+      "@components/*": [
+        "src/components/*"
+      ],
+      "@screens/*": [
+        "src/screens/*"
+      ],
+      "@services/*": [
+        "src/services/*"
+      ],
+      "@config/*": [
+        "src/config/*"
+      ],
+      "@hooks/*": [
+        "src/hooks/*"
+      ],
+      "@contexts/*": [
+        "src/contexts/*"
+      ],
+      "@assets/*": [
+        "src/assets/*"
+      ],
+      "@utils/*": [
+        "src/utils/*"
+      ]
     }
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx",
-    "expo-env.d.ts",
-    ".expo/types/**/*.ts"
+    "**/*.tsx"
   ],
   "exclude": [
     "node_modules",

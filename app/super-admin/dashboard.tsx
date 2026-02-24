@@ -455,9 +455,10 @@ export default function SuperAdminDashboard() {
       color: "#FF6B00"
     },
     { 
-      label: "Entreprises", 
+label: "Entreprises", 
       icon: "business", 
-      href: "/super-admin/companies",
+      // Changement ici : on pointe vers le dossier réel 'suppliers'
+      href: "/super-admin/companies/add", 
       count: stats.totalCompanies,
       color: "#4CAF50"
     },
@@ -508,6 +509,13 @@ export default function SuperAdminDashboard() {
       href: "/super-admin/settings",
       color: "#607D8B"
     },
+	{ 
+    label: "Import Alibaba", 
+    icon: "cloud-download", // Icone de téléchargement
+    href: "/super-admin/import-alibaba", // On va créer cette page
+    color: "#FF6600", // Couleur officielle Alibaba
+    isAction: true 
+  },
   ];
 
   useEffect(() => {

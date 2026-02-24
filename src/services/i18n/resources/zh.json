@@ -1,0 +1,284 @@
+﻿{
+  "homeScreen": {
+    "defaultProductName": "Assma Express 产品",
+    "defaultSupplier": "Assma Express",
+    "defaultDeliveryTime": "3-5天",
+    "defaultCategory": "时尚与配饰",
+    "searchLog": "🔍 搜索:",
+    "loadingSuppliers": "🔄 正在加载有产品的供应商...",
+    "suppliersFound": "🏪 找到 {{count}} 个供应商",
+    "supplierProductsError": "⚠️ {{name}} 的产品错误:",
+    "validSuppliers": "📦 {{count}} 个有有效产品的供应商",
+    "suppliersLoadError": "❌ 加载供应商错误:",
+    "loadingData": "🚀 开始加载数据...",
+    "totalProducts": "📊 Firestore 中的产品总数: {{count}}",
+    "results": "📈 结果:\n- 精选产品: {{featured}}\n- 热门产品: {{trending}}\n- 特价优惠: {{specialOffers}}\n- 新品上市: {{newArrivals}}\n- 工业机械: {{industrial}}\n- 优质供应商: {{premium}}\n- 热门产品: {{popular}}\n- 所有产品: {{all}}\n- 有产品的供应商: {{suppliers}}",
+    "fallbackProductName": "鞋款型号 {{number}}",
+    "fallbackSupplier": "Assma Express",
+    "firestoreError": "❌ FIRESTORE 错误:",
+    "productNavigationLog": "👉 导航到产品:",
+    "featuredProductsTitle": "精选产品",
+    "featuredProductsSubtitle": "发现我们的重点产品",
+    "specialOffersTitle": "特价优惠",
+    "specialOffersSubtitle": "促销和超值优惠"
+  },
+  "productCard": {
+    "imagePlaceholder": "图片",
+    "verified": "已验证",
+    "currency": "西非法郎",
+    "minOrder": "最小起订量: {{value}}",
+    "inStock": "有现货",
+    "limitedStock": "库存有限",
+    "order": "订购",
+    "viewDetails": "查看详情",
+    "uncategorized": "未分类"
+  },
+  "header": {
+    "title": "A2Express",
+    "subtitle": "测试版",
+    "languageChangeError": "更改语言失败:",
+    "searchError": "搜索错误:"
+  },
+  "common": {
+    "search": "搜索产品、供应商...",
+    "seeAll": "查看全部结果",
+    "suppliers": "供应商",
+    "products": "产品",
+    "countries": "国家"
+  },
+  "languages": {
+    "english": "英语",
+    "french": "法语",
+    "spanish": "西班牙语",
+    "arabic": "阿拉伯语",
+    "chinese": "中文",
+    "russian": "俄语",
+    "portuguese": "葡萄牙语",
+    "turkish": "土耳其语",
+    "german": "德语",
+    "italian": "意大利语",
+    "dutch": "荷兰语",
+    "japanese": "日语",
+    "korean": "韩语",
+    "vietnamese": "越南语",
+    "indonesian": "印度尼西亚语"
+  },
+  "newArrivals": {
+    "navigationLog": "🆕 导航到新产品:",
+    "categoryTitle": "新品上市",
+    "badge": "新品",
+    "newBadge": "新品",
+    "title": "新产品",
+    "seeAll": "查看更多",
+    "countdown": {
+      "title": "下一批新品到货时间:",
+      "days": "天",
+      "hours": "小时",
+      "minutes": "分钟"
+    }
+  },
+  "trending": {
+    "loadingLog": "🔥 正在加载热门产品...",
+    "usingProps": "✅ 使用通过 props 传递的产品",
+    "loadedFromFirestore": "🔥 从 Firestore 加载了 {{count}} 个热门产品",
+    "queryFailed": "⚠️ 热门查询失败，尝试下一个...",
+    "usingSampleProducts": "🔄 未找到产品，使用示例热门产品",
+    "loadError": "❌ 加载热门产品错误:",
+    "navigationLog": "🔥 导航到热门产品:",
+    "categoryTitle": "热门产品",
+    "bestSeller": "热卖",
+    "loading": "正在加载趋势...",
+    "title": "当前趋势",
+    "explore": "探索",
+    "defaultProductName": "热门产品",
+    "defaultSupplier": "优质供应商",
+    "defaultDeliveryTime": "5-10天",
+    "stats": {
+      "viewsToday": "今日浏览量",
+      "orders": "订单",
+      "satisfaction": "满意度"
+    },
+    "promoBanner": "热门产品享受免费快速配送",
+    "sampleProducts": {
+      "smartphone": "高端安卓5G智能手机",
+      "headphones": "专业无线耳机",
+      "watch": "高端智能手表",
+      "camera": "专业相机",
+      "laptop": "游戏笔记本电脑",
+      "speaker": "强大蓝牙音箱"
+    },
+    "sampleSuppliers": {
+      "tech": "科技创新有限公司",
+      "audio": "音频专业解决方案",
+      "watch": "手表精品公司",
+      "photo": "摄影专家集团",
+      "computers": "无限电脑公司"
+    }
+  },
+  "quickActions": {
+    "navigationLog": "🔄 导航快速操作:",
+    "flashDeal": "限时抢购",
+    "trending": "热门",
+    "premium": "高级",
+    "suppliers": "供应商",
+    "wholesale": "批发",
+    "verified": "已认证",
+    "express": "快递",
+    "global": "全球",
+    "new": "新品",
+    "verifiedProducts": "认证产品",
+    "expressDelivery": "快递配送",
+    "globalProducts": "全球产品"
+  },
+  "category": {
+    "electronics": "电子产品",
+    "clothing": "服装",
+    "machinery": "机械设备",
+    "materials": "材料",
+    "automotive": "汽车",
+    "medicalEquipment": "医疗设备",
+    "furniture": "家具",
+    "gardening": "园艺"
+  },
+  "footer": {
+    "email": "info@assma-expresse.com",
+    "copyright": "© {{year}} Assma Express"
+  },
+  "categories": {
+    "categories": "分类",
+    "category": "分类",
+    "preparingCategories": "正在准备分类...",
+    "initialDataLoading": "📥 正在加载初始数据...",
+    "noDescription": "无描述",
+    "machineCategoryName": "机械设备",
+    "machineCategoryDescription": "工业机械和设备",
+    "initialDataError": "❌ 初始加载错误:",
+    "loadingShops": "🏪 正在从 Firestore 加载店铺...",
+    "realCompaniesLoaded": "✅ 加载了 {{count}} 家真实公司",
+    "creatingDemoShops": "ℹ️ 正在创建演示店铺...",
+    "demoShopsCreated": "🏪 创建了 {{count}} 家演示店铺",
+    "companyDescription": "{{businessType}} 公司 - {{mainProducts}}",
+    "commercial": "商业",
+    "diverseProducts": "多样化产品",
+    "uniqueShopsAvailable": "🏪 有 {{count}} 家独特店铺可用",
+    "shopsLoadingError": "❌ 加载店铺错误:",
+    "demoShops": {
+      "assmaExpress": {
+        "name": "Assma Express",
+        "description": "主要店铺 - 多样化产品",
+        "address": {
+          "street": "主街",
+          "city": "巴马科",
+          "country": "马里"
+        },
+        "formattedDescription": "您值得信赖的一站式购物店铺"
+      },
+      "tidioShop": {
+        "name": "Tidio 店铺",
+        "description": "专业设备店铺",
+        "address": {
+          "street": "马里",
+          "city": "巴马科",
+          "country": "马里"
+        },
+        "formattedDescription": "各类设备批发商"
+      }
+    },
+    "fallbackShops": {
+      "defaultShop1": {
+        "name": "快捷店铺",
+        "description": "您值得信赖的店铺",
+        "address": {
+          "street": "主街",
+          "city": "巴马科",
+          "country": "马里"
+        },
+        "formattedDescription": "精选优质产品"
+      }
+    },
+    "loadingFeaturedProducts": "⭐ 正在加载精选产品...",
+    "featuredProductsLoaded": "✅ 加载了 {{count}} 个精选产品",
+    "featuredProductsError": "❌ 加载精选产品错误:",
+    "uniqueProductsLoadedForFeatured": "✅ 为'精选'加载了 {{count}} 个独特产品",
+    "noProductsFoundForFeatured": "ℹ️ 未找到'精选'产品",
+    "loadingNewProducts": "🆕 正在加载新产品...",
+    "newProductsLoaded": "✅ 加载了 {{count}} 个新品",
+    "newProductsError": "❌ 加载新产品错误:",
+    "noNewProductsFound": "ℹ️ 未找到新产品",
+    "loadingDiscoverProducts": "🎯 正在加载发现产品...",
+    "discoverProductsLoaded": "✅ 加载了 {{count}} 个发现产品",
+    "noProductsFoundForDiscover": "ℹ️ 未找到'发现'产品",
+    "discoverProductsError": "❌ 加载发现产品错误:",
+    "loadingProductsForCategory": "📥 正在加载分类产品: {{categoryName}} ({{categoryId}})",
+    "uniqueProductsLoadedForCategory": "✅ 为 {{categoryName}} 加载了 {{count}} 个独特产品",
+    "noProductsFoundForCategory": "ℹ️ 未找到 {{categoryName}} 的产品",
+    "productsLoadingErrorForCategory": "❌ 加载 {{categoryName}} 产品错误:",
+    "promotionClicked": "点击了促销活动:",
+    "ourShops": "🏪 我们的店铺",
+    "partnerShops": "{{count}} 家合作店铺",
+    "viewAllShops": "查看所有店铺",
+    "retailShop": "零售店铺",
+    "wholesaleShop": "批发商",
+    "manufacturerShop": "制造商",
+    "productCount": "{{count}}+ 产品",
+    "visit": "访问",
+    "featuredProducts": "⭐ 精选产品",
+    "exclusiveSelection": "精选最佳产品",
+    "loadingProducts": "正在加载产品...",
+    "noFeaturedProducts": "无精选产品",
+    "featuredProductsComingSoon": "精选产品即将添加",
+    "newArrivals": "🆕 新品上市",
+    "discoverLatestProducts": "发现我们最新添加的产品",
+    "noNewProducts": "无新产品",
+    "newProductsComingSoon": "新产品即将添加",
+    "noProductsToDiscover": "无发现产品",
+    "priceOnRequest": "价格面议",
+    "productImageError": "产品图片错误:",
+    "shopImageError": "店铺图片错误:",
+    "navigationToShop": "🏪 导航到店铺:",
+    "company": "公司",
+    "discoverAllProductsInCategory": "发现此分类中的所有产品",
+    "remainingStock": "剩余 {{count}} 件",
+    "outOfStock": "缺货",
+    "inStock": "有现货",
+    "noProductsAvailable": "无可用产品",
+    "noProductsInCategory": "此分类暂无产品",
+    "productClicked": "点击了产品:",
+    "viewCompany": "查看公司",
+    "qualityProduct": "优质产品",
+    "new": "新品",
+    "popularProductsTitle": "热门产品",
+    "specialMenu": {
+      "shops": "店铺",
+      "featured": "精选",
+      "newArrivals": "新品"
+    },
+    "headerPromotions": {
+      "factoryEquipment": {
+        "title": "工厂设备",
+        "subtitle": "工业设备"
+      },
+      "featuredProducts": {
+        "title": "精选产品",
+        "subtitle": "独家精选"
+      },
+      "fashionAccessories": {
+        "title": "时尚与配饰",
+        "subtitle": "新系列"
+      },
+      "beautyHealth": {
+        "title": "美容与健康",
+        "subtitle": "天然产品"
+      },
+      "automotive": {
+        "title": "汽车",
+        "subtitle": "零件与配件"
+      },
+      "limitedStock": "库存有限",
+      "topSales": "畅销品",
+      "fastDelivery": "快速配送",
+      "qualityGuaranteed": "质量保证",
+      "competitivePrices": "有竞争力的价格"
+    }
+  }
+}

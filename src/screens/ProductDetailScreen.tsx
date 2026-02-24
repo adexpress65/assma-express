@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { View, Text, StyleSheet, Image, Button } from "react-native";
 import { RouteProp, useRoute } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";

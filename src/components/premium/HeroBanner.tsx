@@ -1,4 +1,3 @@
-// src/components/premium/HeroBanner.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -12,329 +11,152 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { collection, query, where, limit, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase'; 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BANNER_WIDTH = SCREEN_WIDTH - 32;
 
+// BANNIÈRES AVEC IMAGES RÉELLES ET IDS UNIQUES
 const BANNERS = [
-  {
-    id: '1',
-    image: 'https://via.placeholder.com/800x400/ff6a00/ffffff?text=Grossiste+International',
-    title: 'Grossiste International',
-    subtitle: '50 000+ Produits • 2 000+ Fournisseurs',
-    cta: 'Découvrir',
-    color: ['#ff6a00', '#ff8c00'],
-    route: '/categories',
-  },
-  {
-    id: '2', 
-    image: 'https://via.placeholder.com/800x400/2196F3/ffffff?text=Machines+Industrielles',
-    title: 'Machines Industrielles',
-    subtitle: 'Équipements Professionnels • Livraison Mondiale',
-    cta: 'Explorer',
-    color: ['#2196F3', '#21CBF3'],
-    route: '/category/machines',
-  },
-  {
-    id: '3',
-    image: 'https://via.placeholder.com/800x400/4CAF50/ffffff?text=Fournisseurs+Verifiés',
-    title: 'Fournisseurs Vérifiés',
-    subtitle: 'Qualité Garantie • Inspection sur Place',
-    cta: 'Vérifier',
-    color: ['#4CAF50', '#66BB6A'],
-    route: '/suppliers',
-  },
-  // NOUVEAU BANNER POUR DEVENIR FOURNISSEUR
-  {
-    id: '4',
-    image: 'https://via.placeholder.com/800x400/9C27B0/ffffff?text=Devenir+Fournisseur',
-    title: 'Devenir Fournisseur',
-    subtitle: 'Vendez vos produits à l\'international • Rejoignez ASMA Express',
-    cta: 'Commencer',
-    color: ['#9C27B0', '#BA68C8'],
-    route: '/become-supplier',
-    special: true, // Marqueur pour le badge spécial
-  },
+  { id: 'banner_1', image: 'https://images.unsplash.com/photo-1578575437130-527eed3abbec?w=800', title: 'Grossiste International', subtitle: 'Direct Usine' },
+  { id: 'banner_2', image: 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?w=800', title: 'Machines Industrielles', subtitle: 'Qualité Pro' },
+  { id: 'banner_3', image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800', title: 'Mode & Accessoires', subtitle: 'Collection 2026' },
+  { id: 'banner_4', image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800', title: 'Électronique', subtitle: 'High-Tech' },
+  { id: 'banner_5', image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800', title: 'Logistique & Fret', subtitle: 'A2Express Logistique' }, // Image Logistique
+  { id: 'banner_6', image: 'https://images.unsplash.com/photo-1556740758-90de374c12ad?w=800', title: 'Devenir Fournisseur', subtitle: 'Vendez dans le monde entier' }, // Image Fournisseur
 ];
 
 export default function HeroBanner() {
   const router = useRouter();
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const flatListRef = useRef<FlatList>(null);
+  const [trendingProducts, setTrendingProducts] = useState<any[]>([]);
+  const flatListBannerRef = useRef<FlatList>(null);
+  const flatListTrendingRef = useRef<FlatList>(null);
+  const [bannerIndex, setBannerIndex] = useState(0);
+  const [trendingIndex, setTrendingIndex] = useState(0);
 
+  // Écoute Firestore pour les tendances
+  useEffect(() => {
+    const q = query(collection(db, 'products'), where('isActive', '==', true), limit(15));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const prods = snapshot.docs.map(doc => ({ 
+        firebaseId: doc.id, // On utilise un nom différent de 'id' pour éviter les conflits
+        ...doc.data() 
+      }));
+      setTrendingProducts(prods);
+    }, (err) => console.log("Erreur Firestore Banner:", err));
+
+    return () => unsubscribe();
+  }, []);
+
+  // Auto-scroll Bannières
   useEffect(() => {
     const interval = setInterval(() => {
-      const nextIndex = (currentIndex + 1) % BANNERS.length;
-      setCurrentIndex(nextIndex);
-      flatListRef.current?.scrollToIndex({
-        index: nextIndex,
-        animated: true,
-      });
-    }, 5000);
-
+      const next = (bannerIndex + 1) % BANNERS.length;
+      setBannerIndex(next);
+      flatListBannerRef.current?.scrollToIndex({ index: next, animated: true, viewPosition: 0.5 });
+    }, 6000);
     return () => clearInterval(interval);
-  }, [currentIndex]);
+  }, [bannerIndex]);
 
-  const onScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-    { useNativeDriver: false }
-  );
-
-  const renderBanner = ({ item, index }) => {
-    const inputRange = [
-      (index - 1) * BANNER_WIDTH,
-      index * BANNER_WIDTH,
-      (index + 1) * BANNER_WIDTH,
-    ];
-
-    const scale = scrollX.interpolate({
-      inputRange,
-      outputRange: [0.9, 1, 0.9],
-      extrapolate: 'clamp',
-    });
-
-    return (
-      <Animated.View style={[styles.bannerContainer, { transform: [{ scale }] }]}>
-        <TouchableOpacity 
-          style={styles.bannerTouchable}
-          activeOpacity={0.9}
-          onPress={() => router.push(item.route)}
-        >
-          <Image source={{ uri: item.image }} style={styles.bannerImage} />
-          
-          {/* BADGE SPÉCIAL POUR DEVENIR FOURNISSEUR */}
-          {item.special && (
-            <View style={styles.specialBadge}>
-              <Text style={styles.specialBadgeText}>NOUVEAU</Text>
-            </View>
-          )}
-          
-          <LinearGradient
-            colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
-            style={styles.gradientOverlay}
-          >
-            <View style={styles.bannerContent}>
-              <Text style={styles.bannerTitle}>{item.title}</Text>
-              <Text style={styles.bannerSubtitle}>{item.subtitle}</Text>
-              <TouchableOpacity 
-                style={styles.ctaButton}
-                onPress={() => router.push(item.route)}
-              >
-                <LinearGradient
-                  colors={item.color}
-                  style={styles.ctaGradient}
-                >
-                  <Text style={styles.ctaText}>{item.cta}</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#fff" />
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
-    );
-  };
+  // Auto-scroll Tendances (Doucement de droite à gauche)
+  useEffect(() => {
+    if (trendingProducts.length > 0) {
+      const interval = setInterval(() => {
+        const next = (trendingIndex + 1) % trendingProducts.length;
+        setTrendingIndex(next);
+        flatListTrendingRef.current?.scrollToIndex({ index: next, animated: true, viewPosition: 0 });
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [trendingIndex, trendingProducts]);
 
   return (
     <View style={styles.container}>
-      <FlatList
-        ref={flatListRef}
-        data={BANNERS}
-        renderItem={renderBanner}
-        keyExtractor={(item) => item.id}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        style={styles.flatList}
-      />
-      
-      <View style={styles.indicatorsContainer}>
-        {BANNERS.map((_, index) => {
-          const inputRange = [
-            (index - 1) * BANNER_WIDTH,
-            index * BANNER_WIDTH,
-            (index + 1) * BANNER_WIDTH,
-          ];
-
-          const dotWidth = scrollX.interpolate({
-            inputRange,
-            outputRange: [8, 20, 8],
-            extrapolate: 'clamp',
-          });
-
-          const dotOpacity = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.5, 1, 0.5],
-            extrapolate: 'clamp',
-          });
-
-          return (
-            <Animated.View
-              key={index}
-              style={[
-                styles.indicator,
-                {
-                  width: dotWidth,
-                  opacity: dotOpacity,
-                },
-              ]}
-            />
-          );
-        })}
+      {/* 1. BANNIÈRES (ARRONDIES) */}
+      <View style={styles.bannerWrapper}>
+        <FlatList
+          ref={flatListBannerRef}
+          data={BANNERS}
+          keyExtractor={(item) => item.id} // ID fixe 'banner_X'
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <TouchableOpacity onPress={() => router.push('/categories')} style={styles.bannerItem}>
+              <Image source={{ uri: item.image }} style={styles.bannerImage} />
+              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.overlay}>
+                <Text style={styles.title}>{item.title}</Text>
+                <Text style={styles.subtitle}>{item.subtitle}</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
+        />
       </View>
 
-      <TouchableOpacity 
-        style={[styles.navButton, styles.prevButton]}
-        onPress={() => {
-          const prevIndex = (currentIndex - 1 + BANNERS.length) % BANNERS.length;
-          setCurrentIndex(prevIndex);
-          flatListRef.current?.scrollToIndex({ index: prevIndex, animated: true });
-        }}
-      >
-        <Ionicons name="chevron-back" size={20} color="#fff" />
-      </TouchableOpacity>
-      
-      <TouchableOpacity 
-        style={[styles.navButton, styles.nextButton]}
-        onPress={() => {
-          const nextIndex = (currentIndex + 1) % BANNERS.length;
-          setCurrentIndex(nextIndex);
-          flatListRef.current?.scrollToIndex({ index: nextIndex, animated: true });
-        }}
-      >
-        <Ionicons name="chevron-forward" size={20} color="#fff" />
-      </TouchableOpacity>
+      {/* 2. TENDANCES (CERCLES ARRONDIES) */}
+      <View style={styles.trendingContainer}>
+        <Text style={styles.sectionTitle}>Tendances Actuelles</Text>
+        <FlatList
+          ref={flatListTrendingRef}
+          data={trendingProducts}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          // SOLUTION CRITIQUE POUR L'ERREUR DE KEY :
+          keyExtractor={(item, index) => `trending-${item.firebaseId || index}`}
+          contentContainerStyle={{ paddingLeft: 16, paddingBottom: 10 }}
+          renderItem={({ item }) => (
+            <TouchableOpacity 
+              style={styles.circleCard}
+              onPress={() => router.push(`/product/${item.firebaseId}`)}
+            >
+              <View style={styles.circleImageWrapper}>
+                <Image source={{ uri: item.mainImage || item.imageUrl }} style={styles.circleImage} />
+              </View>
+              <Text numberOfLines={1} style={styles.circleName}>{item.name}</Text>
+            </TouchableOpacity>
+          )}
+        />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  container: { paddingVertical: 10 },
+  bannerWrapper: {
     marginHorizontal: 16,
-    marginVertical: 12,
-    borderRadius: 20,
+    borderRadius: 25,
     overflow: 'hidden',
+    height: 170,
+    backgroundColor: '#000',
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 12,
+    shadowRadius: 10,
   },
-  flatList: {
-    borderRadius: 20,
-  },
-  bannerContainer: {
-    width: BANNER_WIDTH,
-    height: 180,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  bannerTouchable: {
-    flex: 1,
-  },
-  bannerImage: {
-    width: '100%',
-    height: '100%',
-    position: 'absolute',
-  },
-  // NOUVEAU STYLES POUR LE BADGE SPÉCIAL
-  specialBadge: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    backgroundColor: '#FFD700',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    zIndex: 10,
-  },
-  specialBadgeText: {
-    color: '#000',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  gradientOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    padding: 20,
-  },
-  bannerContent: {
-    alignItems: 'flex-start',
-  },
-  bannerTitle: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 4,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 4,
-  },
-  bannerSubtitle: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 12,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 4,
-  },
-  ctaButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  ctaGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  ctaText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-    marginRight: 6,
-  },
-  indicatorsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'absolute',
-    bottom: 12,
-    left: 0,
-    right: 0,
-  },
-  indicator: {
-    height: 4,
-    borderRadius: 2,
+  bannerItem: { width: BANNER_WIDTH, height: 170 },
+  bannerImage: { width: '100%', height: '100%', position: 'absolute' },
+  overlay: { flex: 1, justifyContent: 'flex-end', padding: 20 },
+  title: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
+  subtitle: { color: '#fff', opacity: 0.9, fontSize: 13 },
+
+  trendingContainer: { marginTop: 25 },
+  sectionTitle: { fontSize: 17, fontWeight: '800', marginLeft: 20, marginBottom: 15, color: '#222' },
+  circleCard: { alignItems: 'center', marginRight: 18, width: 85 },
+  circleImageWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40, // Cercle parfait
     backgroundColor: '#fff',
-    marginHorizontal: 2,
+    elevation: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    padding: 2,
+    borderWidth: 2,
+    borderColor: '#FF6B00', // Ta couleur orange
   },
-  navButton: {
-    position: 'absolute',
-    top: '50%',
-    marginTop: -20,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  prevButton: {
-    left: 8,
-  },
-  nextButton: {
-    right: 8,
-  },
+  circleImage: { width: '100%', height: '100%', borderRadius: 40 },
+  circleName: { fontSize: 11, fontWeight: '700', marginTop: 6, textAlign: 'center', color: '#444' }
 });

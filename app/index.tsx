@@ -1,12 +1,23 @@
-import { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 
 export default function Index() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    router.replace('/intro');
+    setMounted(true);
   }, []);
 
-  return null;
+  useEffect(() => {
+    if (!mounted) return;
+    router.replace('/intro');
+  }, [mounted]);
+
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator size="large" />
+    </View>
+  );
 }

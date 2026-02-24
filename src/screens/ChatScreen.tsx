@@ -1,1 +1,1 @@
-﻿export default function ChatScreen(){return null}
+export default function ChatScreen(){return null}

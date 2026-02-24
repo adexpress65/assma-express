@@ -1,0 +1,13 @@
+{
+  "common": {
+    "search": "Tìm kiếm sản phẩm, nhà cung cấp, danh mục...",
+    "suppliers": "Nhà cung cấp",
+    "products": "Sản phẩm",
+    "countries": "Quốc gia",
+    "seeAll": "Xem tất cả"
+  },
+  "header": {
+    "title": "A2EXPRESS",
+    "subtitle": "CHỢ"
+  }
+}

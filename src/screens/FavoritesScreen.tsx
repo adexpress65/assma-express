@@ -1,1 +1,1 @@
-﻿export default function FavoritesScreen(){return null}
+export default function FavoritesScreen(){return null}

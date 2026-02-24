@@ -1,1 +1,1 @@
-﻿export default function ProfileScreen(){return null}
+export default function ProfileScreen(){return null}

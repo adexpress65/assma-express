@@ -1,4 +1,4 @@
-ï»¿import React, { useState } from "react";
+import React, { useState } from "react";
 import { View, Text, TextInput, Button, StyleSheet } from "react-native";
 
 export default function CheckoutScreen() {
@@ -31,7 +31,7 @@ export default function CheckoutScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="TÃ©lÃ©phone"
+        placeholder="Téléphone"
         value={phone}
         onChangeText={setPhone}
         keyboardType="phone-pad"
@@ -39,7 +39,7 @@ export default function CheckoutScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="MÃ©thode de paiement"
+        placeholder="Méthode de paiement"
         value={payment}
         onChangeText={setPayment}
       />
