@@ -25,11 +25,12 @@ const COLORS = {
   textLight: '#718096',
   border: '#E2E8F0',
   white: '#FFFFFF',
-  orangeOM: '#FF7900', // Couleur officielle Orange Money
-  paydunyaBlue: '#0070BA'
+  fedapayPurple: '#662D91', // Couleur FedaPay
+  orangeOM: '#FF7900', 
 };
 
-type PaymentMethodType = 'paydunya_om' | 'paydunya_card' | 'ngenius_card';
+// Mise à jour des types : On remplace PayDunya par FedaPay
+type PaymentMethodType = 'fedapay_mobile' | 'fedapay_card' | 'ngenius_card';
 
 export default function PaymentScreen() {
   const router = useRouter();
@@ -37,12 +38,11 @@ export default function PaymentScreen() {
   const { user } = useAuth();
   const { formatPrice, currency } = useCurrency(); 
 
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('paydunya_om');
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('fedapay_mobile');
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderData, setOrderData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Ton URL backend déployée sur Render
   const API_URL = 'https://ngenius-backend.onrender.com';
 
   useEffect(() => {
@@ -61,85 +61,75 @@ export default function PaymentScreen() {
     }
   }, [params.orderData]);
 
-const handlePayment = async () => {
-  if (!orderData || isProcessing || !user) return;
-
-  try {
-    setIsProcessing(true);
-
-    const orderId = `ORD-${Date.now()}`;
-    const isPayDunya = selectedMethod.startsWith("paydunya");
-    const isNgenius = selectedMethod === "ngenius_card";
-
-    const endpoint = isPayDunya
-      ? `${API_URL}/create-paydunya-payment`
-      : `${API_URL}/create-payment`;
-
-    // --- CORRECTION DU MONTANT ---
-    // NGenius : 2.96 -> 296 (centimes)
-    // PayDunya : 2000.5 -> 2001 (entier)
-    const rawTotal = parseFloat(orderData.summary.total);
-    const finalAmount = isNgenius 
-      ? Math.round(rawTotal * 100) 
-      : Math.round(rawTotal);
-
-const payload = {
-  orderId,
-  userId: user.uid,
-  amount: Math.round(parseFloat(orderData.summary.total)), // Pas de * 100 pour le XOF
-  currencyCode: "XOF", // Force le test en XOF
-  itemsCount: orderData.items.length,
-  method: selectedMethod,
-};
-
-    console.log("🚀 Payload envoyé :", payload);
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    const text = await response.text();
-    let result: any;
+  const handlePayment = async () => {
+    if (!orderData || isProcessing || !user) return;
 
     try {
-      result = JSON.parse(text);
-    } catch {
-      throw new Error("Réponse serveur invalide.");
-    }
+      setIsProcessing(true);
 
-    if (!response.ok) {
-      // Affiche l'erreur précise retournée par NGenius
-      throw new Error(result?.error || result?.message || "Erreur serveur.");
-    }
+      const orderId = `ORD-${Date.now()}`;
+      const isFedaPay = selectedMethod.startsWith("fedapay");
+      const isNgenius = selectedMethod === "ngenius_card";
 
-    const finalUrl = result?.url || result?.paymentUrl;
+      // Choix de l'endpoint selon le prestataire
+      const endpoint = isFedaPay
+        ? `${API_URL}/create-fedapay-payment`
+        : `${API_URL}/create-payment`;
 
-    if (!finalUrl || !finalUrl.startsWith("http")) {
-      throw new Error("Lien de paiement invalide.");
-    }
-
-    // ✅ Redirection vers WebView
-    router.push({
-      pathname: "/checkout/payment-webview",
-      params: {
-        paymentUrl: finalUrl,
+      const rawTotal = parseFloat(orderData.summary.total);
+      
+      const payload = {
         orderId,
         userId: user.uid,
-        orderData: JSON.stringify(orderData),
-      },
-    });
+        amount: Math.round(rawTotal), // FedaPay et NGenius (configuré côté backend) reçoivent l'unité
+        currencyCode: "XOF",
+        email: user.email || `${user.uid}@a2-expres.com`, // Requis pour FedaPay
+        firstname: user.displayName?.split(' ')[0] || 'Client',
+        lastname: user.displayName?.split(' ')[1] || 'A2Express',
+        method: selectedMethod,
+      };
 
-  } catch (error: any) {
-    Alert.alert(
-      "Paiement indisponible",
-      error.message || "Une erreur est survenue."
-    );
-  } finally {
-    setIsProcessing(false);
-  }
-};
+      console.log("🚀 Envoi vers :", endpoint);
+
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error || "Erreur lors de l'initialisation du paiement.");
+      }
+
+// ✅ Modifie la fin de ton handlePayment pour forcer le push
+const finalUrl = result?.url;
+
+if (!finalUrl) {
+  throw new Error("Lien de paiement non reçu.");
+}
+
+console.log("🔗 Ouverture de la WebView :", finalUrl);
+
+// Utilise replace au lieu de push pour éviter de revenir en arrière
+// et assure-toi qu'aucune autre logique ne vient interférer
+router.push({
+  pathname: "/checkout/payment-webview",
+  params: {
+    paymentUrl: finalUrl,
+    orderId,
+    userId: user.uid,
+    orderData: JSON.stringify(orderData),
+  },
+});
+
+    } catch (error: any) {
+      Alert.alert("Paiement indisponible", error.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const renderMethodCard = (id: PaymentMethodType, title: string, subtitle: string, icon: any, color: string) => (
     <TouchableOpacity 
@@ -174,57 +164,63 @@ const payload = {
         <Text style={styles.headerSubtitle}>Sélectionnez votre méthode préférée</Text>
 
         <View style={styles.methodsList}>
-          {/* Orange Money Mali - Via PayDunya */}
+          
+          {/* FEDAPAY - MOBILE MONEY */}
           {renderMethodCard(
-            'paydunya_om', 
-            'Orange Money Mali', 
-            'Paiement mobile sécurisé', 
+            'fedapay_mobile', 
+            'Mobile Money (FedaPay)', 
+            'Orange, MTN, Moov, Wave', 
             'phone-portrait-outline', 
-            COLORS.orangeOM
+            COLORS.fedapayPurple
           )}
 
-          {/* Cartes Bancaires - Via PayDunya */}
+          {/* FEDAPAY - CARTE ALTERNATIVE */}
           {renderMethodCard(
-            'paydunya_card', 
-            'Carte Bancaire (PayDunya)', 
-            'Visa, MasterCard, GIM-UEMOA', 
+            'fedapay_card', 
+            'Carte Bancaire (FedaPay)', 
+            'Option de secours Visa/MasterCard', 
             'card-outline', 
-            COLORS.paydunyaBlue
+            COLORS.fedapayPurple
           )}
 
-          {/* NGenius - Option alternative */}
+          {/* NGENIUS - CARTE PRINCIPALE */}
           {renderMethodCard(
             'ngenius_card', 
-            'Carte Internationale (NGenius)', 
-            'Visa, MasterCard (Global)', 
+            'Carte Internationale (Orabank)', 
+            'Visa, MasterCard via NGenius', 
             'globe-outline', 
             COLORS.primary
           )}
+
+          {/* SECTION PAYDUNYA COMMENTÉE 
+          {renderMethodCard(
+            'paydunya_om', 
+            'Orange Money Mali', 
+            'Désactivé temporairement', 
+            'phone-portrait-outline', 
+            '#CCC'
+          )}
+          */}
         </View>
 
         {/* Résumé de la commande */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Résumé de la transaction</Text>
-          
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Sous-total</Text>
             <Text style={styles.summaryValue}>{formatPrice(orderData.summary.subtotal)}</Text>
           </View>
-          
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Frais de livraison</Text>
             <Text style={styles.summaryValue}>{formatPrice(orderData.summary.shipping)}</Text>
           </View>
-
           <View style={styles.divider} />
-
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total à payer</Text>
             <Text style={styles.totalValue}>{formatPrice(orderData.summary.total)}</Text>
           </View>
         </View>
 
-        {/* Bouton d'action */}
         <TouchableOpacity 
           style={[styles.payButton, isProcessing && styles.payButtonDisabled]} 
           onPress={handlePayment}
@@ -243,7 +239,7 @@ const payload = {
         <View style={styles.securityNote}>
           <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.textLight} />
           <Text style={styles.securityNoteText}>
-            Vos données sont protégées par un cryptage SSL de niveau bancaire.
+            Paiement sécurisé via FedaPay & NGenius.
           </Text>
         </View>
 
@@ -269,7 +265,6 @@ const styles = StyleSheet.create({
     marginBottom: 15, 
     borderWidth: 2, 
     borderColor: 'transparent',
-    // Shadow pour iOS/Android
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },

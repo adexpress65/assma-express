@@ -1,9 +1,9 @@
-// src/components/premium/IndustrialMachinesPremium.tsx - VERSION COMPLÈTE AVEC PRODUITS D'EXEMPLE
-import React, { useEffect, useState } from "react";
+// src/components/premium/IndustrialMachinesPremium.tsx - VERSION OPTIMISÉE POUR ÉCRAN LARGE
+import React, { useEffect, useState, useRef } from "react";
 import { 
   View, Text, StyleSheet, ScrollView, 
   TouchableOpacity, Dimensions, ActivityIndicator,
-  Animated
+  Animated, Platform
 } from "react-native";
 import { useRouter } from "expo-router";
 import { collection, onSnapshot, query, where, limit } from "firebase/firestore";
@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { db } from "../../config/firebase";
 import ProductCardPremium from "./ProductCardPremium";
 
-const { width } = Dimensions.get("window");
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface Product {
   id: string;
@@ -40,7 +40,7 @@ const SAMPLE_PRODUCTS: Product[] = [
     name: "Presse Hydraulique Industrielle 50T",
     price: 28500,
     originalPrice: 32000,
-    image: "https://images.unsplash.com/photo-1581091226033-d5c48150dbaa?w=300&h=200&fit=crop",
+    image: "https://images.unsplash.com/photo-1581091226033-d5c48150dbaa?w=600&h=400&fit=crop",
     rating: 4.8,
     supplier: "Global Machinery Corp",
     minOrder: 1,
@@ -56,7 +56,7 @@ const SAMPLE_PRODUCTS: Product[] = [
     name: "Tour CNC Professionnel",
     price: 42000,
     originalPrice: 48000,
-    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=300&h=200&fit=crop",
+    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=600&h=400&fit=crop",
     rating: 4.9,
     supplier: "Tech Innovators Ltd",
     minOrder: 1,
@@ -72,7 +72,7 @@ const SAMPLE_PRODUCTS: Product[] = [
     name: "Soudeuse Automatique MIG/MAG",
     price: 18700,
     originalPrice: 21000,
-    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=300&h=200&fit=crop",
+    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=600&h=400&fit=crop",
     rating: 4.6,
     supplier: "Industrial Solutions",
     minOrder: 2,
@@ -88,7 +88,7 @@ const SAMPLE_PRODUCTS: Product[] = [
     name: "Perceuse Radiale Professionnelle",
     price: 12500,
     originalPrice: 14500,
-    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=300&h=200&fit=crop",
+    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=600&h=400&fit=crop",
     rating: 4.7,
     supplier: "Precision Tools Co",
     minOrder: 1,
@@ -104,7 +104,7 @@ const SAMPLE_PRODUCTS: Product[] = [
     name: "Compresseur Industriel 100L",
     price: 8900,
     originalPrice: 10500,
-    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=300&h=200&fit=crop",
+    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=600&h=400&fit=crop",
     rating: 4.5,
     supplier: "Air Power Systems",
     minOrder: 1,
@@ -120,7 +120,7 @@ const SAMPLE_PRODUCTS: Product[] = [
     name: "Scie Circulaire Automatique",
     price: 15600,
     originalPrice: 17500,
-    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=300&h=200&fit=crop",
+    image: "https://images.unsplash.com/photo-1581092580497-e0d23cbdf1dc?w=600&h=400&fit=crop",
     rating: 4.4,
     supplier: "Cutting Edge Tech",
     minOrder: 1,
@@ -138,19 +138,18 @@ export default function IndustrialMachinesPremium() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [fadeAnim] = useState(new Animated.Value(0));
+  const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    // ✅ STRATÉGIE INTELLIGENTE : Essayer Firestore d'abord, puis fallback
     const loadProducts = async () => {
       try {
         console.log("🔍 Recherche des machines industrielles...");
         
-        // Essayer de charger depuis Firestore
         const productsQuery = query(
           collection(db, "products"),
-          where("name", ">=", "Machine"),
-          where("name", "<", "Machinez"),
-          limit(6)
+          where("categoryName", ">=", "Machine"),
+          where("categoryName", "<", "Machinez"),
+          limit(10)
         );
 
         const unsubscribe = onSnapshot(productsQuery, (snapshot) => {
@@ -162,7 +161,7 @@ export default function IndustrialMachinesPremium() {
               name: data.name || "Machine Industrielle",
               price: data.price || Math.floor(Math.random() * 50000) + 10000,
               originalPrice: data.originalPrice || Math.floor(Math.random() * 60000) + 12000,
-              image: data.image || data.imageUrl || "https://via.placeholder.com/300x200/4A6572/ffffff?text=Machine+Industrielle",
+              image: data.image || data.imageUrl || "https://images.unsplash.com/photo-1581091226033-d5c48150dbaa?w=600&h=400&fit=crop",
               imageUrl: data.imageUrl || data.image,
               rating: data.rating || 4.2 + Math.random() * 0.8,
               supplier: data.supplier || "Fournisseur Industriel Certifié",
@@ -181,8 +180,7 @@ export default function IndustrialMachinesPremium() {
             console.log(`🎯 ${firestoreProducts.length} machines chargées depuis Firestore`);
             setProducts(firestoreProducts);
           } else {
-            // ✅ FALLBACK : Utiliser les produits d'exemple
-            console.log("🔄 Aucune machine dans Firestore, utilisation des produits d'exemple");
+            console.log("🔄 Utilisation des produits d'exemple");
             setProducts(SAMPLE_PRODUCTS);
           }
           
@@ -194,7 +192,6 @@ export default function IndustrialMachinesPremium() {
             useNativeDriver: true,
           }).start();
         }, (error) => {
-          // En cas d'erreur Firestore, utiliser les produits d'exemple
           console.log("❌ Erreur Firestore, utilisation des produits d'exemple");
           setProducts(SAMPLE_PRODUCTS);
           setLoading(false);
@@ -210,7 +207,6 @@ export default function IndustrialMachinesPremium() {
         
       } catch (error) {
         console.error("❌ Erreur chargement machines:", error);
-        // ✅ TOUJOURS des produits d'exemple en fallback
         setProducts(SAMPLE_PRODUCTS);
         setLoading(false);
         
@@ -225,17 +221,17 @@ export default function IndustrialMachinesPremium() {
     loadProducts();
   }, []);
 
-const navigateToMachinesCategory = () => {
-  console.log('🔄 Navigation vers catégorie machines');
-  router.push({
-    pathname: "/category/[id]",
-    params: { 
-      id: "machines_industrielles"
-    },
-  });
-};
+  const navigateToMachinesCategory = () => {
+    console.log('🔄 Navigation vers catégorie machines');
+    router.push({
+      pathname: "/category/[id]",
+      params: { 
+        id: "machines_industrielles",
+        title: "Machines Industrielles"
+      },
+    });
+  };
 
-  // ✅ CORRECTION : Navigation vers les détails produit
   const navigateToProductDetails = (product: Product) => {
     console.log('🔄 Navigation vers produit machine:', product.id);
     
@@ -269,7 +265,7 @@ const navigateToMachinesCategory = () => {
             colors={['#4A6572', '#344955']}
             style={styles.iconContainer}
           >
-            <Ionicons name="construct" size={24} color="#fff" />
+            <Ionicons name="construct" size={28} color="#fff" />
           </LinearGradient>
           <View>
             <Text style={styles.title}>Machines Industrielles</Text>
@@ -282,58 +278,64 @@ const navigateToMachinesCategory = () => {
         <TouchableOpacity 
           style={styles.seeAllButton}
           onPress={navigateToMachinesCategory}
+          activeOpacity={0.8}
         >
-          <Text style={styles.seeAllText}>Explorer</Text>
-          <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
+          <Text style={styles.seeAllText}>Voir tout</Text>
+          <Ionicons name="arrow-forward" size={18} color="#ff6a00" />
         </TouchableOpacity>
       </View>
 
       <View style={styles.statsContainer}>
         <View style={styles.statItem}>
-          <Ionicons name="flash" size={16} color="#4CAF50" />
+          <Ionicons name="flash" size={20} color="#4CAF50" />
           <Text style={styles.statNumber}>{products.length}</Text>
           <Text style={styles.statLabel}>Machines</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Ionicons name="business" size={16} color="#2196F3" />
-          <Text style={styles.statNumber}>6+</Text>
+          <Ionicons name="business" size={20} color="#2196F3" />
+          <Text style={styles.statNumber}>{products.length > 0 ? Math.ceil(products.length / 2) : 6}+</Text>
           <Text style={styles.statLabel}>Fournisseurs</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
-          <Ionicons name="globe" size={16} color="#FF9800" />
+          <Ionicons name="globe" size={20} color="#FF9800" />
           <Text style={styles.statNumber}>15+</Text>
           <Text style={styles.statLabel}>Pays</Text>
         </View>
       </View>
 
       <ScrollView
+        ref={scrollViewRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContainer}
+        decelerationRate="fast"
+        snapToInterval={SCREEN_WIDTH * 0.75 + 16}
+        snapToAlignment="start"
       >
         {products.map((item, index) => (
-          <View key={item.id} style={styles.card}>
+          <View key={`machine-${item.id}-${index}`} style={styles.card}>
             <ProductCardPremium 
               product={item}
               onPress={() => navigateToProductDetails(item)}
             />
             
+            {/* Badges positionnés correctement */}
             {index < 3 && (
               <LinearGradient
                 colors={['#FFD700', '#FFA000']}
                 style={styles.topBadge}
               >
-                <Ionicons name="trophy" size={12} color="#fff" />
+                <Ionicons name="trophy" size={10} color="#fff" />
                 <Text style={styles.topBadgeText}>TOP {index + 1}</Text>
               </LinearGradient>
             )}
 
             {item.isVerified && (
               <View style={styles.verifiedBadge}>
-                <Ionicons name="shield-checkmark" size={12} color="#fff" />
-                <Text style={styles.verifiedText}>Verifié</Text>
+                <Ionicons name="shield-checkmark" size={10} color="#fff" />
+                <Text style={styles.verifiedText}>Vérifié</Text>
               </View>
             )}
 
@@ -353,7 +355,7 @@ const navigateToMachinesCategory = () => {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          🔧 Équipements industriels certifiés • Livraison mondiale • Support technique 24/7
+          🔧 Équipements certifiés • Livraison mondiale • Support technique 24/7
         </Text>
       </View>
     </Animated.View>
@@ -363,16 +365,17 @@ const navigateToMachinesCategory = () => {
 const styles = StyleSheet.create({
   section: {
     backgroundColor: "#fff",
-    paddingVertical: 24,
-    marginTop: 8,
+    paddingVertical: 20,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
+    width: '100%',
   },
   loaderContainer: {
     padding: 40,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#fff",
+    width: '100%',
   },
   loadingText: {
     marginTop: 12,
@@ -390,28 +393,35 @@ const styles = StyleSheet.create({
   titleContainer: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    marginRight: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#4A6572',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.3,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "800",
     color: "#1a1a1a",
     marginBottom: 2,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#666",
     fontWeight: "500",
   },
@@ -438,22 +448,24 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(74, 101, 114, 0.05)",
     marginHorizontal: 20,
     marginBottom: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(74, 101, 114, 0.1)",
   },
   statItem: {
     alignItems: "center",
+    flex: 1,
   },
   statNumber: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "800",
     color: "#4A6572",
     marginVertical: 4,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#666",
     fontWeight: "500",
   },
@@ -463,26 +475,28 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(74, 101, 114, 0.2)",
   },
   scrollContainer: {
-    paddingLeft: 16,
+    paddingLeft: 20,
     paddingRight: 8,
+    paddingBottom: 8,
   },
   card: {
-    width: width * 0.75,
-    backgroundColor: "#fff",
-    borderRadius: 20,
+    width: SCREEN_WIDTH * 0.75,
     marginRight: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 12,
-    borderWidth: 1,
-    borderColor: "#f0f0f0",
+    borderRadius: 20,
     overflow: "hidden",
     position: 'relative',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+    backgroundColor: '#fff',
   },
   topBadge: {
     position: "absolute",
@@ -494,10 +508,21 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     zIndex: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#FFD700',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   topBadgeText: {
     color: "#fff",
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
     marginLeft: 2,
   },
@@ -512,10 +537,21 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 8,
     zIndex: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#4CAF50',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   verifiedText: {
     color: "#fff",
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: "700",
     marginLeft: 2,
   },
@@ -527,21 +563,32 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     zIndex: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#ff4444',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   discountText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "800",
   },
   footer: {
     paddingHorizontal: 20,
-    marginTop: 20,
-    paddingTop: 16,
+    marginTop: 16,
+    paddingTop: 14,
     borderTopWidth: 1,
     borderTopColor: "#f0f0f0",
   },
   footerText: {
-    fontSize: 13,
+    fontSize: 12,
     color: "#666",
     fontWeight: "500",
     textAlign: "center",

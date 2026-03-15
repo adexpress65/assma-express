@@ -560,6 +560,8 @@ export default function AddProductScreen() {
         
         name: form.title.trim(),
         nameLower: form.title.trim().toLowerCase(),
+		supplier: selectedCompany.name,
+		supplierLower: selectedCompany.name.toLowerCase(),
         description: form.description.trim() || `Découvrez notre produit ${form.title.trim()}`,
         price: finalPrice,
         basePrice: basePrice,

@@ -1,20 +1,15 @@
-﻿// metro.config.js
-const { getDefaultConfig } = require('expo/metro-config');
+﻿const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-// 🔥 IMPORTANT : désactiver package exports (Firebase / Hermes fix)
 config.resolver.unstable_enablePackageExports = false;
 
-// 🔥 Extensions supportées
-config.resolver.sourceExts = [
-  ...config.resolver.sourceExts,
-  'cjs',
-  'mjs',
-];
+config.resolver.sourceExts = [...config.resolver.sourceExts, 'cjs', 'mjs'];
 
-// 🔥 Alias (ON NE TOUCHE PAS)
+// Détection du mode Web
+const isWeb = process.argv.includes('--web');
+
 config.resolver.alias = {
   '@': path.resolve(__dirname, 'src'),
   '@components': path.resolve(__dirname, 'src/components'),
@@ -26,9 +21,11 @@ config.resolver.alias = {
   '@assets': path.resolve(__dirname, 'src/assets'),
   '@utils': path.resolve(__dirname, 'src/utils'),
   '@types': path.resolve(__dirname, 'src/types'),
-};
 
-// Optionnel
-config.watcher.additionalExts = ['mjs', 'cjs'];
+  // 🚨 FORCE LE REPLACEMENT ICI
+  ...(isWeb ? { 
+    'react-native-webrtc': path.resolve(__dirname, 'react-native-webrtc.web.js') 
+  } : {}),
+};
 
 module.exports = config;

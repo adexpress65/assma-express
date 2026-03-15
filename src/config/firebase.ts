@@ -1,13 +1,15 @@
-// src/config/firebase.ts
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
 import {
   initializeAuth,
   getAuth,
-  getReactNativePersistence
+  getReactNativePersistence,
+  browserLocalPersistence, // Importé pour le Web
+  indexedDBLocalPersistence // Importé pour le Web
 } from 'firebase/auth';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const firebaseConfig = {
@@ -20,27 +22,36 @@ const firebaseConfig = {
 };
 
 // ---------- APP ----------
-export const app =
-  getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 // ---------- FIRESTORE ----------
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+});
 
 // ---------- STORAGE ----------
 export const storage = getStorage(app);
 
-// ---------- FUNCTIONS (NGenius / Backend) ----------
+// ---------- FUNCTIONS ----------
 export const functions = getFunctions(app, 'europe-west1');
 
-// ---------- AUTH SAFE (React Native / Expo / Reload Safe) ----------
+// ---------- AUTH (Fix Web & Mobile) ----------
+const getAuthPersistence = () => {
+  if (Platform.OS === 'web') {
+    // Sur Web, on utilise IndexedDB ou LocalStorage (standard Firebase Web)
+    return [indexedDBLocalPersistence, browserLocalPersistence];
+  }
+  // Sur Mobile, on garde AsyncStorage pour tes mises à jour OTA
+  return getReactNativePersistence(AsyncStorage);
+};
+
 let authInstance;
 
 try {
   authInstance = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
+    persistence: getAuthPersistence(),
   });
 } catch (e) {
-  // Auth déjà initialisée (hot reload / reload Expo)
   authInstance = getAuth(app);
 }
 

@@ -16,15 +16,15 @@ import { db } from '../../config/firebase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BANNER_WIDTH = SCREEN_WIDTH - 32;
+const TRENDING_ITEM_WIDTH = 85 + 18; // Largeur du cercle (85) + marginRight (18)
 
-// BANNIÈRES AVEC IMAGES RÉELLES ET IDS UNIQUES
 const BANNERS = [
   { id: 'banner_1', image: 'https://images.unsplash.com/photo-1578575437130-527eed3abbec?w=800', title: 'Grossiste International', subtitle: 'Direct Usine' },
   { id: 'banner_2', image: 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?w=800', title: 'Machines Industrielles', subtitle: 'Qualité Pro' },
   { id: 'banner_3', image: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800', title: 'Mode & Accessoires', subtitle: 'Collection 2026' },
   { id: 'banner_4', image: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=800', title: 'Électronique', subtitle: 'High-Tech' },
-  { id: 'banner_5', image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800', title: 'Logistique & Fret', subtitle: 'A2Express Logistique' }, // Image Logistique
-  { id: 'banner_6', image: 'https://images.unsplash.com/photo-1556740758-90de374c12ad?w=800', title: 'Devenir Fournisseur', subtitle: 'Vendez dans le monde entier' }, // Image Fournisseur
+  { id: 'banner_5', image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800', title: 'Logistique & Fret', subtitle: 'A2Express Logistique' },
+  { id: 'banner_6', image: 'https://images.unsplash.com/photo-1556740758-90de374c12ad?w=800', title: 'Devenir Fournisseur', subtitle: 'Vendez dans le monde entier' },
 ];
 
 export default function HeroBanner() {
@@ -35,12 +35,11 @@ export default function HeroBanner() {
   const [bannerIndex, setBannerIndex] = useState(0);
   const [trendingIndex, setTrendingIndex] = useState(0);
 
-  // Écoute Firestore pour les tendances
   useEffect(() => {
     const q = query(collection(db, 'products'), where('isActive', '==', true), limit(15));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const prods = snapshot.docs.map(doc => ({ 
-        firebaseId: doc.id, // On utilise un nom différent de 'id' pour éviter les conflits
+        firebaseId: doc.id,
         ...doc.data() 
       }));
       setTrendingProducts(prods);
@@ -59,7 +58,7 @@ export default function HeroBanner() {
     return () => clearInterval(interval);
   }, [bannerIndex]);
 
-  // Auto-scroll Tendances (Doucement de droite à gauche)
+  // Auto-scroll Tendances
   useEffect(() => {
     if (trendingProducts.length > 0) {
       const interval = setInterval(() => {
@@ -73,15 +72,21 @@ export default function HeroBanner() {
 
   return (
     <View style={styles.container}>
-      {/* 1. BANNIÈRES (ARRONDIES) */}
+      {/* 1. BANNIÈRES */}
       <View style={styles.bannerWrapper}>
         <FlatList
           ref={flatListBannerRef}
           data={BANNERS}
-          keyExtractor={(item) => item.id} // ID fixe 'banner_X'
+          keyExtractor={(item) => item.id}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
+          // --- AJOUTS POUR LE WEB ---
+          getItemLayout={(data, index) => (
+            { length: BANNER_WIDTH, offset: BANNER_WIDTH * index, index }
+          )}
+          onScrollToIndexFailed={() => {}} 
+          // ---------------------------
           renderItem={({ item }) => (
             <TouchableOpacity onPress={() => router.push('/categories')} style={styles.bannerItem}>
               <Image source={{ uri: item.image }} style={styles.bannerImage} />
@@ -94,7 +99,7 @@ export default function HeroBanner() {
         />
       </View>
 
-      {/* 2. TENDANCES (CERCLES ARRONDIES) */}
+      {/* 2. TENDANCES */}
       <View style={styles.trendingContainer}>
         <Text style={styles.sectionTitle}>Tendances Actuelles</Text>
         <FlatList
@@ -102,9 +107,14 @@ export default function HeroBanner() {
           data={trendingProducts}
           horizontal
           showsHorizontalScrollIndicator={false}
-          // SOLUTION CRITIQUE POUR L'ERREUR DE KEY :
           keyExtractor={(item, index) => `trending-${item.firebaseId || index}`}
           contentContainerStyle={{ paddingLeft: 16, paddingBottom: 10 }}
+          // --- AJOUTS POUR LE WEB ---
+          getItemLayout={(data, index) => (
+            { length: TRENDING_ITEM_WIDTH, offset: TRENDING_ITEM_WIDTH * index, index }
+          )}
+          onScrollToIndexFailed={() => {}}
+          // ---------------------------
           renderItem={({ item }) => (
             <TouchableOpacity 
               style={styles.circleCard}
@@ -147,7 +157,7 @@ const styles = StyleSheet.create({
   circleImageWrapper: {
     width: 80,
     height: 80,
-    borderRadius: 40, // Cercle parfait
+    borderRadius: 40,
     backgroundColor: '#fff',
     elevation: 4,
     shadowColor: '#000',
@@ -155,7 +165,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     padding: 2,
     borderWidth: 2,
-    borderColor: '#FF6B00', // Ta couleur orange
+    borderColor: '#FF6B00',
   },
   circleImage: { width: '100%', height: '100%', borderRadius: 40 },
   circleName: { fontSize: 11, fontWeight: '700', marginTop: 6, textAlign: 'center', color: '#444' }

@@ -1,5 +1,5 @@
 // apps/mobile/app/grossiste.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,14 +14,17 @@ import {
   FlatList,
   Platform,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from '../src/config/firebase';
 import WholesaleQuoteForm from '../src/components/WholesaleQuoteForm';
-
 
 const { width } = Dimensions.get('window');
 
@@ -37,6 +40,171 @@ const COLORS = {
   industrial: '#1E293B',
 };
 
+// Constantes pour le cache
+const CACHE_KEYS = {
+  COMPANIES: 'grossiste_companies',
+  CATEGORIES: 'grossiste_categories',
+  PRODUCTS: 'grossiste_products',
+  STATS: 'grossiste_stats',
+  TIMESTAMP: 'grossiste_timestamp',
+};
+
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+const MOCK_MODE_KEY = 'grossiste_mock_mode';
+
+// ============ DONNÉES MOCKÉES ============
+const MOCK_COMPANIES = [
+  {
+    id: 'mock-1',
+    name: 'Textile Industriel SARL',
+    logo: 'https://cdn-icons-png.flaticon.com/512/2095/2095358.png',
+    city: 'Casablanca',
+    country: 'Maroc',
+    isActive: true,
+    productCount: 156,
+    description: 'Fabricant de tissus et vêtements professionnels'
+  },
+  {
+    id: 'mock-2',
+    name: 'Acier & Métaux SA',
+    logo: 'https://cdn-icons-png.flaticon.com/512/2095/2095390.png',
+    city: 'Dakar',
+    country: 'Sénégal',
+    isActive: true,
+    productCount: 89,
+    description: 'Fournisseur de matériaux de construction'
+  },
+  {
+    id: 'mock-3',
+    name: 'Agro-Industrie du Sahel',
+    logo: 'https://cdn-icons-png.flaticon.com/512/2095/2095362.png',
+    city: 'Bamako',
+    country: 'Mali',
+    isActive: true,
+    productCount: 234,
+    description: 'Produits agricoles transformés pour l\'industrie'
+  },
+  {
+    id: 'mock-4',
+    name: 'Électronique Pro Africa',
+    logo: 'https://cdn-icons-png.flaticon.com/512/2095/2095378.png',
+    city: 'Abidjan',
+    country: 'Côte d\'Ivoire',
+    isActive: true,
+    productCount: 67,
+    description: 'Équipements électroniques professionnels'
+  },
+  {
+    id: 'mock-5',
+    name: 'Chimie Industrielle Ouest',
+    logo: 'https://cdn-icons-png.flaticon.com/512/2095/2095412.png',
+    city: 'Lomé',
+    country: 'Togo',
+    isActive: true,
+    productCount: 112,
+    description: 'Produits chimiques pour l\'industrie'
+  },
+  {
+    id: 'mock-6',
+    name: 'Emballages Modernes',
+    logo: 'https://cdn-icons-png.flaticon.com/512/2095/2095434.png',
+    city: 'Ouagadougou',
+    country: 'Burkina Faso',
+    isActive: true,
+    productCount: 78,
+    description: 'Solutions d\'emballage industriel'
+  }
+];
+
+const MOCK_CATEGORIES = [
+  {
+    id: 'cat-1',
+    name: 'Textile',
+    productCount: 1250,
+    image: 'https://cdn-icons-png.flaticon.com/512/2095/2095358.png'
+  },
+  {
+    id: 'cat-2',
+    name: 'Métallurgie',
+    productCount: 890,
+    image: 'https://cdn-icons-png.flaticon.com/512/2095/2095390.png'
+  },
+  {
+    id: 'cat-3',
+    name: 'Agroalimentaire',
+    productCount: 2340,
+    image: 'https://cdn-icons-png.flaticon.com/512/2095/2095362.png'
+  },
+  {
+    id: 'cat-4',
+    name: 'Électronique',
+    productCount: 560,
+    image: 'https://cdn-icons-png.flaticon.com/512/2095/2095378.png'
+  },
+  {
+    id: 'cat-5',
+    name: 'Chimie',
+    productCount: 430,
+    image: 'https://cdn-icons-png.flaticon.com/512/2095/2095412.png'
+  },
+  {
+    id: 'cat-6',
+    name: 'Emballage',
+    productCount: 780,
+    image: 'https://cdn-icons-png.flaticon.com/512/2095/2095434.png'
+  }
+];
+
+const MOCK_PRODUCTS = [
+  {
+    id: 'prod-1',
+    name: 'Tissu Coton Biologique - Lot Industriel',
+    price: 4500,
+    images: ['https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=400'],
+    companyName: 'Textile Industriel SARL',
+    companyId: 'mock-1',
+    moq: 100,
+    unit: 'rouleau'
+  },
+  {
+    id: 'prod-2',
+    name: 'Poutrelles Acier Galvanisé',
+    price: 25000,
+    images: ['https://images.unsplash.com/photo-1541971870-5f8d5b3b1d4f?w=400'],
+    companyName: 'Acier & Métaux SA',
+    companyId: 'mock-2',
+    moq: 10,
+    unit: 'tonne'
+  },
+  {
+    id: 'prod-3',
+    name: 'Huile de Palme Raffinée',
+    price: 3800,
+    images: ['https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=400'],
+    companyName: 'Agro-Industrie du Sahel',
+    companyId: 'mock-3',
+    moq: 500,
+    unit: 'litre'
+  },
+  {
+    id: 'prod-4',
+    name: 'Cartes Mères Industrielles',
+    price: 75000,
+    images: ['https://images.unsplash.com/photo-1518770660439-4636190af475?w=400'],
+    companyName: 'Électronique Pro Africa',
+    companyId: 'mock-4',
+    moq: 50,
+    unit: 'pièce'
+  }
+];
+
+const MOCK_STATS = {
+  activeCompanies: 156,
+  totalProducts: 8450,
+  totalCategories: 24,
+};
+
+// ============ TYPES ============
 interface Company {
   id: string;
   name: string;
@@ -88,6 +256,70 @@ interface Product {
   specifications?: Record<string, any>;
 }
 
+// ============ SERVICES DE CACHE ============
+const cacheService = {
+  async saveData(key: string, data: any) {
+    try {
+      const cacheData = {
+        data,
+        timestamp: Date.now(),
+      };
+      await AsyncStorage.setItem(key, JSON.stringify(cacheData));
+      console.log(`💾 Données mises en cache: ${key}`);
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde du cache:', error);
+    }
+  },
+
+  async getData(key: string) {
+    try {
+      const cached = await AsyncStorage.getItem(key);
+      if (!cached) return null;
+
+      const { data, timestamp } = JSON.parse(cached);
+      const isExpired = Date.now() - timestamp > CACHE_DURATION;
+
+      if (isExpired) {
+        console.log(`⌛ Cache expiré pour: ${key}`);
+        return null;
+      }
+
+      console.log(`✅ Données récupérées du cache: ${key}`);
+      return data;
+    } catch (error) {
+      console.error('Erreur lors de la lecture du cache:', error);
+      return null;
+    }
+  },
+
+  async clearExpiredCache() {
+    try {
+      const keys = Object.values(CACHE_KEYS);
+      for (const key of keys) {
+        const cached = await AsyncStorage.getItem(key);
+        if (cached) {
+          const { timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp > CACHE_DURATION) {
+            await AsyncStorage.removeItem(key);
+            console.log(`🗑️ Cache expiré supprimé: ${key}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Erreur lors du nettoyage du cache:', error);
+    }
+  },
+
+  async setMockMode(active: boolean) {
+    await AsyncStorage.setItem(MOCK_MODE_KEY, JSON.stringify(active));
+  },
+
+  async isMockModeActive() {
+    const mockMode = await AsyncStorage.getItem(MOCK_MODE_KEY);
+    return mockMode ? JSON.parse(mockMode) : false;
+  },
+};
+
 export default function GrossisteScreen() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
@@ -95,24 +327,112 @@ export default function GrossisteScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    activeCompanies: 0,
-    totalProducts: 0,
-    totalCategories: 0,
-  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [mockMode, setMockMode] = useState(false);
+  const [stats, setStats] = useState(MOCK_STATS);
+  const [isOffline, setIsOffline] = useState(false);
   
   // État pour le modal de devis
   const [showQuoteForm, setShowQuoteForm] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
+  // Vérifier la connexion réseau
   useEffect(() => {
-    fetchAllData();
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOffline(!state.isConnected);
+      if (!state.isConnected) {
+        console.log('📡 Mode hors-ligne détecté');
+        loadFromCache();
+      }
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const fetchAllData = async () => {
+  // Chargement initial
+  useEffect(() => {
+    initializeData();
+  }, []);
+
+  // Rechargement quand l'écran est focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!loading) {
+        checkAndRefreshData();
+      }
+    }, [loading])
+  );
+
+  const initializeData = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Chargement des données depuis Firestore...');
+      
+      // Vérifier le mode mock
+      const isMockActive = await cacheService.isMockModeActive();
+      setMockMode(isMockActive);
+
+      if (isMockActive) {
+        console.log('🎭 Mode démo actif - Chargement des données mockées');
+        loadMockData();
+        setLoading(false);
+        return;
+      }
+
+      // Essayer de charger depuis le cache d'abord
+      const cachedData = await loadFromCache();
+      
+      // Si on est hors ligne, utiliser le cache ou les mock data
+      if (isOffline) {
+        if (cachedData) {
+          console.log('📱 Mode hors-ligne - Données du cache chargées');
+        } else {
+          console.log('📱 Mode hors-ligne - Pas de cache, chargement des mock data');
+          loadMockData();
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Sinon, essayer de charger depuis Firebase
+      await fetchFromFirebase();
+    } catch (error) {
+      console.error('Erreur lors de l\'initialisation:', error);
+      await handleFetchError(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFromCache = async () => {
+    try {
+      const [
+        cachedCompanies,
+        cachedCategories,
+        cachedProducts,
+        cachedStats
+      ] = await Promise.all([
+        cacheService.getData(CACHE_KEYS.COMPANIES),
+        cacheService.getData(CACHE_KEYS.CATEGORIES),
+        cacheService.getData(CACHE_KEYS.PRODUCTS),
+        cacheService.getData(CACHE_KEYS.STATS),
+      ]);
+
+      if (cachedCompanies) setCompanies(cachedCompanies);
+      if (cachedCategories) setCategories(cachedCategories);
+      if (cachedProducts) setFeaturedProducts(cachedProducts);
+      if (cachedStats) setStats(cachedStats);
+
+      const hasData = cachedCompanies || cachedCategories || cachedProducts;
+      return hasData;
+    } catch (error) {
+      console.error('Erreur lors du chargement du cache:', error);
+      return false;
+    }
+  };
+
+  const fetchFromFirebase = async () => {
+    try {
+      console.log('🔍 Tentative de chargement depuis Firestore...');
       
       // 1. Charger les entreprises actives
       const companiesQuery = query(
@@ -127,9 +447,7 @@ export default function GrossisteScreen() {
         ...doc.data()
       })) as Company[];
       
-      console.log(`✅ ${companiesList.length} entreprises chargées`);
-
-      // 2. Charger les catégories actives
+      // 2. Charger les catégories
       const categoriesQuery = query(
         collection(db, 'categories'),
         where('isActive', '==', true),
@@ -141,10 +459,8 @@ export default function GrossisteScreen() {
         id: doc.id,
         ...doc.data()
       })) as Category[];
-      
-      console.log(`✅ ${categoriesList.length} catégories chargées`);
 
-      // 3. Charger les produits phares (les plus récents et avec stock)
+      // 3. Charger les produits
       const productsQuery = query(
         collection(db, 'products'),
         where('isActive', '==', true),
@@ -156,10 +472,8 @@ export default function GrossisteScreen() {
         id: doc.id,
         ...doc.data()
       })) as Product[];
-      
-      console.log(`✅ ${productsList.length} produits chargés`);
 
-      // 4. Calculer les statistiques
+      // 4. Statistiques
       const totalProductsQuery = query(
         collection(db, 'products'),
         where('isActive', '==', true)
@@ -172,41 +486,140 @@ export default function GrossisteScreen() {
       );
       const allCompaniesSnapshot = await getDocs(allCompaniesQuery);
 
-      const allCategoriesQuery = query(
-        collection(db, 'categories'),
-        where('isActive', '==', true)
-      );
-      const allCategoriesSnapshot = await getDocs(allCategoriesQuery);
+      const newStats = {
+        activeCompanies: allCompaniesSnapshot.size,
+        totalProducts: totalProductsSnapshot.size,
+        totalCategories: categoriesList.length,
+      };
 
+      // Mettre à jour les states
       setCompanies(companiesList);
       setCategories(categoriesList);
       setFeaturedProducts(productsList);
-      setStats({
-        activeCompanies: allCompaniesSnapshot.size,
-        totalProducts: totalProductsSnapshot.size,
-        totalCategories: allCategoriesSnapshot.size,
-      });
+      setStats(newStats);
 
-    } catch (error) {
-      console.error("❌ Erreur lors du chargement des données:", error);
-      Alert.alert('Erreur', 'Impossible de charger les données');
-    } finally {
-      setLoading(false);
+      // Sauvegarder dans le cache
+      await Promise.all([
+        cacheService.saveData(CACHE_KEYS.COMPANIES, companiesList),
+        cacheService.saveData(CACHE_KEYS.CATEGORIES, categoriesList),
+        cacheService.saveData(CACHE_KEYS.PRODUCTS, productsList),
+        cacheService.saveData(CACHE_KEYS.STATS, newStats),
+        cacheService.saveData(CACHE_KEYS.TIMESTAMP, Date.now()),
+      ]);
+
+      console.log('✅ Données chargées et mises en cache avec succès');
+
+    } catch (error: any) {
+      console.error('❌ Erreur Firebase:', error);
+      
+      // Vérifier si c'est une erreur de quota
+      if (error.code === 'resource-exhausted' || error.message?.includes('quota')) {
+        console.log('⚠️ Quota Firebase dépassé, activation du mode démo');
+        await cacheService.setMockMode(true);
+        setMockMode(true);
+        
+        // Charger les données mockées
+        loadMockData();
+        
+        Alert.alert(
+          'Mode Démo Activé',
+          'Le quota Firebase est temporairement dépassé. Vous utilisez actuellement des données de démonstration.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Pour les autres erreurs, essayer le cache ou les mock data
+        console.log('⚠️ Autre erreur Firebase, tentative de fallback');
+        const hasCache = await loadFromCache();
+        
+        if (!hasCache) {
+          console.log('🎭 Pas de cache, chargement des données mockées');
+          loadMockData();
+        }
+        
+        // Ne pas afficher d'alerte pour les erreurs réseau temporaires
+        if (error.code !== 'unavailable' && error.code !== 'deadline-exceeded') {
+          Alert.alert(
+            'Mode Hors-ligne',
+            'Connexion impossible. Utilisation des données en cache.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
     }
   };
 
-  const handleContact = () => {
-    router.push('/contact-grossiste');
+  const loadMockData = () => {
+    setCompanies(MOCK_COMPANIES);
+    setCategories(MOCK_CATEGORIES);
+    setFeaturedProducts(MOCK_PRODUCTS);
+    setStats(MOCK_STATS);
+    
+    // Sauvegarder en cache pour le mode hors-ligne
+    cacheService.saveData(CACHE_KEYS.COMPANIES, MOCK_COMPANIES);
+    cacheService.saveData(CACHE_KEYS.CATEGORIES, MOCK_CATEGORIES);
+    cacheService.saveData(CACHE_KEYS.PRODUCTS, MOCK_PRODUCTS);
+    cacheService.saveData(CACHE_KEYS.STATS, MOCK_STATS);
   };
 
-  const handleBecomeClient = () => {
-    router.push('/devenir-client-industriel');
+  const handleFetchError = async (error: any) => {
+    // Vérifier le cache
+    const hasCache = await loadFromCache();
+    
+    if (hasCache) {
+      console.log('📦 Utilisation des données en cache suite à une erreur');
+      Alert.alert(
+        'Données en cache',
+        'Connexion impossible. Affichage des données en cache.',
+        [{ text: 'OK' }]
+      );
+    } else {
+      console.log('🎭 Aucun cache disponible, utilisation des données mockées');
+      loadMockData();
+      Alert.alert(
+        'Mode Démo',
+        'Connexion impossible. Utilisation des données de démonstration.',
+        [{ text: 'OK' }]
+      );
+    }
+    setLoading(false);
   };
 
-  const handleBrowseCatalog = () => {
-    router.push('/catalogue?type=industrial');
+  const checkAndRefreshData = async () => {
+    if (isOffline || mockMode) return;
+
+    try {
+      const timestamp = await AsyncStorage.getItem(CACHE_KEYS.TIMESTAMP);
+      if (timestamp) {
+        const age = Date.now() - parseInt(timestamp);
+        if (age > CACHE_DURATION) {
+          console.log('🔄 Cache expiré, rafraîchissement...');
+          setRefreshing(true);
+          await fetchFromFirebase();
+          setRefreshing(false);
+        }
+      }
+    } catch (error) {
+      console.error('Erreur lors de la vérification du cache:', error);
+    }
   };
 
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    
+    if (mockMode) {
+      await cacheService.setMockMode(false);
+      setMockMode(false);
+    }
+
+    await cacheService.clearExpiredCache();
+    await initializeData();
+    setRefreshing(false);
+  };
+
+  const handleContact = () => router.push('/contact-grossiste');
+  const handleBecomeClient = () => router.push('/devenir-client-industriel');
+  const handleBrowseCatalog = () => router.push('/catalogue?type=industrial');
+  
   const handleRequestQuote = (product?: Product) => {
     if (product) {
       setSelectedProduct(product);
@@ -220,17 +633,24 @@ export default function GrossisteScreen() {
     router.push(`/supplier/${supplierId}`);
   };
 
-  const handleViewProduct = (productId: string) => {
-    router.push(`/product/${productId}`);
+  // VERSION CORRIGÉE : handleViewProduct avec paramètres
+  const handleViewProduct = (product: Product) => {
+    router.push({
+      pathname: `/product/wholesale/${product.id}`,
+      params: {
+        companyName: product.companyName || '',
+        productName: product.name,
+        companyId: product.companyId || '',
+        fromMock: mockMode ? 'true' : 'false',
+      }
+    });
   };
 
   const handleViewCategory = (categoryId: string) => {
     router.push(`/category/${categoryId}`);
   };
 
-  const handleLoginSupplier = () => {
-    router.push('/suppliers');
-  };
+  const handleLoginSupplier = () => router.push('/suppliers');
 
   const handleSearch = () => {
     if (searchQuery.trim()) {
@@ -360,11 +780,12 @@ export default function GrossisteScreen() {
     </TouchableOpacity>
   );
 
+  // VERSION CORRIGÉE : renderProductItem avec handleViewProduct(product)
   const renderProductItem = ({ item }: { item: Product }) => (
     <View style={styles.productCard}>
       <TouchableOpacity 
         style={styles.productImageContainer}
-        onPress={() => handleViewProduct(item.id)}
+        onPress={() => handleViewProduct(item)}
       >
         {item.images && item.images.length > 0 ? (
           <Image source={{ uri: item.images[0] }} style={styles.productImage} />
@@ -381,7 +802,7 @@ export default function GrossisteScreen() {
       </TouchableOpacity>
       
       <View style={styles.productInfo}>
-        <TouchableOpacity onPress={() => handleViewProduct(item.id)}>
+        <TouchableOpacity onPress={() => handleViewProduct(item)}>
           <Text style={styles.productName} numberOfLines={2}>
             {item.name}
           </Text>
@@ -411,11 +832,22 @@ export default function GrossisteScreen() {
     </View>
   );
 
+  if (loading && companies.length === 0 && categories.length === 0 && featuredProducts.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Chargement de l'espace grossiste...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
       
-      {/* Header */}
+      {/* Header avec indicateur de mode */}
       <LinearGradient
         colors={[COLORS.industrial, '#334155']}
         style={styles.header}
@@ -430,9 +862,23 @@ export default function GrossisteScreen() {
           
           <View style={styles.headerTitleContainer}>
             <Text style={styles.headerTitle}>A2EXPRESS INDUSTRIAL</Text>
-            <Text style={styles.headerSubtitle}>
-              {stats.activeCompanies} fournisseurs • {stats.totalProducts} produits B2B
-            </Text>
+            <View style={styles.headerStatus}>
+              <Text style={styles.headerSubtitle}>
+                {stats.activeCompanies} fournisseurs • {stats.totalProducts} produits B2B
+              </Text>
+              {(mockMode || isOffline) && (
+                <View style={styles.statusBadgeHeader}>
+                  <Ionicons 
+                    name={mockMode ? "construct-outline" : "cloud-offline-outline"} 
+                    size={12} 
+                    color="#FFF" 
+                  />
+                  <Text style={styles.statusBadgeHeaderText}>
+                    {mockMode ? 'Mode Démo' : 'Hors-ligne'}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
           
           <TouchableOpacity 
@@ -449,7 +895,31 @@ export default function GrossisteScreen() {
         style={styles.container}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleManualRefresh}
+            colors={[COLORS.primary]}
+            tintColor={COLORS.primary}
+          />
+        }
       >
+        {/* Indicateur de mode démo/hors-ligne */}
+        {(mockMode || isOffline) && (
+          <View style={styles.modeIndicator}>
+            <Ionicons 
+              name={mockMode ? "construct" : "cloud-offline"} 
+              size={18} 
+              color={COLORS.primary} 
+            />
+            <Text style={styles.modeIndicatorText}>
+              {mockMode 
+                ? 'Mode démonstration - Données non contractuelles' 
+                : 'Mode hors-ligne - Données en cache'}
+            </Text>
+          </View>
+        )}
+
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchInputContainer}>
@@ -563,12 +1033,7 @@ export default function GrossisteScreen() {
             </TouchableOpacity>
           </View>
           
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <Ionicons name="business-outline" size={40} color={COLORS.lightGray} />
-              <Text style={styles.loadingText}>Chargement des fournisseurs...</Text>
-            </View>
-          ) : companies.length > 0 ? (
+          {companies.length > 0 ? (
             <FlatList
               data={companies}
               renderItem={renderCompanyItem}
@@ -615,12 +1080,7 @@ export default function GrossisteScreen() {
             </TouchableOpacity>
           </View>
           
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <Ionicons name="grid-outline" size={40} color={COLORS.lightGray} />
-              <Text style={styles.loadingText}>Chargement des catégories...</Text>
-            </View>
-          ) : categories.length > 0 ? (
+          {categories.length > 0 ? (
             <FlatList
               data={categories}
               renderItem={renderCategoryItem}
@@ -740,10 +1200,29 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     letterSpacing: 0.5,
   },
+  headerStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   headerSubtitle: {
     fontSize: 11,
     color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',
+  },
+  statusBadgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 106, 0, 0.3)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 12,
+    gap: 4,
+  },
+  statusBadgeHeaderText: {
+    fontSize: 9,
+    color: '#FFF',
+    fontWeight: '600',
   },
   supplierLoginButton: {
     flexDirection: 'row',
@@ -758,6 +1237,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#FFF',
     fontWeight: '600',
+  },
+  modeIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 20,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  modeIndicatorText: {
+    fontSize: 12,
+    color: COLORS.industrial,
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: COLORS.industrial,
+    fontWeight: '500',
   },
   searchContainer: {
     paddingHorizontal: 16,
@@ -977,18 +1487,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#666',
     lineHeight: 14,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 40,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: '#666',
   },
   emptyState: {
     alignItems: 'center',
