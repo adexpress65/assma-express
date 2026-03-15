@@ -34,7 +34,7 @@ export default {
     android: {
       package: "com.askia1.assmaexpress",
       // ✅ LIEN NATIF VERS FIREBASE
-      googleServicesFile: "../../google-services.json",
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON,
       // ✅ VERSION 6 (Supérieure à la version 5 vue sur ta capture)
       versionCode: 6,
       softwareKeyboardLayoutMode: "pan",
