@@ -1,9 +1,8 @@
-// apps/mobile/app/super-admin/add-product.tsx
 import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, SafeAreaView, ScrollView, 
   TextInput, TouchableOpacity, Alert, Switch, Image,
-  ActivityIndicator, Linking, Modal
+  ActivityIndicator, Linking, Modal, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -11,7 +10,39 @@ import * as ImagePicker from 'expo-image-picker';
 import { collection, addDoc, getDocs, query, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
+import AddAttributeModal from "@/components/AddAttributeModal"; // Changé ici : import default
 import { db, storage } from '@/config/firebase';
+
+// Types pour les attributs dynamiques
+type Attribute = {
+  id: string;
+  name: string;
+  values: string[];
+};
+
+type Variant = {
+  id: string;
+  combination: { [key: string]: string };
+  price: number;
+  stock: number;
+  sku: string;
+  image?: string;
+};
+
+const calculateCBM = (dimensions: string): string => {
+  if (!dimensions) return '0';
+  const parts = dimensions.toLowerCase().split(/[x* ]/);
+  if (parts.length === 3) {
+    const l = parseFloat(parts[0]);
+    const w = parseFloat(parts[1]);
+    const h = parseFloat(parts[2]);
+    if (!isNaN(l) && !isNaN(w) && !isNaN(h)) {
+      // (L*l*h) / 1 000 000 pour convertir cm3 en m3 (CBM)
+      return ((l * w * h) / 1000000).toFixed(4);
+    }
+  }
+  return '0';
+};
 
 // ? FONCTION POUR GÉNÉRER UN SLUG
 const generateSlug = (name: string): string => {
@@ -23,7 +54,7 @@ const generateSlug = (name: string): string => {
     .substring(0, 100);
 };
 
-// ✅ FONCTION UPLOAD D'IMAGES (NE TÉLÉCHARGE QUE LES NOUVELLES IMAGES)
+// ✅ FONCTION UPLOAD D'IMAGES
 const uploadImagesToFirebase = async (images: string[], userId: string): Promise<string[]> => {
   console.log(`🔥 Upload de ${images.length} image(s) pour user: ${userId}`);
   
@@ -74,11 +105,10 @@ const uploadImagesToFirebase = async (images: string[], userId: string): Promise
 };
 
 // ? FONCTION POUR GÉNÉRER UN SKU UNIQUE
-const generateSku = (productName: string, color: string, size: string): string => {
-  const base = productName.trim().toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9-]/g, '');
-  const colorCode = color.trim().toUpperCase().substring(0, 3);
-  const sizeCode = size.trim().toUpperCase();
-  return `${base}-${colorCode}-${sizeCode}-${Date.now().toString().slice(-4)}`;
+const generateSku = (productName: string, combination: { [key: string]: string }): string => {
+  const base = productName.trim().toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9-]/g, '').substring(0, 5);
+  const values = Object.values(combination).map(v => v.trim().toUpperCase().substring(0, 3)).join('-');
+  return `${base}-${values}-${Date.now().toString().slice(-4)}`;
 };
 
 export default function AddProductScreen() {
@@ -94,11 +124,19 @@ export default function AddProductScreen() {
   const [images, setImages] = useState<string[]>([]);
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   
-  // --- ÉTATS POUR LES VARIANTES ---
-  const [variantColors, setVariantColors] = useState<string[]>([]);
-  const [variantSizes, setVariantSizes] = useState<string[]>([]);
-  const [newColor, setNewColor] = useState('');
-  const [newSize, setNewSize] = useState('');
+  // --- NOUVEAUX ÉTATS POUR ATTRIBUTS DYNAMIQUES ---
+  const [attributes, setAttributes] = useState<Attribute[]>([
+    { id: '1', name: 'Couleur', values: [] },
+    { id: '2', name: 'Taille', values: [] },
+  ]);
+  
+  const [newAttributeValue, setNewAttributeValue] = useState<{ [key: string]: string }>({});
+  const [selectedAttributes, setSelectedAttributes] = useState<string[]>(['Couleur', 'Taille']);
+  const [showAddAttributeModal, setShowAddAttributeModal] = useState(false);
+  const [newAttributeName, setNewAttributeName] = useState('');
+  
+  // --- ÉTAT POUR LES VARIANTES GÉNÉRÉES AVEC PRIX INDIVIDUELS ---
+  const [generatedVariants, setGeneratedVariants] = useState<Variant[]>([]);
   
   // --- AJUSTEMENT DE PRIX RAPIDE (OPTIONNEL) ---
   const [priceAdjustment, setPriceAdjustment] = useState<number>(0);
@@ -126,7 +164,6 @@ export default function AddProductScreen() {
   const [showPersonalizationModal, setShowPersonalizationModal] = useState(false);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState('text');
-  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
 
   // --- ÉTATS POUR LA GESTION DE LA LIVRAISON GRATUITE ---
   const [hasFreeShipping, setHasFreeShipping] = useState(false);
@@ -141,6 +178,7 @@ export default function AddProductScreen() {
     sku: '',
     weight: '',
     dimensions: '',
+	volume: '0',
     isActive: true,
     deliveryTime: '3-5 jours',
     minOrder: '1',
@@ -155,9 +193,63 @@ export default function AddProductScreen() {
   // --- CALCUL DU PRIX FINAL ---
   const basePrice = Number(form.price) || 0;
   const finalPrice = basePrice + priceAdjustment;
-  
-  // --- CALCUL DU NOMBRE DE VARIANTES ---
-  const variantCount = variantColors.length * variantSizes.length;
+
+  // --- FONCTION POUR GÉNÉRER TOUTES LES COMBINAISONS (PRODUIT CARTÉSIEN) ---
+  const generateCombinations = (): Array<{ [key: string]: string }> => {
+    const activeAttributes = attributes.filter(attr => 
+      selectedAttributes.includes(attr.name) && attr.values.length > 0
+    );
+
+    if (activeAttributes.length === 0) return [];
+
+    const combine = (
+      index: number, 
+      current: { [key: string]: string }
+    ): Array<{ [key: string]: string }> => {
+      if (index === activeAttributes.length) {
+        return [current];
+      }
+
+      const attr = activeAttributes[index];
+      const combinations: Array<{ [key: string]: string }> = [];
+
+      attr.values.forEach(value => {
+        const newCurrent = { ...current, [attr.name]: value };
+        combinations.push(...combine(index + 1, newCurrent));
+      });
+
+      return combinations;
+    };
+
+    return combine(0, {});
+  };
+
+  // --- EFFET POUR SYNCHRONISER LES VARIANTES QUAND LES ATTRIBUTS CHANGENT ---
+  useEffect(() => {
+    const combinations = generateCombinations();
+    const basePriceNum = Number(form.price) || 0;
+    const baseStockNum = Number(form.stock) || 10;
+
+    const variants = combinations.map(combination => {
+      // Créer un ID unique basé sur la combinaison
+      const id = Object.entries(combination)
+        .map(([key, value]) => `${key}-${value}`.toLowerCase().replace(/\s+/g, '-'))
+        .join('_');
+
+      const existingVariant = generatedVariants.find(v => v.id === id);
+
+      return {
+        id,
+        combination,
+        price: existingVariant?.price ?? basePriceNum + priceAdjustment,
+        stock: existingVariant?.stock ?? baseStockNum,
+        sku: existingVariant?.sku ?? generateSku(form.title || 'PRODUCT', combination),
+        image: images.length > 0 ? images[0] : '',
+      };
+    });
+
+    setGeneratedVariants(variants);
+  }, [attributes, selectedAttributes, form.price, priceAdjustment, form.title]);
 
   // --- FILTRAGE DES CATÉGORIES ---
   useEffect(() => {
@@ -238,17 +330,29 @@ export default function AddProductScreen() {
         setImages(productData.images);
       }
 
-      if (productData.variantAttributes) {
-        const colorsAttr = productData.variantAttributes.find((attr: any) => attr.name === "Color");
-        const sizesAttr = productData.variantAttributes.find((attr: any) => attr.name === "Size");
-        
-        if (colorsAttr && colorsAttr.values) {
-          setVariantColors(colorsAttr.values);
-        }
-        
-        if (sizesAttr && sizesAttr.values) {
-          setVariantSizes(sizesAttr.values);
-        }
+      // Chargement des attributs
+      if (productData.attributes && Array.isArray(productData.attributes)) {
+        setAttributes(productData.attributes.map((attr: any, index: number) => ({
+          id: attr.id || `attr_${index}`,
+          name: attr.name,
+          values: attr.values || []
+        })));
+      }
+
+      if (productData.selectedAttributes) {
+        setSelectedAttributes(productData.selectedAttributes);
+      }
+
+      // Chargement des variantes
+      if (productData.variants && Array.isArray(productData.variants)) {
+        setGeneratedVariants(productData.variants.map((v: any) => ({
+          id: v.id,
+          combination: v.combination || {},
+          price: v.price,
+          stock: v.stock,
+          sku: v.sku,
+          image: v.image,
+        })));
       }
 
       if (productData.companyId) {
@@ -269,12 +373,10 @@ export default function AddProductScreen() {
         setPriceAdjustment(productData.priceAdjustment);
       }
 
-      // Chargement de la livraison gratuite
       if (productData.hasFreeShipping !== undefined) {
         setHasFreeShipping(productData.hasFreeShipping);
       }
 
-      // Chargement des données de personnalisation
       if (productData.personalization) {
         setHasPersonalization(productData.personalization.enabled || false);
         if (productData.personalization.fields) {
@@ -335,27 +437,86 @@ export default function AddProductScreen() {
     }
   }, []);
 
-  // --- FONCTIONS POUR GÉRER LES VARIANTES ---
-  const addColor = () => {
-    if (newColor.trim() && !variantColors.includes(newColor.trim())) {
-      setVariantColors([...variantColors, newColor.trim()]);
-      setNewColor('');
-    }
+  // --- FONCTIONS POUR GÉRER LES ATTRIBUTS ---
+  const addAttribute = () => {
+    if (!newAttributeName.trim()) return;
+    
+    const newAttribute: Attribute = {
+      id: `attr_${Date.now()}`,
+      name: newAttributeName.trim(),
+      values: [],
+    };
+    
+    setAttributes(prev => [...prev, newAttribute]);
+    setSelectedAttributes(prev => [...prev, newAttributeName.trim()]);
+    setNewAttributeName('');
+    setShowAddAttributeModal(false);
   };
 
-  const removeColor = (color: string) => {
-    setVariantColors(variantColors.filter(c => c !== color));
+  const removeAttribute = (attributeName: string) => {
+    setAttributes(prev => prev.filter(attr => attr.name !== attributeName));
+    setSelectedAttributes(prev => prev.filter(name => name !== attributeName));
   };
 
-  const addSize = () => {
-    if (newSize.trim() && !variantSizes.includes(newSize.trim())) {
-      setVariantSizes([...variantSizes, newSize.trim()]);
-      setNewSize('');
-    }
+  const addAttributeValue = (attributeName: string) => {
+    const value = newAttributeValue[attributeName]?.trim();
+    if (!value) return;
+
+    setAttributes(prev => prev.map(attr => {
+      if (attr.name === attributeName && !attr.values.includes(value)) {
+        return { ...attr, values: [...attr.values, value] };
+      }
+      return attr;
+    }));
+
+    setNewAttributeValue(prev => ({ ...prev, [attributeName]: '' }));
   };
 
-  const removeSize = (size: string) => {
-    setVariantSizes(variantSizes.filter(s => s !== size));
+  const removeAttributeValue = (attributeName: string, value: string) => {
+    setAttributes(prev => prev.map(attr => {
+      if (attr.name === attributeName) {
+        return { ...attr, values: attr.values.filter(v => v !== value) };
+      }
+      return attr;
+    }));
+  };
+
+  const toggleAttribute = (attributeName: string) => {
+    setSelectedAttributes(prev => {
+      if (prev.includes(attributeName)) {
+        return prev.filter(a => a !== attributeName);
+      } else {
+        return [...prev, attributeName];
+      }
+    });
+  };
+
+  // --- FONCTION POUR METTRE À JOUR LE PRIX D'UNE VARIANTE SPÉCIFIQUE ---
+  const updateVariantPrice = (variantId: string, newPrice: string) => {
+    const priceNum = Number(newPrice);
+    if (isNaN(priceNum)) return;
+    
+    setGeneratedVariants(prev => 
+      prev.map(variant => 
+        variant.id === variantId 
+          ? { ...variant, price: priceNum }
+          : variant
+      )
+    );
+  };
+
+  // --- FONCTION POUR METTRE À JOUR LE STOCK D'UNE VARIANTE SPÉCIFIQUE ---
+  const updateVariantStock = (variantId: string, newStock: string) => {
+    const stockNum = Number(newStock);
+    if (isNaN(stockNum)) return;
+    
+    setGeneratedVariants(prev => 
+      prev.map(variant => 
+        variant.id === variantId 
+          ? { ...variant, stock: stockNum }
+          : variant
+      )
+    );
   };
 
   // --- FONCTIONS POUR LA PERSONNALISATION ---
@@ -412,31 +573,6 @@ export default function AddProductScreen() {
     setPersonalizationFields(prev => prev.filter(field => field.id !== fieldId));
   };
 
-  // --- GÉNÉRATION DES VARIANTES ---
-  const generateVariants = () => {
-    const variants = [];
-    
-    variantColors.forEach(color => {
-      variantSizes.forEach(size => {
-        variants.push({
-          id: `${color.toLowerCase().replace(/\s+/g, '-')}-${size.toLowerCase().replace(/\s+/g, '-')}`,
-          color: color,
-          size: size,
-          price: finalPrice,
-          stock: Number(form.stock) || 10,
-          image: images.length > 0 ? images[0] : '',
-          sku: generateSku(form.title, color, size),
-          createdAt: new Date(),
-          isActive: form.isActive,
-          basePrice: basePrice,
-          priceAdjustment: priceAdjustment
-        });
-      });
-    });
-    
-    return variants;
-  };
-
   // FONCTION PICKIMAGE
   const pickImage = async () => {
     try {
@@ -478,7 +614,7 @@ export default function AddProductScreen() {
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ✅ FONCTION HANDLESUBMIT AVEC LOGIQUE HYBRIDE
+  // ✅ FONCTION HANDLESUBMIT
   const handleSubmit = async () => {
     console.log(`🔥🔥🔥 ${isEditMode ? 'MODIFICATION' : 'CRÉATION'} PRODUIT 🔥🔥🔥`);
     
@@ -507,8 +643,12 @@ export default function AddProductScreen() {
       return;
     }
 
-    if (variantColors.length === 0 || variantSizes.length === 0) {
-      Alert.alert('Erreur', 'Veuillez ajouter au moins une couleur et une taille pour les variantes');
+    const activeAttributes = attributes.filter(attr => 
+      selectedAttributes.includes(attr.name) && attr.values.length > 0
+    );
+
+    if (activeAttributes.length === 0) {
+      Alert.alert('Erreur', 'Veuillez ajouter au moins un attribut avec des valeurs');
       return;
     }
 
@@ -535,31 +675,43 @@ export default function AddProductScreen() {
       clearInterval(progressInterval);
       setUploadProgress(100);
 
-      console.log(`🔥 Génération de ${variantCount} variantes...`);
-      const variants = generateVariants();
+      console.log(`🔥 Génération de ${generatedVariants.length} variantes...`);
       
-      const variantsWithImages = variants.map(variant => ({
-        ...variant,
-        image: uploadedImageUrls[0]
+      // Mise à jour des variantes avec les images uploadées
+      const variantsWithImages = generatedVariants.map(variant => ({
+        id: variant.id,
+        combination: variant.combination,
+        price: Number(variant.price),
+        stock: Number(variant.stock),
+        sku: variant.sku,
+        image: uploadedImageUrls[0],
       }));
 
-      const variantAttributes = [
-        { name: "Color", values: variantColors },
-        { name: "Size", values: variantSizes }
-      ];
+      // Calcul du stock total
+      const totalStock = generatedVariants.reduce((sum, variant) => sum + Number(variant.stock), 0);
 
-      // On prépare les données
-      // 🔒 Vérification vendeur AVANT écriture Firestore
+      // Préparer les attributs pour Firestore
+      const attributesForFirestore = attributes
+        .filter(attr => selectedAttributes.includes(attr.name))
+        .map(attr => ({
+          id: attr.id,
+          name: attr.name,
+          values: attr.values,
+        }));
+
       if (!selectedCompany?.id) {
         Alert.alert("Erreur", "Impossible de déterminer le vendeur");
         return;
       }
       
+      // ✅ PRÉPARATION DES DONNÉES DU PRODUIT
       const productData = {
         id: isEditMode ? productId : "", 
         
         name: form.title.trim(),
         nameLower: form.title.trim().toLowerCase(),
+        supplier: selectedCompany.name,
+        supplierLower: selectedCompany.name.toLowerCase(),
         description: form.description.trim() || `Découvrez notre produit ${form.title.trim()}`,
         price: finalPrice,
         basePrice: basePrice,
@@ -576,9 +728,9 @@ export default function AddProductScreen() {
         
         companyId: selectedCompany.id,
         companyName: selectedCompany.name,
-        supplier: selectedCompany.name,
 
-        // 🔴 IDENTITÉ VENDEUR (CRITIQUE POUR CHAT / CONVERSATIONS)
+        sellerUid: user.uid,
+        creatorId: user.uid,
         sellerId: selectedCompany.id,
         creatorCompanyId: selectedCompany.id,
         ownerCompanyId: selectedCompany.id,
@@ -590,13 +742,16 @@ export default function AddProductScreen() {
           logo: selectedCompany.logo || null
         },
 
-        // ✅ NOUVEAU CHAMP POUR LA LIVRAISON GRATUITE
+        // 🚚 LOGISTIQUE & LIVRAISON (Utilisé par le système de calcul A2Express)
+        weight: Number(form.weight) || 0,
+        volume: Number(form.volume) || 0,
+        dimensions: form.dimensions.trim(),
         hasFreeShipping: hasFreeShipping,
         freeShippingBadge: hasFreeShipping ? 'Livraison gratuite' : null,
 
         isActive: form.isActive,
         status: 'published',
-        inStock: true,
+        inStock: totalStock > 0,
         isVerified: userRole === 'admin',
         
         featured: form.featured,
@@ -606,7 +761,7 @@ export default function AddProductScreen() {
         industrial: form.industrial,
         premiumSupplier: selectedCompany.isPremium || form.premiumSupplier,
 
-        stockQuantity: Number(form.stock) || 10000,
+        stockQuantity: totalStock,
         minOrder: Number(form.minOrder) || 1,
         shippingCost: 0,
         deliveryTime: form.deliveryTime,
@@ -621,9 +776,9 @@ export default function AddProductScreen() {
           modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
           weight: form.weight.trim() || '',
           dimensions: form.dimensions.trim() || '',
+          volume: form.volume || '0',
         },
 
-        // Données de personnalisation
         personalization: {
           enabled: hasPersonalization,
           fields: personalizationFields
@@ -638,13 +793,20 @@ export default function AddProductScreen() {
           updatedAt: new Date(),
         },
 
+        attributes: attributesForFirestore,
+        selectedAttributes: selectedAttributes,
+        
         hasVariants: true,
-        variantCount: variantCount,
-        variantAttributes: variantAttributes,
-        variants: variantsWithImages
+        variantCount: generatedVariants.length,
+        variants: variantsWithImages,
+
+        variantColors: attributes.find(a => a.name === 'Couleur')?.values || [],
+        variantSizes: attributes.find(a => a.name === 'Taille')?.values || [],
       };
 
+      // ✅ SAUVEGARDE DANS FIRESTORE
       if (isEditMode) {
+        // --- MODE MODIFICATION ---
         await updateDoc(doc(db, 'products', productId), productData);
         
         await addDoc(collection(db, 'product_updates'), {
@@ -658,7 +820,7 @@ export default function AddProductScreen() {
         
         Alert.alert(
           '✅ Succès',
-          `Produit modifié avec succès !\n${variantCount} variante(s) • Prix: ${finalPrice.toLocaleString()} F CFA`,
+          `Produit modifié avec succès !\n${generatedVariants.length} variante(s) avec prix individuels`,
           [
             {
               text: 'OK',
@@ -668,10 +830,15 @@ export default function AddProductScreen() {
         );
 
       } else {
+        // --- MODE CRÉATION ---
+        const sellerUid = userRole === 'admin' 
+          ? selectedCompany.uid
+          : user.uid;
+
         const docRef = await addDoc(collection(db, 'products'), {
           ...productData,
-          id: '',
           createdAt: new Date(),
+          sellerUid: sellerUid,
           creatorId: user.uid,
           createdBy: userRole === 'admin' ? 'admin' : 'company'
         });
@@ -689,7 +856,7 @@ export default function AddProductScreen() {
         
         Alert.alert(
           '✅ Succès',
-          `Produit créé avec ${variantCount} variantes !\nPrix: ${finalPrice.toLocaleString()} F CFA${priceAdjustment > 0 ? ` (+${priceAdjustment} F ajustement)` : ''}`,
+          `Produit créé avec ${generatedVariants.length} variantes à prix individuels !`,
           [
             {
               text: 'Voir les produits',
@@ -705,13 +872,11 @@ export default function AddProductScreen() {
 
     } catch (error: any) {
       console.log(`🔥🔥🔥 ERREUR ${isEditMode ? 'MODIFICATION' : 'CRÉATION'} 🔥🔥🔥`);
-      console.log('🔥 Type:', typeof error);
-      console.log('🔥 Code:', error?.code);
       console.log('🔥 Message:', error?.message);
       
       Alert.alert(
         `Erreur ${isEditMode ? 'de modification' : 'de création'}`,
-        `Code: ${error?.code || 'N/A'}\nMessage: ${error?.message || 'Erreur inconnue'}`,
+        `Message: ${error?.message || 'Erreur inconnue'}`,
         [{ text: 'OK' }]
       );
       
@@ -721,7 +886,6 @@ export default function AddProductScreen() {
       setUploadProgress(0);
     }
   };
-
   // FONCTION CATÉGORIE - VÉRIFICATION ET CRÉATION
   const getCategoryId = async (categoryName: string): Promise<string> => {
     try {
@@ -775,8 +939,12 @@ export default function AddProductScreen() {
       premiumSupplier: false,
     });
     setImages([]);
-    setVariantColors([]);
-    setVariantSizes([]);
+    setAttributes([
+      { id: '1', name: 'Couleur', values: [] },
+      { id: '2', name: 'Taille', values: [] },
+    ]);
+    setSelectedAttributes(['Couleur', 'Taille']);
+    setGeneratedVariants([]);
     setPriceAdjustment(0);
     setSelectedCompany(null);
     setShowCategoryDropdown(false);
@@ -814,82 +982,13 @@ export default function AddProductScreen() {
   const Badge = ({ text, onRemove, type = 'default' }: any) => (
     <View style={[
       styles.badge,
-      type === 'color' && styles.colorBadge,
-      type === 'size' && styles.sizeBadge
+      type === 'attribute' && styles.attributeBadge
     ]}>
       <Text style={styles.badgeText}>{text}</Text>
       <TouchableOpacity onPress={() => onRemove(text)}>
         <Ionicons name="close-circle" size={16} color="#FF4444" />
       </TouchableOpacity>
     </View>
-  );
-
-  // COMPOSANT MODAL D'AJOUT DE CHAMP PERSONNALISÉ
-  const PersonalizationModal = () => (
-    <Modal
-      visible={showPersonalizationModal}
-      transparent={true}
-      animationType="slide"
-      onRequestClose={() => setShowPersonalizationModal(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Ajouter un champ personnalisé</Text>
-            <TouchableOpacity onPress={() => setShowPersonalizationModal(false)}>
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.modalBody}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Nom du champ</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ex: Date de livraison souhaitée"
-                value={newFieldLabel}
-                onChangeText={setNewFieldLabel}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Type de champ</Text>
-              <View style={styles.fieldTypeContainer}>
-                {['text', 'textarea', 'email', 'tel', 'date'].map((type) => (
-                  <TouchableOpacity
-                    key={type}
-                    style={[
-                      styles.fieldTypeButton,
-                      newFieldType === type && styles.fieldTypeButtonActive
-                    ]}
-                    onPress={() => setNewFieldType(type)}
-                  >
-                    <Text style={[
-                      styles.fieldTypeText,
-                      newFieldType === type && styles.fieldTypeTextActive
-                    ]}>
-                      {type === 'text' ? 'Texte' :
-                       type === 'textarea' ? 'Zone de texte' :
-                       type === 'email' ? 'Email' :
-                       type === 'tel' ? 'Téléphone' :
-                       'Date'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.modalAddButton}
-              onPress={addCustomField}
-            >
-              <Ionicons name="add-circle" size={20} color="#FFF" />
-              <Text style={styles.modalAddButtonText}>Ajouter le champ</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
   );
 
   if (initialLoading) {
@@ -1178,7 +1277,7 @@ export default function AddProductScreen() {
             </View>
           </View>
 
-          {/* SECTION CATÉGORIE DYNAMIQUE AVEC RECHERCHE ET AJOUT À LA VOLÉE */}
+          {/* SECTION CATÉGORIE */}
           <View style={styles.inputGroup}>
             <Text style={styles.label}>
               Catégorie <Text style={styles.required}>*</Text>
@@ -1195,7 +1294,6 @@ export default function AddProductScreen() {
 
             {showCategoryDropdown && (
               <View style={styles.categoryDropdown}>
-                {/* Champ de recherche */}
                 <View style={styles.searchContainer}>
                   <Ionicons name="search" size={16} color="#999" style={styles.searchIcon} />
                   <TextInput
@@ -1213,7 +1311,6 @@ export default function AddProductScreen() {
                 </View>
 
                 <ScrollView style={styles.dropdownScroll} nestedScrollEnabled={true}>
-                  {/* Liste des catégories existantes */}
                   {filteredCategories.map((cat) => (
                     <TouchableOpacity
                       key={cat.id}
@@ -1228,7 +1325,6 @@ export default function AddProductScreen() {
                     </TouchableOpacity>
                   ))}
 
-                  {/* Bouton d'ajout de nouvelle catégorie */}
                   {categorySearch.trim() !== '' && 
                    !filteredCategories.some(cat => 
                      cat.name.toLowerCase() === categorySearch.toLowerCase()
@@ -1250,7 +1346,6 @@ export default function AddProductScreen() {
                     </TouchableOpacity>
                   )}
 
-                  {/* Message si aucune catégorie */}
                   {filteredCategories.length === 0 && categorySearch.trim() === '' && (
                     <View style={styles.emptyCategories}>
                       <Text style={styles.emptyCategoriesText}>
@@ -1264,96 +1359,211 @@ export default function AddProductScreen() {
           </View>
         </View>
 
-        {/* SECTION COULEURS ET TAILLES */}
+        {/* SECTION ATTRIBUTS DYNAMIQUES */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🎨 Couleurs et Tailles</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>⚙️ Caractéristiques du produit</Text>
+            <Text style={styles.requiredLabel}>(Obligatoire)</Text>
+          </View>
           <Text style={styles.sectionSubtitle}>
-            {variantCount > 0 
-              ? `✅ ${variantCount} variantes vont être créées`
-              : 'Ajoutez des couleurs et tailles pour générer des variantes'
-            }
+            Définissez les variantes (RAM, Stockage, Couleur, Taille, etc.)
           </Text>
 
-          {/* COULEURS */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Couleurs <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.addInputContainer}>
-              <TextInput
-                style={[styles.input, styles.addInput]}
-                placeholder="Ex: Noir, Rouge, Bleu"
-                value={newColor}
-                onChangeText={setNewColor}
-                onSubmitEditing={addColor}
-              />
-              <TouchableOpacity style={styles.addButton} onPress={addColor}>
-                <Ionicons name="add" size={20} color="#FFF" />
+          {/* Sélection des attributs actifs */}
+          <View style={styles.attributeSelector}>
+            <Text style={styles.label}>Attributs à inclure :</Text>
+            <View style={styles.attributeChips}>
+              {attributes.map(attr => (
+                <TouchableOpacity
+                  key={attr.id}
+                  style={[
+                    styles.attributeChip,
+                    selectedAttributes.includes(attr.name) && styles.attributeChipActive
+                  ]}
+                  onPress={() => toggleAttribute(attr.name)}
+                >
+                  <Text style={[
+                    styles.attributeChipText,
+                    selectedAttributes.includes(attr.name) && styles.attributeChipTextActive
+                  ]}>
+                    {attr.name}
+                  </Text>
+                  {selectedAttributes.includes(attr.name) && (
+                    <TouchableOpacity 
+                      onPress={() => removeAttribute(attr.name)}
+                      style={styles.removeAttributeChip}
+                    >
+                      <Ionicons name="close" size={14} color="#FFF" />
+                    </TouchableOpacity>
+                  )}
+                </TouchableOpacity>
+              ))}
+              
+              <TouchableOpacity
+                style={styles.addAttributeChip}
+                onPress={() => setShowAddAttributeModal(true)}
+              >
+                <Ionicons name="add" size={16} color="#FF6B00" />
+                <Text style={styles.addAttributeChipText}>Ajouter</Text>
               </TouchableOpacity>
             </View>
-            
-            {variantColors.length > 0 && (
-              <View style={styles.badgesContainer}>
-                {variantColors.map((color, index) => (
-                  <Badge 
-                    key={`color-${color}-${index}`} 
-                    text={color} 
-                    onRemove={removeColor}
-                    type="color"
-                  />
-                ))}
-              </View>
-            )}
           </View>
 
-          {/* TAILLES */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>
-              Tailles/Pointures <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.addInputContainer}>
-              <TextInput
-                style={[styles.input, styles.addInput]}
-                placeholder="Ex: S, M, L, XL ou 39, 40, 41"
-                value={newSize}
-                onChangeText={setNewSize}
-                onSubmitEditing={addSize}
-              />
-              <TouchableOpacity style={styles.addButton} onPress={addSize}>
-                <Ionicons name="add" size={20} color="#FFF" />
-              </TouchableOpacity>
+          {/* Configuration de chaque attribut */}
+          {attributes.filter(attr => selectedAttributes.includes(attr.name)).map(attr => (
+            <View key={attr.id} style={styles.attributeCard}>
+              <Text style={styles.attributeTitle}>{attr.name}</Text>
+              
+              <View style={styles.addInputContainer}>
+                <TextInput
+                  style={[styles.input, styles.addInput]}
+                  placeholder={`Ajouter ${attr.name}...`}
+                  value={newAttributeValue[attr.name] || ''}
+                  onChangeText={(text) => setNewAttributeValue(prev => ({ ...prev, [attr.name]: text }))}
+                  onSubmitEditing={() => addAttributeValue(attr.name)}
+                  blurOnSubmit={false}
+                  returnKeyType="done"
+                  enablesReturnKeyAutomatically={true}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity 
+                  style={styles.addButton} 
+                  onPress={() => addAttributeValue(attr.name)}
+                >
+                  <Ionicons name="add" size={20} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+
+              {attr.values.length > 0 && (
+                <View style={styles.badgesContainer}>
+                  {attr.values.map((value, index) => (
+                    <Badge 
+                      key={`${attr.name}-${value}-${index}`}
+                      text={value}
+                      onRemove={() => removeAttributeValue(attr.name, value)}
+                      type="attribute"
+                    />
+                  ))}
+                </View>
+              )}
             </View>
-            
-            {variantSizes.length > 0 && (
-              <View style={styles.badgesContainer}>
-                {variantSizes.map((size, index) => (
-                  <Badge 
-                    key={`size-${size}-${index}`} 
-                    text={size} 
-                    onRemove={removeSize}
-                    type="size"
-                  />
-                ))}
-              </View>
-            )}
-          </View>
+          ))}
 
-          {variantCount > 0 && (
-            <View style={styles.variantsPreview}>
-              <Text style={styles.variantsPreviewTitle}>
-                ⚙️ Configuration des variantes
+          {/* Aperçu des combinaisons */}
+          {generatedVariants.length > 0 && (
+            <View style={styles.previewCombinations}>
+              <Text style={styles.previewTitle}>
+                {generatedVariants.length} combinaisons générées :
               </Text>
-              <Text style={styles.variantsPreviewText}>
-                {variantColors.length} couleur(s) × {variantSizes.length} taille(s) = {variantCount} variante(s)
-              </Text>
-              <Text style={styles.variantsPreviewDetail}>
-                Prix par variante: {finalPrice.toLocaleString()} F CFA
-                {priceAdjustment > 0 && ` (${basePrice.toLocaleString()} F + ${priceAdjustment} F)`}
-              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.combinationsRow}>
+                  {generatedVariants.slice(0, 5).map(variant => (
+                    <View key={variant.id} style={styles.combinationPreview}>
+                      {Object.entries(variant.combination).map(([key, value]) => (
+                        <Text key={key} style={styles.combinationPreviewText}>
+                          {key}: {value}
+                        </Text>
+                      ))}
+                    </View>
+                  ))}
+                  {generatedVariants.length > 5 && (
+                    <View style={styles.combinationPreview}>
+                      <Text style={styles.combinationPreviewMore}>
+                        +{generatedVariants.length - 5} autres
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
             </View>
           )}
+        </View>
 
-          {/* SECTION PERSONNALISATION */}
+        {/* SECTION CONFIGURATION DES PRIX INDIVIDUELS */}
+        {generatedVariants.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>💰 Prix individuels</Text>
+              <Text style={styles.requiredLabel}>(Modifiables)</Text>
+            </View>
+            <Text style={styles.sectionSubtitle}>
+              Ajustez le prix et le stock pour chaque configuration
+            </Text>
+
+            {generatedVariants.map((variant, index) => (
+              <View key={variant.id} style={styles.variantCard}>
+                <View style={styles.variantHeader}>
+                  <Text style={styles.variantTitle}>
+                    {Object.entries(variant.combination)
+                      .map(([key, value]) => `${value}`)
+                      .join(' • ')}
+                  </Text>
+                  <Text style={styles.variantSku} numberOfLines={1}>
+                    SKU: {variant.sku}
+                  </Text>
+                </View>
+
+                <View style={styles.attributeTags}>
+                  {Object.entries(variant.combination).map(([key, value]) => (
+                    <View key={key} style={styles.attributeTag}>
+                      <Text style={styles.attributeTagLabel}>{key}:</Text>
+                      <Text style={styles.attributeTagValue}>{value}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.variantRow}>
+                  <View style={[styles.variantInputGroup, { flex: 1, marginRight: 8 }]}>
+                    <Text style={styles.variantInputLabel}>Prix (F CFA)</Text>
+                    <TextInput
+                      style={styles.variantInput}
+                      value={variant.price.toString()}
+                      onChangeText={(text) => updateVariantPrice(variant.id, text)}
+                      keyboardType="numeric"
+                      placeholder="Prix"
+                    />
+                  </View>
+                  <View style={[styles.variantInputGroup, { flex: 1, marginLeft: 8 }]}>
+                    <Text style={styles.variantInputLabel}>Stock</Text>
+                    <TextInput
+                      style={styles.variantInput}
+                      value={variant.stock.toString()}
+                      onChangeText={(text) => updateVariantStock(variant.id, text)}
+                      keyboardType="numeric"
+                      placeholder="Stock"
+                    />
+                  </View>
+                </View>
+
+                {index < generatedVariants.length - 1 && <View style={styles.variantDivider} />}
+              </View>
+            ))}
+
+            <View style={styles.variantsSummary}>
+              <Text style={styles.variantsSummaryTitle}>📊 Récapitulatif</Text>
+              <View style={styles.variantsSummaryRow}>
+                <Text style={styles.variantsSummaryLabel}>Total configurations:</Text>
+                <Text style={styles.variantsSummaryValue}>{generatedVariants.length}</Text>
+              </View>
+              <View style={styles.variantsSummaryRow}>
+                <Text style={styles.variantsSummaryLabel}>Prix moyen:</Text>
+                <Text style={styles.variantsSummaryValue}>
+                  {Math.round(generatedVariants.reduce((sum, v) => sum + v.price, 0) / generatedVariants.length).toLocaleString()} F CFA
+                </Text>
+              </View>
+              <View style={styles.variantsSummaryRow}>
+                <Text style={styles.variantsSummaryLabel}>Stock total:</Text>
+                <Text style={styles.variantsSummaryValue}>
+                  {generatedVariants.reduce((sum, v) => sum + v.stock, 0).toLocaleString()} unités
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* SECTION PERSONNALISATION */}
+        <View style={styles.section}>
           <View style={styles.personalizationDivider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>PERSONNALISATION CLIENT</Text>
@@ -1378,7 +1588,6 @@ export default function AddProductScreen() {
                 Configurez les champs que le client devra remplir avant d'acheter
               </Text>
 
-              {/* Liste des champs */}
               <View style={styles.fieldsContainer}>
                 {personalizationFields.map((field) => (
                   <View key={field.id} style={styles.fieldItem}>
@@ -1453,7 +1662,6 @@ export default function AddProductScreen() {
                 ))}
               </View>
 
-              {/* Bouton ajouter champ personnalisé */}
               <TouchableOpacity
                 style={styles.addFieldButton}
                 onPress={() => setShowPersonalizationModal(true)}
@@ -1462,7 +1670,6 @@ export default function AddProductScreen() {
                 <Text style={styles.addFieldButtonText}>Ajouter un champ personnalisé</Text>
               </TouchableOpacity>
 
-              {/* Aperçu pour le client */}
               <View style={styles.previewContainer}>
                 <Text style={styles.previewTitle}>👁️ Aperçu client</Text>
                 <View style={styles.previewContent}>
@@ -1547,7 +1754,7 @@ export default function AddProductScreen() {
           
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Stock par variante</Text>
+              <Text style={styles.label}>Stock par défaut</Text>
               <TextInput
                 style={styles.input}
                 placeholder="10"
@@ -1601,33 +1808,52 @@ export default function AddProductScreen() {
           </View>
         </View>
 
-        {/* Livraison */}
+{/* Livraison */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🚚 Informations livraison</Text>
           
           <View style={styles.row}>
+            {/* POIDS */}
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>Poids (kg)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="0.5"
+                placeholder="0.0"
                 keyboardType="numeric"
                 value={form.weight}
                 onChangeText={(text) => setForm({...form, weight: text})}
               />
             </View>
+
+            {/* DIMENSIONS -> Calcule le Volume */}
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.label}>Dimensions (cm)</Text>
+              <Text style={styles.label}>Dimensions (L x l x h en cm)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="15x8x1"
+                placeholder="15x8x10"
                 value={form.dimensions}
-                onChangeText={(text) => setForm({...form, dimensions: text})}
+                onChangeText={(text) => {
+                  const cbm = calculateCBM(text);
+                  setForm({
+                    ...form, 
+                    dimensions: text,
+                    volume: cbm 
+                  });
+                }}
               />
             </View>
           </View>
 
-          {/* SECTION LIVRAISON GRATUITE */}
+          {/* Affichage dynamique du volume calculé */}
+          {parseFloat(form.volume || '0') > 0 && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, marginLeft: 4 }}>
+              <Ionicons name="cube-outline" size={14} color="#FF6A00" />
+              <Text style={{ fontSize: 12, color: '#FF6A00', fontWeight: '600', marginLeft: 4 }}>
+                Volume estimé : {form.volume} CBM
+              </Text>
+            </View>
+          )}
+
           <View style={[
             styles.shippingFreeSection,
             hasFreeShipping && styles.shippingFreeSectionActive
@@ -1685,7 +1911,7 @@ export default function AddProductScreen() {
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Variantes:</Text>
-            <Text style={styles.summaryValue}>{variantCount} combinaisons</Text>
+            <Text style={styles.summaryValue}>{generatedVariants.length} combinaisons</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Personnalisation:</Text>
@@ -1702,7 +1928,7 @@ export default function AddProductScreen() {
             </Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Prix normal:</Text>
+            <Text style={styles.summaryLabel}>Prix de base:</Text>
             <Text style={styles.summaryValue}>
               {basePrice.toLocaleString()} F CFA
             </Text>
@@ -1716,24 +1942,18 @@ export default function AddProductScreen() {
             </View>
           )}
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Prix final:</Text>
-            <Text style={[styles.summaryValue, styles.finalPriceValue]}>
-              {finalPrice.toLocaleString()} F CFA
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Stock total:</Text>
             <Text style={styles.summaryValue}>
-              {(Number(form.stock) * variantCount).toLocaleString()} unités
+              {generatedVariants.reduce((sum, v) => sum + v.stock, 0).toLocaleString()} unités
             </Text>
           </View>
         </View>
 
         {/* Bouton de création/mise à jour */}
         <TouchableOpacity 
-          style={[styles.submitButton, (loading || isUploading || variantCount === 0) && styles.submitButtonDisabled]} 
+          style={[styles.submitButton, (loading || isUploading || generatedVariants.length === 0) && styles.submitButtonDisabled]} 
           onPress={handleSubmit}
-          disabled={loading || isUploading || variantCount === 0}
+          disabled={loading || isUploading || generatedVariants.length === 0}
         >
           {(loading || isUploading) ? (
             <ActivityIndicator color="#FFF" />
@@ -1742,8 +1962,8 @@ export default function AddProductScreen() {
               <Ionicons name={isEditMode ? "create-outline" : "add-circle-outline"} size={20} color="#FFF" />
               <Text style={styles.submitButtonText}>
                 {isEditMode 
-                  ? `Mettre à jour ${variantCount} variante${variantCount > 1 ? 's' : ''}`
-                  : `Créer ${variantCount} variante${variantCount > 1 ? 's' : ''}`
+                  ? `Mettre à jour ${generatedVariants.length} variante${generatedVariants.length > 1 ? 's' : ''}`
+                  : `Créer ${generatedVariants.length} variante${generatedVariants.length > 1 ? 's' : ''}`
                 }
               </Text>
             </>
@@ -1753,8 +1973,90 @@ export default function AddProductScreen() {
         <View style={styles.spacer} />
       </ScrollView>
 
-      {/* Modal d'ajout de champ personnalisé */}
-      <PersonalizationModal />
+      {/* Modals - UN SEUL APPEL DU COMPOSANT AddAttributeModal */}
+      <AddAttributeModal
+        visible={showAddAttributeModal}
+        onClose={() => setShowAddAttributeModal(false)}
+        attributeName={newAttributeName}
+        setAttributeName={setNewAttributeName}
+        onAdd={addAttribute}
+        styles={styles}
+      />
+
+      {/* MODAL DE PERSONNALISATION */}
+      <Modal
+        visible={showPersonalizationModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPersonalizationModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ width: '100%', alignItems: 'center' }}
+            >
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Ajouter un champ personnalisé</Text>
+                  <TouchableOpacity onPress={() => setShowPersonalizationModal(false)}>
+                    <Ionicons name="close" size={24} color="#333" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalBody}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Nom du champ</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Ex: Date de livraison souhaitée"
+                      value={newFieldLabel}
+                      onChangeText={setNewFieldLabel}
+                      autoFocus={true}
+                      blurOnSubmit={false}
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Type de champ</Text>
+                    <View style={styles.fieldTypeContainer}>
+                      {['text', 'textarea', 'email', 'tel', 'date'].map((type) => (
+                        <TouchableOpacity
+                          key={type}
+                          style={[
+                            styles.fieldTypeButton,
+                            newFieldType === type && styles.fieldTypeButtonActive
+                          ]}
+                          onPress={() => setNewFieldType(type)}
+                        >
+                          <Text style={[
+                            styles.fieldTypeText,
+                            newFieldType === type && styles.fieldTypeTextActive
+                          ]}>
+                            {type === 'text' ? 'Texte' :
+                             type === 'textarea' ? 'Zone de texte' :
+                             type === 'email' ? 'Email' :
+                             type === 'tel' ? 'Téléphone' :
+                             'Date'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.modalAddButton}
+                    onPress={addCustomField}
+                  >
+                    <Ionicons name="add-circle" size={20} color="#FFF" />
+                    <Text style={styles.modalAddButtonText}>Ajouter le champ</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2128,11 +2430,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     gap: 6,
   },
-  colorBadge: {
-    backgroundColor: '#E3F2FD',
-  },
-  sizeBadge: {
-    backgroundColor: '#F3E5F5',
+  attributeBadge: {
+    backgroundColor: '#E8F4FD',
   },
   badgeText: {
     fontSize: 14,
@@ -2215,30 +2514,6 @@ const styles = StyleSheet.create({
   finalPriceValue: {
     color: '#FF6B00',
     fontSize: 14,
-  },
-  variantsPreview: {
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  variantsPreviewTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  variantsPreviewText: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 2,
-  },
-  variantsPreviewDetail: {
-    fontSize: 12,
-    color: '#FF6B00',
-    fontWeight: '600',
   },
   summarySection: {
     backgroundColor: '#F8F9FA',
@@ -2495,6 +2770,21 @@ const styles = StyleSheet.create({
   modalBody: {
     gap: 16,
   },
+  modalAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FF6B00',
+    padding: 14,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  modalAddButtonText: {
+    fontSize: 16,
+    color: '#FFF',
+    fontWeight: '600',
+  },
   fieldTypeContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2519,22 +2809,6 @@ const styles = StyleSheet.create({
   fieldTypeTextActive: {
     color: '#FFF',
   },
-  modalAddButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FF6B00',
-    padding: 14,
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  modalAddButtonText: {
-    fontSize: 16,
-    color: '#FFF',
-    fontWeight: '600',
-  },
-  // NOUVEAUX STYLES POUR LA LIVRAISON GRATUITE
   shippingFreeSection: {
     backgroundColor: '#F8F9FA',
     padding: 16,
@@ -2588,5 +2862,201 @@ const styles = StyleSheet.create({
   freeShippingValue: {
     color: '#10b981',
     fontWeight: 'bold',
+  },
+  // STYLES POUR LES CARTES DE VARIANTES
+  variantCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  variantHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  variantTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+  },
+  variantSku: {
+    fontSize: 11,
+    color: '#999',
+    maxWidth: '40%',
+  },
+  variantRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  variantInputGroup: {
+    flex: 1,
+  },
+  variantInputLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginBottom: 4,
+  },
+  variantInput: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 6,
+    padding: 10,
+    fontSize: 14,
+    backgroundColor: '#FFF',
+  },
+  variantDivider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  variantsSummary: {
+    marginTop: 8,
+    padding: 12,
+    backgroundColor: '#FFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+  },
+  variantsSummaryTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  variantsSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  variantsSummaryLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  variantsSummaryValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FF6B00',
+  },
+  // STYLES POUR LES ATTRIBUTS DYNAMIQUES
+  attributeSelector: {
+    marginBottom: 16,
+  },
+  attributeChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  attributeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F0F0F0',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    gap: 4,
+  },
+  attributeChipActive: {
+    backgroundColor: '#FF6B00',
+    borderColor: '#FF6B00',
+  },
+  attributeChipText: {
+    fontSize: 13,
+    color: '#666',
+  },
+  attributeChipTextActive: {
+    color: '#FFF',
+  },
+  removeAttributeChip: {
+    marginLeft: 2,
+  },
+  addAttributeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#FF6B00',
+    borderStyle: 'dashed',
+    gap: 4,
+  },
+  addAttributeChipText: {
+    fontSize: 13,
+    color: '#FF6B00',
+  },
+  attributeCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  attributeTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  previewCombinations: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#FFF7E6',
+    borderRadius: 8,
+  },
+  combinationsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  combinationPreview: {
+    backgroundColor: '#FFF',
+    borderRadius: 6,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#FFE0B2',
+    minWidth: 100,
+  },
+  combinationPreviewText: {
+    fontSize: 11,
+    color: '#666',
+  },
+  combinationPreviewMore: {
+    fontSize: 11,
+    color: '#FF6B00',
+    textAlign: 'center',
+  },
+  attributeTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  attributeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    gap: 4,
+  },
+  attributeTagLabel: {
+    fontSize: 11,
+    color: '#666',
+    fontWeight: '500',
+  },
+  attributeTagValue: {
+    fontSize: 11,
+    color: '#FF6B00',
+    fontWeight: '600',
   },
 });

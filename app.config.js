@@ -1,9 +1,9 @@
 export default {
   expo: {
-    name: "A2Express", 
+    name: "A2Express",
     slug: "assma-express",
-    // ✅ CHANGEMENT : Passer à 1.0.4 (supérieur à 1.0.3)
-    version: "1.0.4", 
+    // ✅ PASSAGE EN 1.0.5 (La 1.0.4 existe déjà sur ton store)
+    version: "1.0.5",
     orientation: "portrait",
     userInterfaceStyle: "light",
     jsEngine: "hermes",
@@ -17,25 +17,42 @@ export default {
     },
 
     updates: {
-      url: "https://u.expo.dev/bb3399ba-97b7-4707-80eb-b524775df88a"
+      url: "https://u.expo.dev/bb3399ba-97b7-4707-80eb-b524775df88a",
+      checkAutomatically: "ON_LOAD",
+      fallbackToCacheTimeout: 30000
     },
     runtimeVersion: {
       policy: "appVersion"
     },
 
+    // ✅ PLUGINS REQUIS POUR NOTIFICATIONS ET ROUTAGE
+    plugins: [
+      "expo-router",
+      "expo-notifications"
+    ],
+
     android: {
       package: "com.askia1.assmaexpress",
-      // ✅ CRUCIAL : Passer à 5 (Le code 4 est déjà utilisé sur le Store)
-      versionCode: 5, 
+      // ✅ LIEN NATIF VERS FIREBASE
+      googleServicesFile: "./google-services.json",
+      // ✅ VERSION 6 (Supérieure à la version 5 vue sur ta capture)
+      versionCode: 6,
       softwareKeyboardLayoutMode: "pan",
-      supportsRtl: false, 
+      supportsRtl: false,
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",
         backgroundColor: "#ffffff"
       },
       permissions: [
-        "CAMERA", "RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS",
-        "INTERNET", "ACCESS_NETWORK_STATE", "ACCESS_WIFI_STATE", "WAKE_LOCK"
+        "CAMERA",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
       ],
       intentFilters: [
         {
@@ -49,9 +66,9 @@ export default {
     ios: {
       supportsTablet: false,
       bundleIdentifier: "com.askia1.assmaexpress",
-      // ✅ OPTIONNEL : Aligner le buildNumber sur Android
-      buildNumber: "5",
-      supportsRtl: false, 
+      // ✅ ALIGNÉ SUR ANDROID
+      buildNumber: "6",
+      supportsRtl: false,
       infoPlist: {
         NSPhotoLibraryUsageDescription: "L'application a besoin d'accéder à vos photos.",
         NSCameraUsageDescription: "L'application a besoin d'accéder à votre caméra.",

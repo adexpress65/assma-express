@@ -18,7 +18,7 @@ export default function SupplierDashboard() {
   const [company, setCompany] = useState<any>(null);
   const [myProducts, setMyProducts] = useState<any[]>([]);
 
-  // 1. FONCTION DE RÉCUPÉRATION DES DONNÉES
+  // 1. FONCTION DE RÃ‰CUPÃ‰RATION DES DONNÃ‰ES
   const fetchData = async () => {
     try {
       const user = auth.currentUser;
@@ -27,13 +27,13 @@ export default function SupplierDashboard() {
         return;
       }
 
-      // Récupérer les infos de l'entreprise
+      // RÃ©cupÃ©rer les infos de l'entreprise
       const companySnap = await getDoc(doc(db, 'companies', user.uid));
       if (companySnap.exists()) {
         setCompany(companySnap.data());
       }
 
-      // Récupérer les produits liés à cette entreprise (via companyId)
+      // RÃ©cupÃ©rer les produits liÃ©s Ã  cette entreprise (via companyId)
       const q = query(
         collection(db, 'products'), 
         where('companyId', '==', user.uid)
@@ -63,20 +63,20 @@ export default function SupplierDashboard() {
     fetchData();
   };
 
-  // 2. ACTIONS : SUPPRIMER ET DÉCONNEXION
+  // 2. ACTIONS : SUPPRIMER ET DÃ‰CONNEXION
   const handleSignOut = async () => {
     try {
       await signOut(auth);
       router.replace('/suppliers');
     } catch (error) {
-      Alert.alert('Erreur', 'Déconnexion impossible');
+      Alert.alert('Erreur', 'DÃ©connexion impossible');
     }
   };
 
   const confirmDelete = (id: string, name: string) => {
     Alert.alert(
       "Supprimer le produit",
-      `Voulez-vous vraiment supprimer "${name}" ? Cette action est irréversible.`,
+      `Voulez-vous vraiment supprimer "${name}" ? Cette action est irrÃ©versible.`,
       [
         { text: "Annuler", style: "cancel" },
         { 
@@ -115,23 +115,32 @@ export default function SupplierDashboard() {
     >
       <Stack.Screen options={{ title: 'Espace Vendeur', headerLeft: () => null }} />
       
-      {/* HEADER */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.welcomeText}>Bonjour,</Text>
-          <Text style={styles.companyName}>{company?.name || 'Ma Boutique'}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: company?.status === 'active' ? '#D1FAE5' : '#FEF3C7' }]}>
-            <Text style={[styles.statusText, { color: company?.status === 'active' ? '#065F46' : '#92400E' }]}>
-              {company?.status === 'active' ? 'Compte Actif' : 'Vérification en cours'}
-            </Text>
-          </View>
-        </View>
-        <TouchableOpacity style={styles.logoutCircle} onPress={handleSignOut}>
-          <Ionicons name="log-out-outline" size={22} color="#EF4444" />
-        </TouchableOpacity>
-      </View>
+{/* HEADER CORRIGÃ‰ */}
+<View style={styles.header}>
+  <View>
+    <Text style={styles.welcomeText}>Bonjour,</Text>
+    <Text style={styles.companyName}>{company?.name || 'Ma Boutique'}</Text>
+    
+    {/* On pointe maintenant sur verification.status */}
+    <View style={[
+      styles.statusBadge, 
+      { backgroundColor: company?.verification?.status === 'verified' ? '#D1FAE5' : '#FEF3C7' }
+    ]}>
+      <Text style={[
+        styles.statusText, 
+        { color: company?.verification?.status === 'verified' ? '#065F46' : '#92400E' }
+      ]}>
+        {company?.verification?.status === 'verified' ? 'Compte Actif' : 'VÃ©rification en cours'}
+      </Text>
+    </View>
+  </View>
+  
+  <TouchableOpacity style={styles.logoutCircle} onPress={handleSignOut}>
+    <Ionicons name="log-out-outline" size={22} color="#EF4444" />
+  </TouchableOpacity>
+</View>
 
-      {/* COMPTABILITÉ & VENTES */}
+      {/* COMPTABILITÃ‰ & VENTES */}
 <View style={styles.accountingSection}>
   <Text style={styles.sectionTitle}>Comptabilit{"\u00E9"} & Ventes</Text>
   <View style={styles.revenueCard}>
@@ -156,16 +165,41 @@ export default function SupplierDashboard() {
         </View>
       </View>
 
-      {/* ACTIONS RAPIDES */}
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity 
-          style={styles.addBtn} 
-          onPress={() => router.push('/seller/add-product')}
-        >
-          <Ionicons name="add-circle" size={24} color="#fff" />
-          <Text style={styles.addBtnText}>Ajouter un nouveau produit</Text>
-        </TouchableOpacity>
-      </View>
+{/* ACTIONS RAPIDES - VERSION SÃ‰CURISÃ‰E */}
+<View style={styles.actionsContainer}>
+  <TouchableOpacity 
+    style={[
+      styles.addBtn, 
+      // Si pas vÃ©rifiÃ©, on change la couleur en gris
+      company?.verification?.status !== 'verified' && { backgroundColor: '#9CA3AF', elevation: 0 }
+    ]} 
+    onPress={() => {
+      if (company?.verification?.status === 'verified') {
+        router.push('/seller/add-product');
+      } else {
+        // Alerte si l'utilisateur tente de cliquer alors qu'il est en attente
+        Alert.alert(
+          "Validation requise",
+          "Votre boutique est en cours d'examen. Vous pourrez ajouter des produits dÃ¨s que l'administrateur aura validÃ© votre compte.",
+          [{ text: "Compris", style: "default" }]
+        );
+      }
+    }}
+    // Optionnel : on peut aussi utiliser la propriÃ©tÃ© disabled
+    activeOpacity={company?.verification?.status === 'verified' ? 0.7 : 1}
+  >
+    <Ionicons 
+      name={company?.verification?.status === 'verified' ? "add-circle" : "lock-closed"} 
+      size={24} 
+      color="#fff" 
+    />
+    <Text style={styles.addBtnText}>
+      {company?.verification?.status === 'verified' 
+        ? "Ajouter un nouveau produit" 
+        : "Publication verrouillÃ©e"}
+    </Text>
+  </TouchableOpacity>
+</View>
 
       {/* CATALOGUE PRODUITS */}
       <View style={styles.catalogContainer}>

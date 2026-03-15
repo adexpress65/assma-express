@@ -25,18 +25,17 @@ const COLORS = {
   textLight: '#718096',
   border: '#E2E8F0',
   white: '#FFFFFF',
-  fedapayPurple: '#662D91', // Couleur FedaPay
-  orangeOM: '#FF7900', 
+  fedapayPurple: '#662D91',
+  paydunyaBlue: '#0065ff',
 };
 
-// Mise à jour des types : On remplace PayDunya par FedaPay
-type PaymentMethodType = 'fedapay_mobile' | 'fedapay_card' | 'ngenius_card';
+type PaymentMethodType = 'fedapay_mobile' | 'fedapay_card' | 'ngenius_card' | 'paydunya';
 
 export default function PaymentScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { user } = useAuth();
-  const { formatPrice, currency } = useCurrency(); 
+  const { formatPrice } = useCurrency(); 
 
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('fedapay_mobile');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,6 +51,15 @@ export default function PaymentScreen() {
         return;
       }
       const parsed = JSON.parse(params.orderData as string);
+      
+      // ✅ SÉCURITÉ : On s'assure que tout est traité comme des nombres
+      const subtotal = parseFloat(parsed.summary.subtotal || 0);
+      const shipping = parseFloat(parsed.summary.shipping || 0);
+      
+      // On recalcule systématiquement le total pour éviter les erreurs de virgule
+      // ou les totaux à zéro qui font échouer PayDunya/FedaPay
+      parsed.summary.total = subtotal + shipping;
+      
       setOrderData(parsed);
     } catch (e) {
       console.error("Erreur parsing:", e);
@@ -64,32 +72,38 @@ export default function PaymentScreen() {
   const handlePayment = async () => {
     if (!orderData || isProcessing || !user) return;
 
+    const finalAmount = Math.round(parseFloat(orderData.summary.total));
+    
+    // 1. Log de l'envoi (Ce que ton app prépare)
+const payload = {
+  orderId: `ORD-${Date.now()}`,
+  userId: user.uid,
+  amount: finalAmount,
+  currencyCode: "XOF",
+
+  email: user.email || `${user.uid}@a2-expres.com`,
+  firstname: user.displayName?.split(' ')[0] || 'Client',
+  lastname: user.displayName?.split(' ')[1] || 'A2Express',
+
+  method: selectedMethod,
+
+  // IMPORTANT
+  items: orderData.items,
+  summary: orderData.summary,
+  shippingAddress: orderData.shippingAddress
+};
+
+    console.log("🚀 [A2Express] Envoi au Backend :", JSON.stringify(payload, null, 2));
+
     try {
       setIsProcessing(true);
-
-      const orderId = `ORD-${Date.now()}`;
-      const isFedaPay = selectedMethod.startsWith("fedapay");
-      const isNgenius = selectedMethod === "ngenius_card";
-
-      // Choix de l'endpoint selon le prestataire
-      const endpoint = isFedaPay
-        ? `${API_URL}/create-fedapay-payment`
-        : `${API_URL}/create-payment`;
-
-      const rawTotal = parseFloat(orderData.summary.total);
       
-      const payload = {
-        orderId,
-        userId: user.uid,
-        amount: Math.round(rawTotal), // FedaPay et NGenius (configuré côté backend) reçoivent l'unité
-        currencyCode: "XOF",
-        email: user.email || `${user.uid}@a2-expres.com`, // Requis pour FedaPay
-        firstname: user.displayName?.split(' ')[0] || 'Client',
-        lastname: user.displayName?.split(' ')[1] || 'A2Express',
-        method: selectedMethod,
-      };
-
-      console.log("🚀 Envoi vers :", endpoint);
+      let endpoint = `${API_URL}/create-payment`;
+      if (selectedMethod.startsWith("fedapay")) {
+        endpoint = `${API_URL}/create-fedapay-payment`;
+      } else if (selectedMethod === "paydunya") {
+        endpoint = `${API_URL}/create-paydunya-payment`;
+      }
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -99,38 +113,31 @@ export default function PaymentScreen() {
 
       const result = await response.json();
 
+      // 2. Log de la réponse (Ce que Render/PayDunya renvoie)
+      console.log("📥 [A2Express] Réponse du Serveur :", JSON.stringify(result, null, 2));
+
       if (!response.ok) {
-        throw new Error(result?.error || "Erreur lors de l'initialisation du paiement.");
+        throw new Error(result?.error || "Erreur de configuration.");
       }
 
-// ✅ Modifie la fin de ton handlePayment pour forcer le push
-const finalUrl = result?.url;
-
-if (!finalUrl) {
-  throw new Error("Lien de paiement non reçu.");
-}
-
-console.log("🔗 Ouverture de la WebView :", finalUrl);
-
-// Utilise replace au lieu de push pour éviter de revenir en arrière
-// et assure-toi qu'aucune autre logique ne vient interférer
-router.push({
-  pathname: "/checkout/payment-webview",
-  params: {
-    paymentUrl: finalUrl,
-    orderId,
-    userId: user.uid,
-    orderData: JSON.stringify(orderData),
-  },
-});
-
+      if (result?.url) {
+        router.push({
+          pathname: "/checkout/payment-webview" as any,
+          params: {
+            paymentUrl: result.url,
+            orderId: payload.orderId,
+            userId: user.uid,
+            orderData: JSON.stringify(orderData),
+          },
+        });
+      }
     } catch (error: any) {
+      console.error("❌ [A2Express] Erreur Paiement :", error.message);
       Alert.alert("Paiement indisponible", error.message);
     } finally {
       setIsProcessing(false);
     }
   };
-
   const renderMethodCard = (id: PaymentMethodType, title: string, subtitle: string, icon: any, color: string) => (
     <TouchableOpacity 
       style={[
@@ -164,46 +171,12 @@ router.push({
         <Text style={styles.headerSubtitle}>Sélectionnez votre méthode préférée</Text>
 
         <View style={styles.methodsList}>
-          
-          {/* FEDAPAY - MOBILE MONEY */}
-          {renderMethodCard(
-            'fedapay_mobile', 
-            'Mobile Money (FedaPay)', 
-            'Orange, MTN, Moov, Wave', 
-            'phone-portrait-outline', 
-            COLORS.fedapayPurple
-          )}
-
-          {/* FEDAPAY - CARTE ALTERNATIVE */}
-          {renderMethodCard(
-            'fedapay_card', 
-            'Carte Bancaire (FedaPay)', 
-            'Option de secours Visa/MasterCard', 
-            'card-outline', 
-            COLORS.fedapayPurple
-          )}
-
-          {/* NGENIUS - CARTE PRINCIPALE */}
-          {renderMethodCard(
-            'ngenius_card', 
-            'Carte Internationale (Orabank)', 
-            'Visa, MasterCard via NGenius', 
-            'globe-outline', 
-            COLORS.primary
-          )}
-
-          {/* SECTION PAYDUNYA COMMENTÉE 
-          {renderMethodCard(
-            'paydunya_om', 
-            'Orange Money Mali', 
-            'Désactivé temporairement', 
-            'phone-portrait-outline', 
-            '#CCC'
-          )}
-          */}
+          {renderMethodCard('paydunya', 'PayDunya', 'Orange Money, Wave, Surtout au Sénégal/CI', 'wallet-outline', COLORS.paydunyaBlue)}
+          {renderMethodCard('fedapay_mobile', 'Mobile Money (FedaPay)', 'Orange, MTN, Moov, Wave', 'phone-portrait-outline', COLORS.fedapayPurple)}
+          {renderMethodCard('ngenius_card', 'Carte Internationale (Orabank)', 'Visa, MasterCard via NGenius', 'globe-outline', COLORS.primary)}
+          {renderMethodCard('fedapay_card', 'Carte Bancaire (FedaPay)', 'Option de secours Visa/MasterCard', 'card-outline', COLORS.fedapayPurple)}
         </View>
 
-        {/* Résumé de la commande */}
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Résumé de la transaction</Text>
           <View style={styles.summaryRow}>
@@ -214,7 +187,9 @@ router.push({
             <Text style={styles.summaryLabel}>Frais de livraison</Text>
             <Text style={styles.summaryValue}>{formatPrice(orderData.summary.shipping)}</Text>
           </View>
+          
           <View style={styles.divider} />
+          
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total à payer</Text>
             <Text style={styles.totalValue}>{formatPrice(orderData.summary.total)}</Text>
@@ -239,7 +214,7 @@ router.push({
         <View style={styles.securityNote}>
           <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.textLight} />
           <Text style={styles.securityNoteText}>
-            Paiement sécurisé via FedaPay & NGenius.
+            Paiement sécurisé via PayDunya, FedaPay & NGenius.
           </Text>
         </View>
 

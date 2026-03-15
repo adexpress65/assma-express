@@ -11,6 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
+import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import LoginModal from '@/components/account/LoginModal';
 import { useRouter } from 'expo-router';
@@ -19,7 +20,7 @@ import { db } from '@/config/firebase';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-// Types pour les icÙnes
+// Types pour les ic√¥nes
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface Product {
@@ -39,18 +40,19 @@ interface Product {
 
 export default function AccountScreen() {
   const { user, userRole, logout } = useAuth();
+  const { orders } = useOrders() as any; // R√©cup√®re les vraies commandes ici
   const [loginModalVisible, setLoginModalVisible] = useState(false);
   const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  // Charger les produits tendances - MODIFI…: limit ‡ 20
+  // Charger les produits tendances - MODIFI√â: limit √† 20
   useEffect(() => {
     const fetchTrendingProducts = async () => {
       try {
         setLoading(true);
         
-        // RÈcupÈrer les produits avec trending = true
+        // R√©cup√©rer les produits avec trending = true
         const productsRef = collection(db, 'products');
         const q = query(
           productsRef,
@@ -58,7 +60,7 @@ export default function AccountScreen() {
           where('status', '==', 'published'),
           where('isActive', '==', true),
           orderBy('createdAt', 'desc'),
-          limit(20) // MODIFI…: de 10 ‡ 20
+          limit(20) // MODIFI√â: de 10 √† 20
         );
 
         const querySnapshot = await getDocs(q);
@@ -82,7 +84,7 @@ export default function AccountScreen() {
           });
         });
 
-        // Si pas assez de produits trending, rÈcupÈrer des produits featured
+        // Si pas assez de produits trending, r√©cup√©rer des produits featured
         if (products.length < 3) {
           const featuredQuery = query(
             productsRef,
@@ -96,7 +98,7 @@ export default function AccountScreen() {
           const featuredSnapshot = await getDocs(featuredQuery);
           featuredSnapshot.forEach((doc) => {
             const data = doc.data();
-            // VÈrifier si le produit n'est pas dÈj‡ dans la liste
+            // V√©rifier si le produit n'est pas d√©j√† dans la liste
             if (!products.find(p => p.id === doc.id)) {
               products.push({
                 id: doc.id,
@@ -116,7 +118,7 @@ export default function AccountScreen() {
           });
         }
 
-        // Si toujours pas assez, rÈcupÈrer les nouveaux produits
+        // Si toujours pas assez, r√©cup√©rer les nouveaux produits
         if (products.length < 3) {
           const newArrivalsQuery = query(
             productsRef,
@@ -147,16 +149,16 @@ export default function AccountScreen() {
             });
           });
 
-          // MÈlanger et prendre 20 produits
+          // M√©langer et prendre 20 produits
           const shuffled = [...allProducts].sort(() => 0.5 - Math.random());
           const selected = shuffled.slice(0, 20);
           setTrendingProducts(selected);
         } else {
-          setTrendingProducts(products.slice(0, 20)); // MODIFI…: de 3 ‡ 20
+          setTrendingProducts(products.slice(0, 20)); // MODIFI√â: de 3 √† 20
         }
       } catch (error) {
         console.error('Error fetching trending products:', error);
-        // Utiliser des produits par dÈfaut en cas d'erreur
+        // Utiliser des produits par d√©faut en cas d'erreur
         setTrendingProducts(getDefaultProducts());
       } finally {
         setLoading(false);
@@ -166,7 +168,7 @@ export default function AccountScreen() {
     fetchTrendingProducts();
   }, []);
 
-  // Fonction pour les produits par dÈfaut
+  // Fonction pour les produits par d√©faut
   const getDefaultProducts = (): Product[] => {
     return [
       {
@@ -185,7 +187,7 @@ export default function AccountScreen() {
     ];
   };
 
-  // Navigation avec vÈrification rÙle
+  // Navigation avec v√©rification r√¥le
   const navigateToMessages = () => {
     if (!user) {
       setLoginModalVisible(true);
@@ -302,7 +304,7 @@ export default function AccountScreen() {
     }
   };
 
-  // MODIFI…: Route vers /suppliers au lieu de /become-seller
+  // MODIFI√â: Route vers /suppliers au lieu de /become-seller
   const navigateToBecomeSeller = () => {
     if (!user) {
       setLoginModalVisible(true);
@@ -327,7 +329,7 @@ export default function AccountScreen() {
     router.push(`/product/${productId}`);
   };
 
-  // MODIFI…: CommentÈ - plus utilisÈ car le bouton Voir tout est cachÈ
+  // MODIFI√â: Comment√© - plus utilis√© car le bouton Voir tout est cach√©
   // const navigateToAllProducts = () => {
   //   router.push('/products/trending');
   // };
@@ -424,15 +426,15 @@ export default function AccountScreen() {
           
           <View style={profileStyles.stats}>
             <TouchableOpacity style={profileStyles.stat} onPress={navigateToFavorites}>
-              <Text style={profileStyles.statNumber}>12</Text>
+              <Text style={profileStyles.statNumber}>0</Text>
               <Text style={profileStyles.statLabel}>Favoris</Text>
             </TouchableOpacity>
             <TouchableOpacity style={profileStyles.stat} onPress={navigateToOrders}>
-              <Text style={profileStyles.statNumber}>5</Text>
+              <Text style={profileStyles.statNumber}>{user ? (orders?.length || 0) : 0}</Text>
               <Text style={profileStyles.statLabel}>Commandes</Text>
             </TouchableOpacity>
             <TouchableOpacity style={profileStyles.stat} onPress={navigateToMessages}>
-              <Text style={profileStyles.statNumber}>3</Text>
+              <Text style={profileStyles.statNumber}>0</Text>
               <Text style={profileStyles.statLabel}>Messages</Text>
             </TouchableOpacity>
           </View>
@@ -454,17 +456,17 @@ export default function AccountScreen() {
     );
   };
 
-  // Services Section - MODIFI…: CommentÈ tous les boutons sauf Commandes, Messages, Paiement
+  // Services Section - MODIFI√â: Comment√© tous les boutons sauf Commandes, Messages, Paiement
   const ServicesSection = () => {
     const services: { icon: IoniconsName; title: string; color: string; count: number | null; onPress: () => void }[] = [
-      // { icon: 'heart-outline', title: 'Favoris', color: '#FF4444', count: 12, onPress: navigateToFavorites }, // COMMENT…
-      { icon: 'cube-outline', title: 'Commandes', color: '#4CAF50', count: 5, onPress: navigateToOrders },
-      { icon: 'chatbubble-outline', title: 'Messages', color: '#2196F3', count: 3, onPress: navigateToMessages },
-      // { icon: 'videocam-outline', title: 'Live', color: '#FF0000', count: null, onPress: navigateToLive }, // COMMENT…
+      // { icon: 'heart-outline', title: 'Favoris', color: '#FF4444', count: 0, onPress: navigateToFavorites }, // COMMENT√â
+      { icon: 'cube-outline', title: 'Commandes', color: '#4CAF50', count: user ? (orders?.length || 0) : 0, onPress: navigateToOrders },
+      { icon: 'chatbubble-outline', title: 'Messages', color: '#2196F3', count: 0, onPress: navigateToMessages },
+      // { icon: 'videocam-outline', title: 'Live', color: '#FF0000', count: null, onPress: navigateToLive }, // COMMENT√â
       { icon: 'card-outline', title: 'Paiement', color: '#FF9800', count: null, onPress: navigateToPayment },
-      // { icon: 'ticket-outline', title: 'Coupons', color: '#9C27B0', count: 2, onPress: navigateToCoupons }, // COMMENT…
-      // { icon: 'location-outline', title: 'Adresses', color: '#795548', count: null, onPress: navigateToAddresses }, // COMMENT…
-      // { icon: 'shield-checkmark-outline', title: 'Garantie', color: '#607D8B', count: null, onPress: navigateToWarranty }, // COMMENT…
+      // { icon: 'ticket-outline', title: 'Coupons', color: '#9C27B0', count: 0, onPress: navigateToCoupons }, // COMMENT√â
+      // { icon: 'location-outline', title: 'Adresses', color: '#795548', count: null, onPress: navigateToAddresses }, // COMMENT√â
+      // { icon: 'shield-checkmark-outline', title: 'Garantie', color: '#607D8B', count: null, onPress: navigateToWarranty }, // COMMENT√â
     ];
 
     return (
@@ -510,8 +512,8 @@ export default function AccountScreen() {
       switch (userRole) {
         case 'super-admin': return 'Super Administration';
         case 'admin': return 'Administration';
-        case 'seller': return 'Vendre sur Assma Express';
-        default: return 'Vendre sur Assma Express';
+        case 'seller': return 'Vendre sur A2Express';
+        default: return 'Vendre sur A2Express';
       }
     };
 
@@ -587,7 +589,7 @@ export default function AccountScreen() {
     );
   };
 
-  // Products Section avec produits reels - MODIFI…: bouton Voir tout cachÈ
+  // Products Section avec produits reels - MODIFI√â: bouton Voir tout cach√©
   const ProductsSection = () => {
     const formatPrice = (price: number) => {
       return price.toLocaleString('fr-FR') + ' XOF';
@@ -624,7 +626,7 @@ export default function AccountScreen() {
       <View style={productsStyles.container}>
         <View style={productsStyles.header}>
           <Text style={productsStyles.sectionTitle}>Produits Tendances</Text>
-          {/* MODIFI…: Bouton Voir tout cachÈ */}
+          {/* MODIFI√â: Bouton Voir tout cach√© */}
           {/* <TouchableOpacity style={productsStyles.seeAllButton} onPress={navigateToAllProducts}>
             <Text style={productsStyles.seeAllText}>Voir tout</Text>
             <Ionicons name="arrow-forward" size={16} color="#FF6B00" />
@@ -700,7 +702,7 @@ export default function AccountScreen() {
     );
   };
 
-  // CTA Devenir Vendeur - MODIFI…: avec nouvelle route vers /suppliers
+  // CTA Devenir Vendeur - MODIFI√â: avec nouvelle route vers /suppliers
   const BecomeSellerCta = () => {
     if (userRole === 'seller' || userRole === 'admin' || userRole === 'super-admin') {
       return null;
@@ -710,7 +712,7 @@ export default function AccountScreen() {
       <View style={ctaStyles.container}>
         <View style={ctaStyles.content}>
           <View style={ctaStyles.textContent}>
-            <Text style={ctaStyles.title}>Devenez Vendeur sur Assma Express</Text>
+            <Text style={ctaStyles.title}>Devenez Vendeur sur A2Express</Text>
             <Text style={ctaStyles.subtitle}>
               Developpez votre business en ligne et atteignez des millions de clients
             </Text>

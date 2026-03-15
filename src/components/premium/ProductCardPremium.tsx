@@ -1,5 +1,3 @@
-// ProductCardPremium.tsx (extrait modifié)
-
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
@@ -14,7 +12,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import useAppNavigation from '../../hooks/useAppNavigation';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { useRouter } from 'expo-router';
 import { useCurrency } from '../../contexts/CurrencyContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -40,6 +40,8 @@ interface Product {
   category?: string;
   minOrderQuantity?: number;
   moq?: number;
+  hasFreeShipping?: boolean;
+  originalLink?: string;
 }
 
 interface Props {
@@ -49,7 +51,7 @@ interface Props {
   showCategory?: boolean;
   isCategoryPage?: boolean;
   isProductDetail?: boolean;
-  disableInternalPress?: boolean; // NOUVELLE PROP
+  disableInternalPress?: boolean;
 }
 
 const PRESS_SCALE = 0.98;
@@ -65,34 +67,45 @@ export default function ProductCardPremium({
 }: Props) {
   const { t } = useTranslation();
   const { currency } = useCurrency();
+  const router = useRouter();
 
   const [isFavorite, setIsFavorite] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const heartScale = useRef(new Animated.Value(1)).current;
 
-  const { navigateTo } = useAppNavigation();
+const allImages = useMemo(() => {
+  let list = [];
+  if (product.images && product.images.length > 0) {
+    list = [...product.images];
+  } else {
+    list = [product.mainImage || product.imageUrl || ""];
+  }
 
-  const allImages = useMemo(() => {
-    let list = [];
-    if (product.images && product.images.length > 0) {
-      list = [...product.images];
-    } else {
-      list = [product.mainImage || product.imageUrl || ""];
-    }
-
-    return list.map(url => {
-      if (!url) return `https://via.placeholder.com/600x600/f5f5f5/cccccc?text=${encodeURIComponent(product.name.slice(0, 15))}`;
+  return list
+    .filter(Boolean)
+    .map(url => {
+      // 🔧 NETTOYAGE : Trim l'URL
+      if (!url || typeof url !== 'string') return null;
+      url = url.trim();
+      
+      if (!url) return null;
+      
       if (url.includes("firebasestorage.googleapis.com") && !url.includes("alt=media")) {
         return url.includes("?") ? `${url}&alt=media` : `${url}?alt=media`;
       }
       return url;
-    });
-  }, [product.images, product.mainImage, product.imageUrl, product.name]);
+    })
+    .filter(Boolean); // Enlever les nulls
+}, [product.images, product.mainImage, product.imageUrl]);
 
-  const currentImageUrl = allImages[currentImageIndex];
+// 🔧 PROTECTION : S'assurer qu'il y a toujours au moins une image
+const safeImages = allImages.length > 0 ? allImages : [''];
+const currentImageUrl = safeImages[currentImageIndex] || '';
 
   useEffect(() => {
     if (allImages.length <= 1) return;
@@ -129,17 +142,74 @@ export default function ProductCardPremium({
     }
   }, [disableInternalPress]);
 
-  const handleProductPress = useCallback(() => {
+  // NAVIGATION EN 2 ÉTAPES CORRIGÉE
+  const handleProductPress = useCallback(async () => {
+    // BUG 2 CORRIGÉ : Vérification stricte du disableInternalPress
+    if (disableInternalPress) {
+      console.log('🚫 Navigation interne désactivée');
+      return;
+    }
+
     if (onPress) {
       onPress();
       return;
     }
-    if (isCategoryPage || isProductDetail) {
-      navigateTo.productDetailDirect(product.id);
-    } else {
-      navigateTo.productDetail(product.id, product.categoryId || 'all');
+
+    console.log('🔄 Navigation en 2 étapes vers produit:', product.id);
+    setLoading(true);
+
+    try {
+      // Vérifier si c'est un lien externe
+      if (product.originalLink) {
+        console.log('🔗 Lien externe détecté');
+        router.push({
+          pathname: "/webview",
+          params: { url: product.originalLink, title: product.name },
+        });
+        return;
+      }
+
+      // ÉTAPE 1: Charger le produit complet depuis Firestore
+      console.log('📦 Étape 1 - Chargement Firestore pour:', product.id);
+      const productRef = doc(db, 'products', product.id);
+      const productSnap = await getDoc(productRef);
+      
+      if (productSnap.exists()) {
+        const fullProduct = {
+          id: productSnap.id,
+          ...productSnap.data()
+        };
+        console.log('✅ Produit chargé avec succès');
+        
+        // ÉTAPE 2: Navigation avec les données complètes
+        console.log('➡️ Étape 2 - Navigation vers fiche produit');
+        
+        // Utiliser le bon chemin selon le contexte
+        if (isCategoryPage || isProductDetail) {
+          router.push(`/product/${product.id}`);
+        } else {
+          router.push({
+            pathname: `/product/${product.id}`,
+            params: { 
+              productData: JSON.stringify(fullProduct),
+              fromList: 'true',
+              categoryId: product.categoryId || 'all'
+            }
+          });
+        }
+      } else {
+        console.warn('⚠️ Produit non trouvé dans Firestore');
+        // Fallback: navigation simple
+        router.push(`/product/${product.id}`);
+      }
+    } catch (error) {
+      console.error('❌ Erreur navigation produit:', error);
+      // Fallback en cas d'erreur
+      router.push(`/product/${product.id}`);
+    } finally {
+      setLoading(false);
     }
-  }, [onPress, isCategoryPage, isProductDetail, navigateTo, product.id, product.categoryId]);
+  }, [onPress, disableInternalPress, product, router, isCategoryPage, isProductDetail]);
 
   const toggleFavorite = useCallback((e: any) => {
     e.stopPropagation();
@@ -178,7 +248,6 @@ export default function ProductCardPremium({
 
   const moq = product.minOrderQuantity || product.minOrder || product.moq || 1;
 
-  // Déterminer le composant conteneur et ses props
   const ContainerComponent = disableInternalPress ? View : TouchableOpacity;
   const containerProps = disableInternalPress
     ? {}
@@ -187,26 +256,48 @@ export default function ProductCardPremium({
         onPress: handleProductPress,
         onPressIn: handlePressIn,
         onPressOut: handlePressOut,
-        // On enlève disabled pour permettre la navigation même si rupture de stock
-        // disabled: false, // plus besoin
+        disabled: loading,
       };
 
-  return (
+return (
     <View style={[styles.container, style]}>
       <Animated.View style={{ transform: [{ scale: disableInternalPress ? 1 : scaleAnim }] }}>
         <ContainerComponent {...containerProps}>
           <View style={styles.imageContainer}>
-            {imageError ? (
+            {loading && (
+              <View style={styles.loadingOverlay}>
+                <Ionicons name="sync" size={24} color="#ff6a00" />
+              </View>
+            )}
+            
+            {/* Gestion des états de chargement et d'erreur */}
+            {imageLoading && !imageError ? (
+              <View style={styles.imageFallback}>
+                <Ionicons name="sync" size={32} color="#ff6a00" />
+              </View>
+            ) : imageError ? (
               <View style={styles.imageFallback}>
                 <Ionicons name="image-outline" size={32} color="#ccc" />
               </View>
-            ) : (
+            ) : currentImageUrl ? (
               <Image
                 source={{ uri: currentImageUrl }}
                 style={styles.productImage}
                 resizeMode="cover"
-                onError={() => setImageError(true)}
+                onLoadStart={() => setImageLoading(true)}
+                onLoadEnd={() => {
+                  setImageLoading(false);
+                  setImageError(false);
+                }}
+                onError={() => {
+                  setImageError(true);
+                  setImageLoading(false);
+                }}
               />
+            ) : (
+              <View style={styles.imageFallback}>
+                <Ionicons name="image-outline" size={32} color="#ccc" />
+              </View>
             )}
 
             {discount > 0 && (
@@ -219,6 +310,7 @@ export default function ProductCardPremium({
               style={styles.favoriteButton}
               onPress={toggleFavorite}
               activeOpacity={0.8}
+              disabled={loading}
             >
               <Animated.View style={{ transform: [{ scale: heartScale }] }}>
                 <Ionicons
@@ -229,7 +321,7 @@ export default function ProductCardPremium({
               </Animated.View>
             </TouchableOpacity>
 
-            {allImages.length > 1 && (
+            {allImages.length > 1 && !loading && !imageLoading && (
               <View style={styles.pagination}>
                 {allImages.map((_, i) => (
                   <View
@@ -265,6 +357,13 @@ export default function ProductCardPremium({
               )}
             </View>
 
+            {product.hasFreeShipping && (
+              <View style={styles.freeShippingContainer}>
+                <Ionicons name="airplane-outline" size={12} color="#00B050" />
+                <Text style={styles.freeShippingText}>Livraison gratuite</Text>
+              </View>
+            )}
+
             <Text style={styles.moqText}>MOQ: {moq} pcs</Text>
 
             <View style={styles.supplierRow}>
@@ -289,24 +388,23 @@ export default function ProductCardPremium({
       </Animated.View>
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
-    width: '100%', // MODIFIÉ: Prend toute la largeur disponible du parent
-    marginBottom: 16, // MODIFIÉ: Plus d'espacement vertical
-    // MODIFIÉ: Suppression de marginHorizontal ici (géré par le parent)
+    width: '100%',
+    marginBottom: 16,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 3 }, // Ombre plus prononcée
+        shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.12,
         shadowRadius: 10,
         backgroundColor: '#fff',
-        borderRadius: 16, // Coins plus arrondis pour look premium
+        borderRadius: 16,
       },
       android: {
-        elevation: 4, // Ombre plus forte
+        elevation: 4,
         backgroundColor: '#fff',
         borderRadius: 16,
       },
@@ -314,7 +412,7 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     position: 'relative',
-    height: 180, // MODIFIÉ: Images plus grandes (160 -> 180)
+    height: 180,
     backgroundColor: '#fafafa',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
@@ -390,37 +488,64 @@ const styles = StyleSheet.create({
     width: 8,
     backgroundColor: '#fff',
   },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
   infoContainer: {
-    padding: 14, // MODIFIÉ: Plus de padding interne (10 -> 14)
+    padding: 14,
   },
   productName: {
-    fontSize: 14, // MODIFIÉ: Texte plus grand (13 -> 14)
-    fontWeight: '600', // MODIFIÉ: Plus gras
-    color: '#1a1a1a', // MODIFIÉ: Noir plus profond
-    lineHeight: 20, // MODIFIÉ: Meilleur interligne
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    lineHeight: 20,
     marginBottom: 6,
-    minHeight: 40, // MODIFIÉ: Hauteur ajustée
+    minHeight: 40,
   },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    marginBottom: 4, // MODIFIÉ: Plus d'espacement
+    marginBottom: 4,
   },
   price: {
-    fontSize: 18, // MODIFIÉ: Prix plus visible (16 -> 18)
-    fontWeight: '800', // MODIFIÉ: Extra bold
+    fontSize: 18,
+    fontWeight: '800',
     color: '#ff6600',
     letterSpacing: -0.5,
   },
   oldPrice: {
     marginLeft: 8,
-    fontSize: 12, // MODIFIÉ: Plus grand
+    fontSize: 12,
     color: '#999',
     textDecorationLine: 'line-through',
   },
+  freeShippingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 6,
+    alignSelf: 'flex-start',
+  },
+  freeShippingText: {
+    fontSize: 10,
+    color: '#00B050',
+    fontWeight: '700',
+    marginLeft: 4,
+  },
   moqText: {
-    fontSize: 12, // MODIFIÉ: Plus lisible (11 -> 12)
-    color: '#555', // MODIFIÉ: Gris plus foncé
+    fontSize: 12,
+    color: '#555',
     marginBottom: 6,
     fontWeight: '500',
   },
@@ -430,7 +555,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   supplierText: {
-    fontSize: 12, // MODIFIÉ: Plus grand
+    fontSize: 12,
     color: '#555',
     flex: 1,
     fontWeight: '500',

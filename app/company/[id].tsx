@@ -12,7 +12,8 @@ import {
   TextInput,
   Linking,
   Modal,
-  RefreshControl
+  RefreshControl,
+  ScrollView
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -766,22 +767,70 @@ export default function CompanyProfile() {
     </View>
   ), []);
 
-  const renderAbout = useCallback(() => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>À propos</Text>
-      <Text style={styles.description}>{company?.description || 'Aucune description disponible.'}</Text>
-      {Array.isArray(company?.mainProducts) && company.mainProducts.length > 0 && (
-        <>
-          <Text style={styles.subsectionTitle}>Produits principaux</Text>
-          <View style={styles.tagContainer}>
-            {company.mainProducts.map((p, i) => (
-              <View key={`main-${i}`} style={styles.tag}><Text style={styles.tagText}>{p}</Text></View>
-            ))}
-          </View>
-        </>
-      )}
+const renderAbout = useCallback(() => (
+  <View style={styles.section}>
+    <Text style={styles.sectionTitle}>À propos</Text>
+    <Text style={styles.description}>{company?.description || 'Aucune description disponible.'}</Text>
+    
+    {/* 1. Informations professionnelles */}
+    <View style={styles.businessDetailsContainer}>
+      <Text style={styles.subsectionTitle}>Détails de l'entreprise</Text>
+      
+      <View style={styles.detailItem}>
+        <Ionicons name="people-outline" size={20} color="#666" />
+        <View style={styles.detailTextContainer}>
+          <Text style={styles.detailLabel}>Nombre d'employés</Text>
+          <Text style={styles.detailValue}>{company?.employees || 'Non spécifié'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.detailItem}>
+        <Ionicons name="stats-chart-outline" size={20} color="#666" />
+        <View style={styles.detailTextContainer}>
+          <Text style={styles.detailLabel}>Chiffre d'affaires</Text>
+          <Text style={styles.detailValue}>{company?.annualRevenue || 'Non spécifié'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.detailItem}>
+        <Ionicons name="business-outline" size={20} color="#666" />
+        <View style={styles.detailTextContainer}>
+          <Text style={styles.detailLabel}>Secteur d'activité</Text>
+          <Text style={styles.detailValue}>{company?.businessType || 'Non spécifié'}</Text>
+        </View>
+      </View>
     </View>
-  ), [company]);
+
+    {/* 2. Certifications (NOUVEAU) */}
+    {Array.isArray(company?.certifications) && company.certifications.length > 0 && (
+      <View style={styles.certSection}>
+        <Text style={styles.subsectionTitle}>Certifications & Qualité</Text>
+        <View style={styles.certList}>
+          {company.certifications.map((cert, i) => (
+            <View key={`cert-${i}`} style={styles.certItem}>
+              <Ionicons name="ribbon-outline" size={18} color="#FF6B00" />
+              <Text style={styles.certText}>{cert}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    )}
+
+    {/* 3. Produits principaux */}
+    {Array.isArray(company?.mainProducts) && company.mainProducts.length > 0 && (
+      <View style={{ marginTop: 20 }}>
+        <Text style={styles.subsectionTitle}>Produits principaux</Text>
+        <View style={styles.tagContainer}>
+          {company.mainProducts.map((p, i) => (
+            <View key={`main-${i}`} style={styles.tag}>
+              <Text style={styles.tagText}>{p}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    )}
+  </View>
+), [company]);
 
   const renderFooter = useCallback(() => {
     if (loadingMore) {
@@ -889,16 +938,9 @@ export default function CompanyProfile() {
           bounces={true}
         />
       ) : (
-        <FlatList
-          data={[]}
-          renderItem={null}
-          ListHeaderComponent={
-            <>
-              {renderHeader()}
-              <View style={styles.aboutContainer}>{renderAbout()}</View>
-            </>
-          }
-          contentContainerStyle={styles.listContent}
+<ScrollView 
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 100 }]} // Le paddingBottom évite que le bouton chat cache le texte
           refreshControl={
             <RefreshControl 
               refreshing={refreshing} 
@@ -907,8 +949,12 @@ export default function CompanyProfile() {
               tintColor="#FF6B00"
             />
           }
-          removeClippedSubviews={true}
-        />
+        >
+          {renderHeader()}
+          <View style={styles.aboutContainer}>
+            {renderAbout()}
+          </View>
+        </ScrollView>
       )}
 	  
       <TouchableOpacity 
@@ -1016,6 +1062,62 @@ const styles = StyleSheet.create({
     borderRadius: 6, 
     borderWidth: 1, 
     borderColor: '#FFB800' 
+  },
+  businessDetailsContainer: {
+    marginTop: 20,
+    backgroundColor: '#F8FAFC',
+    padding: 15,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  detailTextContainer: {
+    marginLeft: 12,
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  detailValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginTop: 2,
+  },
+  subsectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
+    marginTop: 5,
+  },
+  certSection: {
+    marginTop: 25,
+  },
+  certList: {
+    backgroundColor: '#F0F9FF',
+    padding: 12,
+    borderRadius: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: '#0EA5E9',
+  },
+  certItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  certText: {
+    fontSize: 14,
+    color: '#0369A1',
+    fontWeight: '500',
+    marginLeft: 8,
   },
   reviewRating: { color: '#FFB800', fontWeight: 'bold', fontSize: 12 },
   reviewComment: { fontSize: 14, color: '#666', lineHeight: 20 },

@@ -204,7 +204,7 @@ export default function PremiumHeader() {
             </View>
 
             <View style={styles.statsContainer}>
-              <View style={styles.statItem}><Text style={styles.statNumber}>50K+</Text><Text style={styles.statLabel}>{t('common.products')}</Text></View>
+              <View style={styles.statItem}><Text style={styles.statNumber}>50M+</Text><Text style={styles.statLabel}>{t('common.products')}</Text></View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}><Text style={styles.statNumber}>10K+</Text><Text style={styles.statLabel}>{t('common.suppliers')}</Text></View>
               <View style={styles.statDivider} />

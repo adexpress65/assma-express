@@ -30,7 +30,7 @@ export default function HybridMessagesScreen() {
   const { conversations, loading, createConversation, refreshConversations } = useMessages();
   const insets = useSafeAreaInsets();
 
-  const [activeTab, setActiveTab] = useState<'social' | 'business' | 'shopping'>('business'); // Changé à 'business' par défaut
+  const [activeTab, setActiveTab] = useState<'social' | 'business' | 'shopping'>('business'); // ChangÃ© Ã  'business' par dÃ©faut
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -163,7 +163,7 @@ export default function HybridMessagesScreen() {
         <Text style={styles.tabSubtitle}>Entrepreneurs, vendeurs et support</Text>
       </View>
       
-      {/* ? NOUVEAU : Bannière pour contacter les entrepreneurs */}
+      {/* ? NOUVEAU : BanniÃ¨re pour contacter les entrepreneurs */}
       <TouchableOpacity 
         style={styles.entrepreneurBanner}
         onPress={() => router.push('/search-entrepreneurs')}
@@ -176,7 +176,7 @@ export default function HybridMessagesScreen() {
           <View style={styles.bannerTextContainer}>
             <Text style={styles.bannerTitle}>Contacter un entrepreneur</Text>
             <Text style={styles.bannerSubtitle}>
-              Discutez directement avec les créateurs et innovateurs
+              Discutez directement avec les crÃ©ateurs et innovateurs
             </Text>
             <View style={styles.bannerBadge}>
               <Ionicons name="chatbubble" size={12} color="#FF6B00" />
@@ -331,7 +331,7 @@ export default function HybridMessagesScreen() {
         });
       }
     } catch (error) {
-      Alert.alert("Erreur", "Impossible de créer la conversation");
+      Alert.alert("Erreur", "Impossible de crÃ©er la conversation");
       console.error(error);
     }
   };

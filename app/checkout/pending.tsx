@@ -10,24 +10,39 @@ export default function PendingScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const [status, setStatus] = useState<'pending' | 'paid' | 'failed'>('pending');
 
-  useEffect(() => {
-    if (!orderId) return;
+useEffect(() => {
+  if (!orderId) return;
 
-    const unsub = onSnapshot(doc(db, "orders", orderId), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.status === 'paid') { // Détecte le changement du backend
-          setStatus('paid');
-          setTimeout(() => {
-            router.replace({ pathname: '/checkout/confirmation', params: { status: 'success', orderId } });
-          }, 2000);
-        } else if (data.status === 'failed') {
-          setStatus('failed');
-        }
-      }
-    });
-    return () => unsub();
-  }, [orderId]);
+  const orderRef = doc(db, "orders", orderId);
+
+  const unsub = onSnapshot(orderRef, (docSnap) => {
+    if (!docSnap.exists()) {
+      setStatus("failed");
+      return;
+    }
+
+    const data = docSnap.data();
+
+    if (data.status === "paid") {
+      setStatus("paid");
+
+      setTimeout(() => {
+        router.replace({
+          pathname: "/checkout/confirmation",
+          params: { status: "success", orderId },
+        });
+      }, 2000);
+
+    } else if (data.status === "failed") {
+      setStatus("failed");
+    }
+  });
+
+  return () => {
+    unsub();
+  };
+
+}, [orderId, router]);
 
   return (
     <View style={styles.container}>

@@ -1,4 +1,4 @@
-ï»¿// App.tsx
+// App.tsx
 import React from "react";
 import { Provider } from "react-redux";
 import { store } from "./src/store";
@@ -74,7 +74,7 @@ export default function BottomTabs() {
         tabBarIcon: ({ color, size }) => {
           let iconName: any;
           if (route.name === "Accueil") iconName = "home";
-          else if (route.name === "CatÃ©gories") iconName = "grid";
+          else if (route.name === "Catégories") iconName = "grid";
           else if (route.name === "Messagerie") iconName = "chatbubble";
           else if (route.name === "Panier") iconName = "cart";
           else if (route.name === "Profil") iconName = "person";
@@ -83,7 +83,7 @@ export default function BottomTabs() {
       })}
     >
       <Tab.Screen name="Accueil" component={HomeScreen} />
-      <Tab.Screen name="CatÃ©gories" component={CategoriesScreen} />
+      <Tab.Screen name="Catégories" component={CategoriesScreen} />
       <Tab.Screen name="Messagerie" component={MessagesScreen} />
       <Tab.Screen name="Panier" component={CartScreen} />
       <Tab.Screen name="Profil" component={ProfileScreen} />
@@ -105,7 +105,7 @@ import SearchBar from "../components/SearchBar";
 const mockProducts = [
   { id: 1, title: "Ordinateur Portable", price: "250000 FCFA", image: "https://picsum.photos/200/300" },
   { id: 2, title: "Chaise de Bureau", price: "30000 FCFA", image: "https://picsum.photos/200/301" },
-  { id: 3, title: "TÃ©lÃ©phone Android", price: "150000 FCFA", image: "https://picsum.photos/200/302" },
+  { id: 3, title: "Téléphone Android", price: "150000 FCFA", image: "https://picsum.photos/200/302" },
   { id: 4, title: "Casque Audio", price: "45000 FCFA", image: "https://picsum.photos/200/303" },
 ];
 
@@ -121,16 +121,16 @@ export default function HomeScreen() {
       <View style={styles.topTabs}>
         <Text style={styles.topTab}>Produits</Text>
         <Text style={styles.topTab}>Fabricant</Text>
-        <Text style={styles.topTab}>RÃ©gion</Text>
+        <Text style={styles.topTab}>Région</Text>
       </View>
       <CarouselBanner />
       <View style={styles.categories}>
-        <CategoryPill label="VÃªtements" onPress={() => navigation.navigate("Category", { category: "VÃªtements" })} />
+        <CategoryPill label="Vêtements" onPress={() => navigation.navigate("Category", { category: "Vêtements" })} />
         <CategoryPill label="Machines" onPress={() => navigation.navigate("Category", { category: "Machines" })} />
         <CategoryPill label="Mini Usines" onPress={() => navigation.navigate("Category", { category: "Mini Usines" })} />
-        <CategoryPill label="VÃ©hicules" onPress={() => navigation.navigate("Category", { category: "VÃ©hicules" })} />
+        <CategoryPill label="Véhicules" onPress={() => navigation.navigate("Category", { category: "Véhicules" })} />
       </View>
-      <QuickActions onExplore={() => navigation.navigate("CatÃ©gories")} onQuote={() => navigation.navigate("Chat")} />
+      <QuickActions onExplore={() => navigation.navigate("Catégories")} onQuote={() => navigation.navigate("Chat")} />
       <SectionTitle title="Produits populaires" />
       <View style={styles.products}>
         {mockProducts.map((p) => (

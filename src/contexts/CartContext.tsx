@@ -1,18 +1,15 @@
-// contexts/CartContext.tsx - VERSION CORRIGÉE
+// contexts/CartContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../config/firebase";
 
-// Taux de conversion fixe (1 USD = 650 XOF)
-const EXCHANGE_RATE = 650;
-
 export interface CartItem {
   id: string;
   cartId: string;
   name: string;
-  price: number;           // ✅ TOUJOURS en XOF (brut Firebase)
+  price: number;           // ✅ TOUJOURS en XOF
   originalCurrency: 'XOF';
   quantity: number;
   image?: string | null;
@@ -21,6 +18,7 @@ export interface CartItem {
   seller?: string | null;
   minOrder?: number | null;
   inStock?: boolean | null;
+  hasFreeShipping?: boolean; 
   variantInfo?: {
     basePrice?: number;
     priceAdjustment?: number;
@@ -40,6 +38,19 @@ interface CartContextType {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+// --- UTILITAIRES DE NETTOYAGE ---
+
+const fixFirebaseUrl = (url: any): string | null => {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    // Décode l'URL pour éviter le double encodage qui cause l'erreur 400 sur Android
+    // et retire les espaces parasites
+    return decodeURIComponent(url.trim());
+  } catch (e) {
+    return url.trim();
+  }
+};
+
 const sanitizeForFirestore = (data: any): any => {
   if (data === undefined || data === null) return null;
   if (Array.isArray(data)) return data.map(item => sanitizeForFirestore(item));
@@ -51,13 +62,15 @@ const sanitizeForFirestore = (data: any): any => {
   return data;
 };
 
+// --- PROVIDER ---
+
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const isInitialMount = useRef(true);
   const syncTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  const STORAGE_KEY = "@assma_cart";
+  const STORAGE_KEY = "@assma_cart"; // Gardé tel quel pour la compatibilité des données existantes
 
   const saneQty = (q: any): number => {
     const n = Math.floor(Number(q));
@@ -76,7 +89,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   }, []);
 
-  // 📦 LOAD LOCAL
+  // 📦 LOAD LOCAL STORAGE
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then(stored => {
       if (stored) {
@@ -87,6 +100,9 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             cartId: item.cartId || `${item.id}-${item.selectedSize || 'NS'}-${item.selectedColor || 'NS'}`,
             quantity: saneQty(item.quantity),
             originalCurrency: 'XOF',
+            // ✅ Nettoyage préventif des images stockées localement
+            image: fixFirebaseUrl(item.image),
+            hasFreeShipping: !!item.hasFreeShipping, 
           })));
         } catch (e) { console.error("Err parse local cart", e); }
       }
@@ -112,17 +128,10 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const syncToFirestore = async (uid: string, items: CartItem[]) => {
     try {
       const ref = doc(db, "users", uid, "data", "cart");
-      
-      console.log("🔥 SYNC TO FIRESTORE:", {
-        itemsCount: items.length,
-        samplePrice: items[0]?.price,
-        totalXOF: items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
-      });
-      
       const dataToSave = sanitizeForFirestore({
         items: items.map(item => ({
           ...item,
-          originalCurrency: undefined,
+          originalCurrency: undefined, // Non stocké pour alléger Firestore
         })),
         updatedAt: new Date(),
         totalPrice: items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
@@ -137,19 +146,16 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const snap = await getDoc(ref);
       if (snap.exists()) {
         const remoteItems = snap.data()?.items || [];
-        
-        console.log("🔥 MERGE FROM FIRESTORE:", {
-          remoteCount: remoteItems.length,
-          samplePrice: remoteItems[0]?.price,
-        });
-        
         setCartItems(prev => {
           const merged = [...prev];
           remoteItems.forEach((ri: any) => {
             if (!merged.find(li => li.cartId === ri.cartId)) {
               merged.push({
                 ...ri,
+                // ✅ Nettoyage des images venant du cloud
+                image: fixFirebaseUrl(ri.image),
                 originalCurrency: 'XOF',
+                hasFreeShipping: !!ri.hasFreeShipping,
               });
             }
           });
@@ -159,53 +165,37 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch (e) { console.error("Merge error", e); }
   };
 
-  // ✅ ADD TO CART - VERSION SIMPLIFIÉE ET CORRIGÉE
+  // ✅ ADD TO CART
   const addToCart = (product: any) => {
-    console.log("🔍 ADD TO CART - INPUT:", {
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      selectedSize: product.selectedSize,
-      selectedColor: product.selectedColor,
-    });
-
     setCartItems((prev) => {
       const uniqueCartId = `${product.id}-${product.selectedSize || 'NS'}-${product.selectedColor || 'NS'}`;
       const existing = prev.find((i) => i.cartId === uniqueCartId);
       const qtyToAdd = saneQty(product.quantity ?? 1);
-
-      // ✅ SIMPLIFICATION : Utiliser directement le prix fourni
-      // Le prix correct est déjà calculé dans l'écran produit
       const finalPrice = Number(product.price) || 0;
 
-      if (finalPrice === 0) {
-        console.error("❌ Prix invalide:", product);
-      }
+      const cleanStr = (str: any) => (typeof str === 'string' ? str.trim() : null);
 
       const newItem: CartItem = {
         id: product.id,
         cartId: uniqueCartId,
-        name: product.name || "Produit",
-        price: finalPrice,  // ✅ Utilise directement le prix de l'écran produit
+        name: cleanStr(product.name) || "Produit",
+        price: finalPrice,
         originalCurrency: 'XOF',
         quantity: qtyToAdd,
-        image: product.image ?? product.imageUrl ?? product.mainImage ?? null,
-        selectedSize: product.selectedSize || null,
-        selectedColor: product.selectedColor || null,
-        seller: product.seller ?? product.supplier ?? product.companyName ?? "ASMA Express",
+        // ✅ APPLICATION DU FIX IMAGE ICI
+        image: fixFirebaseUrl(product.image ?? product.imageUrl ?? product.mainImage),
+        selectedSize: cleanStr(product.selectedSize),
+        selectedColor: cleanStr(product.selectedColor),
+        seller: cleanStr(product.seller ?? product.supplier ?? product.companyName) || "A2Express",
         minOrder: Number(product.minOrder) || 1,
         inStock: product.inStock ?? true,
+        hasFreeShipping: product.hasFreeShipping ?? false, 
         variantInfo: product.variantInfo ? {
           basePrice: product.variantInfo.basePrice,
           priceAdjustment: product.variantInfo.priceAdjustment,
           variantId: product.variantInfo.variantId,
         } : null,
       };
-
-      console.log("✅ ITEM STORED:", {
-        price: newItem.price,
-        cartId: newItem.cartId,
-      });
 
       if (existing) {
         return prev.map((i) => 
@@ -214,7 +204,6 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             : i
         );
       }
-
       return [...prev, newItem];
     });
   };
@@ -235,7 +224,6 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const getTotalPrice = () => cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
-  
   const getTotalItems = () => cartItems.reduce((total, item) => total + item.quantity, 0);
 
   return (

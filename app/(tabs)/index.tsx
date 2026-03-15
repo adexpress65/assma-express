@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -28,12 +29,15 @@ import {
   orderBy,
   where,
   startAfter,
+  doc,
+  getDoc
 } from "firebase/firestore";
 import { db } from "../../src/config/firebase";
 import { useTranslation } from "react-i18next";
 import { Ionicons } from "@expo/vector-icons";
 
-// Composants Premium (suppos�s d�j� optimis�s individuellement)
+
+// Composants Premium (supposés déjà optimisés individuellement)
 import PremiumHeader from "../../src/components/premium/PremiumHeader";
 import AnimatedQuickActions from "../../src/components/premium/AnimatedQuickActions";
 import HeroBanner from "../../src/components/premium/HeroBanner";
@@ -50,7 +54,7 @@ const HEADER_HEIGHT = Platform.OS === "ios" ? 160 : 145;
 const PAGE_SIZE = 20;
 const MAX_POPULAR_PRODUCTS = 200;
 
-// Configuration du rafra�chissement al�atoire
+// Configuration du rafraîchissement aléatoire
 const ROTATION_INTERVAL_MIN = 4000;
 const ROTATION_INTERVAL_MAX = 6000;
 const ROTATION_SECTIONS = [
@@ -82,6 +86,7 @@ interface Product {
   newArrival?: boolean;
   industrial?: boolean;
   categoryName?: string;
+  categoryId?: string
   originalLink?: string;
   hasFreeShipping?: boolean;
   freeShippingBadge?: string | null;
@@ -106,7 +111,7 @@ interface HomeDataState {
   };
 }
 
-// Cache pour les produits r�cemment affich�s
+// Cache pour les produits récemment affichés
 class RotationCache {
   private cache: Map<string, Set<string>> = new Map();
   private maxSize: number = 20;
@@ -153,10 +158,182 @@ const getRandomInterval = () =>
   ) + ROTATION_INTERVAL_MIN;
 
 // ------------------------------------------------------------
-// 1. Composants d'affichage extraits et m�mo�s�s
+// 1. NOUVEAU COMPOSANT : Carousel horizontal pour produits
 // ------------------------------------------------------------
+const HorizontalProductCarousel = React.memo(
+  ({
+    title,
+    subtitle,
+    products,
+    onProductPress,
+    onSeeAll,
+    loading = false,
+  }: {
+    title: string;
+    subtitle?: string;
+    products: Product[];
+    onProductPress: (product: Product) => void;
+    onSeeAll?: () => void;
+    loading?: boolean;
+  }) => {
+    const scrollViewRef = useRef<ScrollView>(null);
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const itemWidth = SCREEN_WIDTH * 0.75; // 75% de l'écran pour chaque item
+    const spacing = 12;
 
-// Carte produit verticale
+    if (loading) {
+      return (
+        <View style={styles.carouselSection}>
+          <View style={styles.carouselHeader}>
+            <View>
+              <Text style={styles.carouselTitle}>{title}</Text>
+              {subtitle && <Text style={styles.carouselSubtitle}>{subtitle}</Text>}
+            </View>
+            <ActivityIndicator size="small" color="#ff6a00" />
+          </View>
+          <View style={styles.carouselLoadingContainer}>
+            <ActivityIndicator size="large" color="#ff6a00" />
+          </View>
+        </View>
+      );
+    }
+
+    if (products.length === 0) return null;
+
+    const handleScroll = (event: any) => {
+      const offsetX = event.nativeEvent.contentOffset.x;
+      const index = Math.round(offsetX / (itemWidth + spacing));
+      setCurrentIndex(index);
+    };
+
+    const scrollToIndex = (index: number) => {
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({
+          x: index * (itemWidth + spacing),
+          animated: true,
+        });
+      }
+    };
+
+    return (
+      <View style={styles.carouselSection}>
+        <View style={styles.carouselHeader}>
+          <View>
+            <Text style={styles.carouselTitle}>{title}</Text>
+            {subtitle && <Text style={styles.carouselSubtitle}>{subtitle}</Text>}
+          </View>
+          {onSeeAll ? (
+            <TouchableOpacity style={styles.carouselSeeAllButton} onPress={onSeeAll}>
+              <Text style={styles.carouselSeeAllText}>Voir tout</Text>
+              <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.carouselSeeAllButton}>
+              <Text style={styles.carouselSeeAllText}>Voir tout</Text>
+              <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
+            </View>
+          )}
+        </View>
+
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          pagingEnabled={false}
+          snapToInterval={itemWidth + spacing}
+          decelerationRate="fast"
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          contentContainerStyle={styles.carouselContent}
+        >
+         {products.map((product) => (
+  <TouchableOpacity
+    key={product.id}
+    style={[styles.carouselItem, { width: itemWidth }]}
+    onPress={() => onProductPress(product)}
+    activeOpacity={0.9}
+  >
+              <View style={styles.carouselCard}>
+                <View style={styles.carouselImageContainer}>
+                  <Image
+                    source={{ uri: product.imageUrl || product.mainImage || 'https://via.placeholder.com/300' }}
+                    style={styles.carouselImage}
+                    resizeMode="cover"
+                  />
+                  {product.isVerified && (
+                    <View style={styles.carouselVerifiedBadge}>
+                      <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                    </View>
+                  )}
+                  {product.originalPrice && product.originalPrice > product.price && (
+                    <View style={styles.carouselDiscountBadge}>
+                      <Text style={styles.carouselDiscountText}>
+                        -{Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}%
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.carouselContent}>
+                  <Text style={styles.carouselProductName} numberOfLines={2}>
+                    {product.name}
+                  </Text>
+                  <View style={styles.carouselPriceRow}>
+                    <Text style={styles.carouselPrice}>
+                      {product.price.toLocaleString()} CFA
+                    </Text>
+                    {product.originalPrice && product.originalPrice > product.price && (
+                      <Text style={styles.carouselOldPrice}>
+                        {product.originalPrice.toLocaleString()}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.carouselMetaRow}>
+                    <Ionicons name="business-outline" size={12} color="#666" />
+                    <Text style={styles.carouselMetaText} numberOfLines={1}>
+                      {product.supplier}
+                    </Text>
+                  </View>
+                  {product.rating > 0 && (
+                    <View style={styles.carouselRatingRow}>
+                      <Ionicons name="star" size={12} color="#ffc107" />
+                      <Text style={styles.carouselRatingText}>{product.rating.toFixed(1)}</Text>
+                      <Text style={styles.carouselDot}>•</Text>
+                      <Text style={styles.carouselDeliveryText}>{product.deliveryTime}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Indicateurs de pagination */}
+        {products.length > 1 && (
+          <View style={styles.carouselPagination}>
+            {products.map((_, index) => (
+              <TouchableOpacity
+                key={products[index].id}
+                onPress={() => scrollToIndex(index)}
+                style={[
+                  styles.carouselPaginationDot,
+                  index === currentIndex && styles.carouselPaginationDotActive,
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+    );
+  },
+  (prevProps, nextProps) =>
+    prevProps.loading === nextProps.loading &&
+    prevProps.title === nextProps.title &&
+    prevProps.products.length === nextProps.products.length &&
+    prevProps.products.every((p, i) => p.id === nextProps.products[i]?.id)
+);
+HorizontalProductCarousel.displayName = "HorizontalProductCarousel";
+
+// Carte produit verticale (pour la grille)
 const VerticalProductCard = React.memo(
   ({ product, onPress }: { product: Product; onPress: () => void }) => {
     const [imageError, setImageError] = useState(false);
@@ -232,7 +409,7 @@ const VerticalProductCard = React.memo(
             <View style={styles.verticalRating}>
               <Ionicons name="star" size={12} color="#ffc107" />
               <Text style={styles.ratingText}>{product.rating.toFixed(1)}</Text>
-              <Text style={styles.dotSeparator}>�</Text>
+              <Text style={styles.dotSeparator}>•</Text>
               <Text style={styles.deliveryText}>{product.deliveryTime}</Text>
             </View>
           )}
@@ -244,7 +421,7 @@ const VerticalProductCard = React.memo(
 );
 VerticalProductCard.displayName = "VerticalProductCard";
 
-// Section verticale � 2 colonnes (avec onSeeAll)
+// Section verticale à 2 colonnes (avec onSeeAll)
 const VerticalProductSection = React.memo(
   ({
     title,
@@ -253,8 +430,6 @@ const VerticalProductSection = React.memo(
     onProductPress,
     onSeeAll,
     loading = false,
-    itemsPerRow = 3, // Nouvelle prop (d�faut: 2)
-    maxItems, // Nouvelle prop optionnelle
   }: {
     title: string;
     subtitle?: string;
@@ -262,8 +437,6 @@ const VerticalProductSection = React.memo(
     onProductPress: (product: Product) => void;
     onSeeAll?: () => void;
     loading?: boolean;
-    itemsPerRow?: number; // Nombre de colonnes
-    maxItems?: number; // Nombre max d'articles
   }) => {
     if (loading) {
       return (
@@ -313,29 +486,31 @@ const VerticalProductSection = React.memo(
             </View>
           )}
         </View>
-        <View style={styles.verticalGrid}>
-          {rows.map((row, rowIndex) => (
-            <View key={rowIndex} style={styles.verticalRow}>
-              {row.map((product) => (
-                <View key={product.id} style={styles.verticalCardWrapper}>
-                  <VerticalProductCard
-                    product={product}
-                    onPress={() => onProductPress(product)}
-                  />
-                </View>
-              ))}
-              {row.length === 1 && <View style={styles.verticalCardWrapper} />}
-            </View>
-          ))}
+<View style={styles.verticalGrid}>
+  {rows.map((row, rowIndex) => (
+    // ❌ Ne pas utiliser rowIndex ici
+    // ✅ Utiliser une clé basée sur les IDs des produits de la ligne
+    <View key={`row-${row[0].id}-${row[1]?.id || 'none'}`} style={styles.verticalRow}>
+      {row.map((product) => (
+        <View key={`wrap-${product.id}`} style={styles.verticalCardWrapper}>
+          <VerticalProductCard
+            product={product}
+            onPress={() => onProductPress(product)}
+          />
         </View>
+      ))}
+      {row.length === 1 && <View style={styles.verticalCardWrapper} />}
+    </View>
+  ))}
+</View>
       </View>
     );
   },
-  (prevProps, nextProps) =>
-    prevProps.loading === nextProps.loading &&
-    prevProps.title === nextProps.title &&
-    prevProps.products.length === nextProps.products.length &&
-    prevProps.products.every((p, i) => p.id === nextProps.products[i]?.id)
+(prevProps, nextProps) =>
+  prevProps.loading === nextProps.loading &&
+  prevProps.title === nextProps.title &&
+  JSON.stringify(prevProps.products.map(p => p.id)) ===
+  JSON.stringify(nextProps.products.map(p => p.id))
 );
 VerticalProductSection.displayName = "VerticalProductSection";
 
@@ -373,6 +548,9 @@ export default function PremiumHomeScreen() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const rotationCache = useRef(new RotationCache()).current;
   const rotationTimeouts = useRef<NodeJS.Timeout[]>([]);
+  
+  // 🔒 NOUVEAU : Référence pour verrouiller la rotation pendant la navigation
+  const isLocked = useRef(false);
 
   const [homeData, setHomeData] = useState<HomeDataState>({
     featuredProducts: [],
@@ -423,7 +601,8 @@ export default function PremiumHomeScreen() {
       specialOffer: data.specialOffer || false,
       newArrival: data.newArrival || false,
       industrial: data.industrial || false,
-      categoryName: cleanCategory,
+      categoryId: data.categoryId || data.category || "",
+categoryName: cleanCategory,
       originalLink: data.originalLink || "",
       hasFreeShipping: data.hasFreeShipping || false,
       freeShippingBadge: data.freeShippingBadge || null,
@@ -449,15 +628,19 @@ export default function PremiumHomeScreen() {
       const shuffled = shuffleArray(sourcePool);
       const selected = shuffled.slice(0, Math.min(count, sourcePool.length));
       selected.forEach((p) => rotationCache.add(section, p.id));
-      return selected.map((p) => ({
-        ...p,
-        rotationKey: `${p.id}-${Date.now()}-${Math.random()}`,
-      }));
+return selected.map((p) => ({
+  ...p,
+}));
     },
     [rotationCache]
   );
 
   const performRotation = useCallback(() => {
+    // 🔒 NOUVEAU : Condition de garde - si verrouillé, on ne fait rien
+    if (isLocked.current) {
+      return;
+    }
+
     Animated.sequence([
       Animated.timing(fadeAnim, {
         toValue: 0.3,
@@ -508,7 +691,7 @@ export default function PremiumHomeScreen() {
               "newArrivals",
               prev.newArrivals,
               prev.pools.newArrivals,
-              15
+              16
             );
             break;
           case "industrial":
@@ -544,7 +727,7 @@ export default function PremiumHomeScreen() {
   }, [performRotation]);
 
   // ------------------------------------------------------------
-  // OPTIMISATION FIRESTORE : fetchSuppliersWithProducts refactor�
+  // OPTIMISATION FIRESTORE : fetchSuppliersWithProducts refactoré
   // ------------------------------------------------------------
   const fetchSuppliersWithProducts = useCallback(async () => {
     try {
@@ -597,7 +780,7 @@ export default function PremiumHomeScreen() {
   }, [normalizeProduct]);
 
   // ------------------------------------------------------------
-  // Chargement des donn�es principales
+  // Chargement des données principales
   // ------------------------------------------------------------
   const fetchHomeData = useCallback(
     async (isRefresh = true) => {
@@ -622,14 +805,14 @@ export default function PremiumHomeScreen() {
             query(
               collection(db, "products"),
               where("featured", "==", true),
-              limit(20)
+              limit(30) // Augmenté pour avoir plus de produits dans le carousel
             )
           ),
           getDocs(
             query(
               collection(db, "products"),
               where("trending", "==", true),
-              limit(20)
+              limit(30) // Augmenté pour avoir plus de produits dans le carousel
             )
           ),
           getDocs(
@@ -650,7 +833,7 @@ export default function PremiumHomeScreen() {
             query(
               collection(db, "products"),
               where("newArrival", "==", true),
-              limit(20)
+              limit(30)
             )
           ),
           getDocs(
@@ -675,11 +858,13 @@ export default function PremiumHomeScreen() {
 
         setHomeData((prev) => ({
           ...prev,
-          featuredProducts: shuffleArray(featuredPool).slice(0, 8),
-          trendingProducts: shuffleArray(trendingPool).slice(0, 10),
+          // Featured Products : carousel avec beaucoup de produits
+          featuredProducts: shuffleArray(featuredPool).slice(0, 20),
+          // Trending Products : carousel avec beaucoup de produits
+          trendingProducts: shuffleArray(trendingPool),
           specialOffers: shuffleArray(offersPool).slice(0, 8),
           popularProducts: allPopular,
-          newArrivals: shuffleArray(newArrivalsPool).slice(0, 15),
+          newArrivals: shuffleArray(newArrivalsPool).slice(0, 16),
           industrialMachines: shuffleArray(industrialPool).slice(0, 15),
           suppliersWithProducts,
           pools: {
@@ -706,7 +891,7 @@ export default function PremiumHomeScreen() {
   }, [fetchHomeData]);
 
   // ------------------------------------------------------------
-  // Chargement pagin� (popular products)
+  // Chargement paginé (popular products)
   // ------------------------------------------------------------
   const fetchMoreProducts = useCallback(async () => {
     if (
@@ -744,21 +929,34 @@ export default function PremiumHomeScreen() {
   }, [loadingMore, hasMore, lastVisible, homeData.popularProducts.length, normalizeProduct]);
 
   // ------------------------------------------------------------
-  // Handlers pour la navigation
+  // Handlers pour la navigation en 2 ÉTAPES (avec verrouillage)
   // ------------------------------------------------------------
-  const handleProductPress = useCallback(
-    (item: Product) => {
-      if (item.originalLink) {
-        router.push({
-          pathname: "/webview",
-          params: { url: item.originalLink, title: item.name },
-        });
-      } else {
-        router.push(`/product/${item.id}`);
-      }
-    },
-    [router]
-  );
+const handleProductPress = useCallback(
+  async (item: Product) => {
+    // 1. BLOQUER LA ROTATION IMMÉDIATEMENT
+    isLocked.current = true;
+
+    // 2. CRÉER UNE COPIE FIGÉE DES DONNÉES (Deep Copy locale)
+    // On ne se fie plus à l'objet 'item' qui peut être lié à l'état qui change
+    const targetId = String(item.id);
+    const targetCategory = String(item.categoryId || item.category || 'all');
+
+    // 3. NAVIGATION AVEC LES DONNÉES FIGÉES
+    router.push({
+      pathname: `/category/${targetCategory}`,
+      params: { 
+        targetProductId: targetId 
+      },
+    });
+
+    // 4. VERROU LONG (3 secondes)
+    // On laisse le temps à la navigation de quitter l'écran complètement
+    setTimeout(() => {
+      isLocked.current = false;
+    }, 3000);
+  },
+  [router]
+);
 
   const handleRefresh = useCallback(() => {
     fetchHomeData(true);
@@ -769,52 +967,51 @@ export default function PremiumHomeScreen() {
     router.push('/trending');
   }, [router]);
 
-// Dans PremiumHomeScreen, remplacez le handler existant par :
-// Version avec IDs des produits pour �viter de passer trop de donn�es
-// Dans PremiumHomeScreen, modifiez le handler :
-// Dans PremiumHomeScreen, modifiez le handler pour inclure mainImage
-// Dans PremiumHomeScreen, modifiez le handler :
-const handleSeeAllIndustrial = useCallback(() => {
-  // M�langer plusieurs cat�gories de produits
-  const mixedProducts = [
-    ...homeData.industrialMachines,
-    ...homeData.featuredProducts,
-    ...homeData.trendingProducts,
-    ...homeData.specialOffers,
-    ...homeData.newArrivals,
-  ].filter(Boolean);
+  const handleSeeAllIndustrial = useCallback(() => {
+    // Mélanger plusieurs catégories de produits
+    const mixedProducts = [
+      ...homeData.industrialMachines,
+      ...homeData.featuredProducts,
+      ...homeData.trendingProducts,
+      ...homeData.specialOffers,
+      ...homeData.newArrivals,
+    ].filter(Boolean);
 
-  // �viter les doublons par ID
-  const uniqueProducts = Array.from(
-    new Map(mixedProducts.map(p => [p.id, p])).values()
-  );
+    // Éviter les doublons par ID
+    const uniqueProducts = Array.from(
+      new Map(mixedProducts.map(p => [p.id, p])).values()
+    );
 
-  // Ne garder que les donn�es essentielles pour l'URL
-  const productsForUrl = uniqueProducts.map(p => ({
-    id: p.id,
-    name: p.name,
-    price: p.price,
-    originalPrice: p.originalPrice,
-    mainImage: p.mainImage,
-    imageUrl: p.imageUrl,
-    images: p.images, // AJOUTER CE CHAMP
-    supplier: p.supplier,
-    rating: p.rating,
-    originalLink: p.originalLink
-  }));
+    // Ne garder que les données essentielles pour l'URL
+    const productsForUrl = uniqueProducts.map(p => ({
+      id: p.id,
+      name: p.name,
+      price: p.price,
+      originalPrice: p.originalPrice,
+      mainImage: p.mainImage,
+      imageUrl: p.imageUrl,
+      images: p.images,
+      supplier: p.supplier,
+      rating: p.rating,
+      originalLink: p.originalLink
+    }));
 
-  router.push({
-    pathname: '/products-list',
-    params: { 
-      products: JSON.stringify(productsForUrl),
-      title: 'Machines & �quipements',
-      mixMode: 'true'
-    }
-  });
-}, [router, homeData]);
+    router.push({
+      pathname: '/products-list',
+      params: { 
+        products: JSON.stringify(productsForUrl),
+        title: 'Machines & Équipements',
+        mixMode: 'true'
+      }
+    });
+  }, [router, homeData]);
 
   const handleSeeAllOffers = useCallback(() => {
     router.push('/premium-offers');
+  }, [router]);
+
+  const handleSeeAllFeatured = useCallback(() => {
+    router.push('/featured-products');
   }, [router]);
 
   // Render item pour la FlatList (popular products)
@@ -826,7 +1023,7 @@ const handleSeeAllIndustrial = useCallback(() => {
   );
 
   // ------------------------------------------------------------
-  // Header m�mo�s� (avec les nouvelles props onSeeAll)
+  // Header mémoïsé avec les carrousels
   // ------------------------------------------------------------
   const renderHeader = useMemo(
     () => (
@@ -837,23 +1034,47 @@ const handleSeeAllIndustrial = useCallback(() => {
 
         <HeroBanner />
 
-        {homeData.featuredProducts.length > 0 && (
-          <PremiumSpecialOffers
-            products={homeData.featuredProducts}
-            title={t("homeScreen.featuredProductsTitle")}
-            subtitle={t("homeScreen.featuredProductsSubtitle")}
-            onSeeAll={handleSeeAllOffers} // Redirection vers /premium-offers
+{/* Section Produits en vedette */}
+{homeData.featuredProducts.length > 0 && (
+  <View style={{ marginTop: 30, marginBottom: 15 }}>
+    
+    {/* Header avec police ajustée et décalage */}
+    <View style={styles.trendingHeaderContainer}>
+      <View style={styles.trendingAccentBar} />
+      <Text style={styles.trendingTitleText}>Produits en vedette</Text>
+    </View>
+
+    <FlatList
+      data={homeData.featuredProducts}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyExtractor={(item) => `featured-${item.id}`}
+      contentContainerStyle={{
+        paddingHorizontal: 20, // Ajusté pour un alignement plus doux
+      }}
+      renderItem={({ item }) => (
+        <View style={{ width: 200, marginRight: 15 }}>
+          <ProductCardPremium
+            product={item}
+            onPress={() => handleProductPress(item)}
+          />
+        </View>
+      )}
+    />
+  </View>
+)}
+
+        {/* Carousel des tendances du moment */}
+        {homeData.trendingProducts.length > 0 && (
+          <HorizontalProductCarousel
+            title="Tendances du Moment"
+            subtitle="Les produits les plus demandés"
+            products={homeData.trendingProducts}
+            onProductPress={handleProductPress}
+            onSeeAll={handleSeeAllTrending}
+            loading={loadingSections}
           />
         )}
-
-        <VerticalProductSection
-          title="Tendances du Moment"
-          subtitle="Les produits les plus demand�s"
-          products={homeData.trendingProducts}
-          onProductPress={handleProductPress}
-          onSeeAll={handleSeeAllTrending} // Redirection vers /trending
-          loading={loadingSections}
-        />
 
         <CategoryGridPremium
           categories={homeData.categories.map((c) => ({
@@ -873,15 +1094,34 @@ const handleSeeAllIndustrial = useCallback(() => {
         )}
 
 <VerticalProductSection
-  title="Plus d'articles"
-  subtitle="Equipements professionnels"
-  products={homeData.industrialMachines}
-  onProductPress={handleProductPress}
-  onSeeAll={handleSeeAllIndustrial}
+  title="Nouveautés"
+  subtitle="Les derniers arrivages"
+  products={homeData.newArrivals}
+  onProductPress={(product) => {
+    // 1. Protection contre les clics multiples ou pendant une rotation
+    if (isLocked.current) return;
+    isLocked.current = true;
+
+    // 2. Snapshot : On fige les données du produit cliqué immédiatement
+    const productSnapshot = { ...product };
+    const targetId = String(productSnapshot.id);
+    const targetCategory = String(productSnapshot.categoryId || 'all');
+
+    console.log("Navigation vers :", productSnapshot.name);
+
+    // 3. Navigation avec les données figées
+    router.push({
+      pathname: `/category/${targetCategory}`,
+      params: { targetProductId: targetId }
+    });
+
+    // 4. Verrouillage de sécurité pour laisser le temps à l'écran de changer
+    setTimeout(() => {
+      isLocked.current = false;
+    }, 2500);
+  }}
+  onSeeAll={() => router.push('/new-arrivals')}
   loading={loadingSections}
-  // Ajouter ces props pour contr�ler l'affichage
-  itemsPerRow={3} // Nombre de colonnes
-  maxItems={20} // Nombre maximum d'articles � afficher
 />
 
         <View style={styles.sectionTitleContainer}>
@@ -902,10 +1142,11 @@ const handleSeeAllIndustrial = useCallback(() => {
       handleSeeAllTrending,
       handleSeeAllIndustrial,
       handleSeeAllOffers,
+      handleSeeAllFeatured,
     ]
   );
 
-  // Footer m�mo�s�
+  // Footer mémoïsé
   const renderFooter = useMemo(
     () => (
       <View style={styles.footerContent}>
@@ -972,7 +1213,7 @@ const handleSeeAllIndustrial = useCallback(() => {
   );
 }
 
-// Styles (inchang�s)
+// Styles (ajout des styles pour le carousel)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1004,6 +1245,179 @@ const styles = StyleSheet.create({
   productCardTouchable: {
     width: "100%",
   },
+  
+  // Styles pour le carousel
+  carouselSection: {
+    marginVertical: 20,
+    paddingLeft: 16,
+  },
+  carouselHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+    paddingRight: 16,
+  },
+  carouselTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  carouselSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 2,
+  },
+  carouselSeeAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFF5EE",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  carouselSeeAllText: {
+    fontSize: 13,
+    color: "#ff6a00",
+    fontWeight: "600",
+    marginRight: 4,
+  },
+  carouselLoadingContainer: {
+    height: 280,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  carouselContent: {
+    paddingRight: 16,
+  },
+  carouselItem: {
+    marginRight: 12,
+  },
+  carouselCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
+    overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  carouselImageContainer: {
+    position: "relative",
+    height: 200,
+    backgroundColor: "#fafafa",
+  },
+  carouselImage: {
+    width: "100%",
+    height: "100%",
+  },
+  carouselVerifiedBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 2,
+  },
+  carouselDiscountBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "#ff4444",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  carouselDiscountText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  carouselContent: {
+    padding: 12,
+  },
+  carouselProductName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1a1a1a",
+    lineHeight: 20,
+    marginBottom: 8,
+    minHeight: 40,
+  },
+  carouselPriceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginBottom: 8,
+  },
+  carouselPrice: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#ff6a00",
+  },
+  carouselOldPrice: {
+    fontSize: 13,
+    color: "#999",
+    textDecorationLine: "line-through",
+    marginLeft: 8,
+  },
+  carouselMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  carouselMetaText: {
+    fontSize: 13,
+    color: "#666",
+    flex: 1,
+  },
+  carouselRatingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  carouselRatingText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#666",
+    marginLeft: 4,
+  },
+  carouselDot: {
+    fontSize: 13,
+    color: "#ccc",
+    marginHorizontal: 4,
+  },
+  carouselDeliveryText: {
+    fontSize: 13,
+    color: "#999",
+  },
+  carouselPagination: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 16,
+    gap: 8,
+  },
+  carouselPaginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#ddd",
+  },
+  carouselPaginationDotActive: {
+    width: 20,
+    backgroundColor: "#ff6a00",
+  },
+
+  // Styles existants pour les sections verticales
   verticalSection: {
     marginVertical: 16,
     paddingHorizontal: 12,
@@ -1019,6 +1433,44 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "700",
     color: "#1a1a1a",
+  },
+  featuredSectionContainer: {
+    marginTop: 40, // Plus d'espace en haut pour faire respirer l'interface
+    marginBottom: 20,
+  },
+  trendingHeaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 25, // Pousse le titre vers la droite (effet tendance)
+    marginBottom: 20,
+  },
+  trendingAccentBar: {
+    width: 6, // Un peu plus épais pour l'impact visuel
+    height: 30, 
+    backgroundColor: '#ff6a00', // Ton orange A2Express
+    borderRadius: 4,
+    marginRight: 15,
+  },
+  trendingTitleText: {
+    fontSize: 18, // Taille augmentée pour l'effet "Wow"
+    fontWeight: '900', // Extra Bold comme dans les magazines de mode
+    color: '#1a1a1a',
+    letterSpacing: 0.8, // Espacement des lettres pour le luxe
+    textTransform: 'uppercase', // Pour un look Boutique Pro
+  },
+  featuredListContent: {
+    paddingHorizontal: 25, // Aligné exactement sur le titre
+    paddingBottom: 10,
+  },
+  featuredCardWrapper: {
+    width: 230, // Légèrement agrandi pour mettre en valeur les produits
+    marginRight: 20,
+    // Optionnel : ajouter une ombre légère si ton ProductCardPremium n'en a pas
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   sectionSubtitleVertical: {
     fontSize: 14,

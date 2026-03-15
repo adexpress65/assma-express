@@ -449,7 +449,7 @@ const pickImage = async (type: 'logo' | 'cover') => {
           },
           createdAt: new Date(),
           updatedAt: new Date(),
-          isActive: true,
+          isActive: false,
         };
 
         await setDoc(doc(db, 'companies', user.uid), companyData);

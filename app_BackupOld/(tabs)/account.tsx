@@ -347,8 +347,8 @@ export default function AccountScreen() {
       switch (userRole) {
         case 'super-admin': return '?? Super Administration';
         case 'admin': return '??? Administration';
-        case 'seller': return '?? Vendre sur Assma Express';
-        default: return 'Vendre sur Assma Express';
+        case 'seller': return '?? Vendre sur A2Express';
+        default: return 'Vendre sur A2Express';
       }
     };
 
@@ -518,7 +518,7 @@ export default function AccountScreen() {
       <View style={ctaStyles.container}>
         <View style={ctaStyles.content}>
           <View style={ctaStyles.textContent}>
-            <Text style={ctaStyles.title}>?? Devenez Vendeur sur Assma Express</Text>
+            <Text style={ctaStyles.title}>?? Devenez Vendeur sur A2Express</Text>
             <Text style={ctaStyles.subtitle}>
               DÃ©veloppez votre business en ligne et atteignez des millions de clients
             </Text>

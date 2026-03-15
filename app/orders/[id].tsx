@@ -1,5 +1,5 @@
 // app/orders/[id].tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,17 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Linking
+  Linking,
+  RefreshControl
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useOrders, Order } from '../../src/contexts/OrderContext';
 
 const COLORS = {
   primary: '#FF6A00',
+  primaryGradient: ['#FF6A00', '#FF8C42'],
   primaryLight: '#FFF0E6',
   background: '#F8F9FA',
   text: '#2D3748',
@@ -25,15 +28,45 @@ const COLORS = {
   success: '#28A745',
   warning: '#FFC107',
   danger: '#DC3545',
-  info: '#17A2B8'
+  info: '#17A2B8',
+  shadow: {
+    light: 'rgba(0, 0, 0, 0.05)',
+    medium: 'rgba(0, 0, 0, 0.1)',
+    dark: 'rgba(0, 0, 0, 0.15)'
+  }
 };
 
 const statusConfig = {
-  pending: { label: 'En attente', color: COLORS.warning, icon: 'time-outline' as const },
-  confirmed: { label: 'Confirmée', color: COLORS.primary, icon: 'checkmark-circle-outline' as const },
-  shipped: { label: 'Expédiée', color: COLORS.success, icon: 'car-outline' as const },
-  delivered: { label: 'Livrée', color: COLORS.success, icon: 'checkmark-done-outline' as const },
-  cancelled: { label: 'Annulée', color: COLORS.danger, icon: 'close-circle-outline' as const }
+  pending: { 
+    label: 'En attente', 
+    color: COLORS.warning, 
+    icon: 'time-outline' as const,
+    bgColor: 'rgba(255, 193, 7, 0.1)'
+  },
+  confirmed: { 
+    label: 'Confirmée', 
+    color: COLORS.primary, 
+    icon: 'checkmark-circle-outline' as const,
+    bgColor: 'rgba(255, 106, 0, 0.1)'
+  },
+  shipped: { 
+    label: 'Expédiée', 
+    color: COLORS.success, 
+    icon: 'car-outline' as const,
+    bgColor: 'rgba(40, 167, 69, 0.1)'
+  },
+  delivered: { 
+    label: 'Livrée', 
+    color: COLORS.success, 
+    icon: 'checkmark-done-outline' as const,
+    bgColor: 'rgba(40, 167, 69, 0.1)'
+  },
+  cancelled: { 
+    label: 'Annulée', 
+    color: COLORS.danger, 
+    icon: 'close-circle-outline' as const,
+    bgColor: 'rgba(220, 53, 69, 0.1)'
+  }
 };
 
 export default function OrderDetailScreen() {
@@ -42,15 +75,73 @@ export default function OrderDetailScreen() {
   const { getOrderById, updateOrderStatus, loading: contextLoading } = useOrders();
   const [order, setOrder] = useState<Order | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
+  // Charger la commande
   useEffect(() => {
     if (id && typeof id === 'string') {
-      const foundOrder = getOrderById(id);
-      setOrder(foundOrder || null);
+      loadOrder();
     }
+  }, [id]);
+
+  const loadOrder = useCallback(() => {
+    const foundOrder = getOrderById(id as string);
+    setOrder(foundOrder || null);
   }, [id, getOrderById]);
 
-  const handleUpdateStatus = async (newStatus: Order['status']) => {
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    loadOrder();
+    setRefreshing(false);
+  }, [loadOrder]);
+
+  // Mémoïsation des valeurs dérivées
+  const statusInfo = useMemo(() => 
+    order ? statusConfig[order.status] || statusConfig.pending : statusConfig.pending,
+    [order]
+  );
+
+  const shipping = useMemo(() => 
+    order?.shipping || {
+      method: 'Standard',
+      cost: 0,
+      deliveryTime: '5-7 jours',
+      trackingNumber: undefined
+    }, [order]
+  );
+
+  const address = useMemo(() => 
+    order?.address || {
+      fullName: 'Non spécifié',
+      street: 'Non spécifié',
+      city: 'Non spécifié',
+      postalCode: 'Non spécifié',
+      country: 'Non spécifié',
+      phone: 'Non spécifié'
+    }, [order]
+  );
+
+  const wholesale = useMemo(() => 
+    order?.wholesale || {
+      totalQuantity: order?.items?.length || 0,
+      savings: 0
+    }, [order]
+  );
+
+  const subtotal = useMemo(() => 
+    order?.subtotal || order?.total || 0, [order]
+  );
+
+  const tax = useMemo(() => 
+    order?.tax || 0, [order]
+  );
+
+  const itemCount = useMemo(() => 
+    order?.items?.length || 0, [order]
+  );
+
+  // Callbacks mémoïsés
+  const handleUpdateStatus = useCallback(async (newStatus: Order['status']) => {
     if (!order || !id) return;
 
     Alert.alert(
@@ -65,12 +156,11 @@ export default function OrderDetailScreen() {
             try {
               setIsUpdating(true);
               await updateOrderStatus(id as string, newStatus);
-              // Mettre à jour l'ordre local
-              setOrder({ 
-                ...order, 
+              setOrder(prev => prev ? { 
+                ...prev, 
                 status: newStatus, 
                 updatedAt: new Date() 
-              });
+              } : null);
               Alert.alert('Succès', 'Statut mis à jour avec succès');
             } catch (error) {
               console.error('Erreur:', error);
@@ -82,27 +172,30 @@ export default function OrderDetailScreen() {
         }
       ]
     );
-  };
+  }, [order, id, updateOrderStatus]);
 
-  const handleCallSupport = () => {
-    Linking.openURL(`tel:+221781234567`).catch(err => 
+  const handleCallSupport = useCallback(() => {
+    Linking.openURL(`tel:+221781234567`).catch(() => 
       Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone')
     );
-  };
+  }, []);
 
-  const handleTrackShipping = () => {
-    if (order?.shipping?.trackingNumber) {
-      // URL de suivi fictive - à adapter selon votre transporteur
-      const trackingUrl = `https://tracking.example.com/${order.shipping.trackingNumber}`;
-      Linking.openURL(trackingUrl).catch(err =>
+  const handleTrackShipping = useCallback(() => {
+    if (shipping.trackingNumber) {
+      const trackingUrl = `https://tracking.example.com/${shipping.trackingNumber}`;
+      Linking.openURL(trackingUrl).catch(() =>
         Alert.alert('Erreur', 'Impossible d\'ouvrir le lien de suivi')
       );
     } else {
       Alert.alert('Info', 'Numéro de suivi non disponible');
     }
-  };
+  }, [shipping.trackingNumber]);
 
-  const formatDate = (date: Date | null) => {
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
+  const formatDate = useCallback((date: Date | null) => {
     if (!date) return "Non disponible";
     return new Date(date).toLocaleDateString('fr-FR', {
       day: 'numeric',
@@ -111,99 +204,95 @@ export default function OrderDetailScreen() {
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
+  }, []);
 
-  const formatPrice = (price: number | undefined) => {
+  const formatPrice = useCallback((price: number | undefined) => {
     if (!price && price !== 0) return "0 FCFA";
     return `${price.toLocaleString()} FCFA`;
-  };
-
-  // Récupérer les valeurs avec fallback
-  const getShipping = () => {
-    return order?.shipping || {
-      method: 'Standard',
-      cost: 0,
-      deliveryTime: '5-7 jours',
-      trackingNumber: undefined
-    };
-  };
-
-  const getAddress = () => {
-    return order?.address || {
-      fullName: 'Non spécifié',
-      street: 'Non spécifié',
-      city: 'Non spécifié',
-      postalCode: 'Non spécifié',
-      country: 'Non spécifié',
-      phone: 'Non spécifié'
-    };
-  };
-
-  const getWholesale = () => {
-    return order?.wholesale || {
-      totalQuantity: order?.items?.length || 0,
-      savings: 0
-    };
-  };
+  }, []);
 
   if (contextLoading || isUpdating) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <LinearGradient
+        colors={COLORS.primaryGradient}
+        style={styles.loadingContainer}
+      >
+        <ActivityIndicator size="large" color="#FFFFFF" />
         <Text style={styles.loadingText}>Chargement...</Text>
-      </View>
+      </LinearGradient>
     );
   }
 
   if (!order) {
     return (
       <View style={styles.errorContainer}>
-        <Ionicons name="alert-circle-outline" size={64} color={COLORS.danger} />
+        <LinearGradient
+          colors={['rgba(220, 53, 69, 0.1)', 'rgba(220, 53, 69, 0.05)']}
+          style={styles.errorIconContainer}
+        >
+          <Ionicons name="alert-circle-outline" size={64} color={COLORS.danger} />
+        </LinearGradient>
         <Text style={styles.errorTitle}>Commande non trouvée</Text>
         <Text style={styles.errorText}>
           La commande #{id?.slice(-8)?.toUpperCase()} n'existe pas ou a été supprimée
         </Text>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Text style={styles.backButtonText}>Retour aux commandes</Text>
+        <TouchableOpacity style={styles.errorBackButton} onPress={handleBack}>
+          <LinearGradient
+            colors={COLORS.primaryGradient}
+            style={styles.errorBackButtonGradient}
+          >
+            <Text style={styles.errorBackButtonText}>Retour aux commandes</Text>
+          </LinearGradient>
         </TouchableOpacity>
       </View>
     );
   }
 
-  const statusInfo = statusConfig[order.status] || statusConfig.pending;
-  const shipping = getShipping();
-  const address = getAddress();
-  const wholesale = getWholesale();
-  const subtotal = order.subtotal || order.total || 0;
-  const tax = order.tax || 0;
-
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Détails de la commande</Text>
-        <View style={styles.headerRight} />
-      </View>
+    <ScrollView 
+      style={styles.container} 
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[COLORS.primary]}
+          tintColor={COLORS.primary}
+        />
+      }
+    >
+      {/* Header avec dégradé */}
+      <LinearGradient
+        colors={COLORS.primaryGradient}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Détails de la commande</Text>
+          <View style={styles.headerRight} />
+        </View>
+      </LinearGradient>
 
       {/* Statut de la commande */}
       <View style={styles.statusSection}>
-        <View style={[styles.statusBadge, { backgroundColor: `${statusInfo.color}20` }]}>
+        <View style={[styles.statusBadge, { backgroundColor: statusInfo.bgColor }]}>
           <Ionicons name={statusInfo.icon} size={20} color={statusInfo.color} />
           <Text style={[styles.statusText, { color: statusInfo.color }]}>
             {statusInfo.label}
           </Text>
         </View>
-        <Text style={styles.orderId}>Commande #{order.id.slice(-8).toUpperCase()}</Text>
+        <Text style={styles.orderId}>#{order.id.slice(-8).toUpperCase()}</Text>
         <Text style={styles.orderDate}>Passée le {formatDate(order.createdAt)}</Text>
       </View>
 
       {/* Informations de livraison */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Ionicons name="location-outline" size={20} color={COLORS.primary} />
+          <View style={styles.cardIconContainer}>
+            <Ionicons name="location-outline" size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.cardTitle}>Adresse de livraison</Text>
         </View>
         <View style={styles.cardContent}>
@@ -213,38 +302,53 @@ export default function OrderDetailScreen() {
             {address.postalCode} {address.city}
           </Text>
           <Text style={styles.addressText}>{address.country}</Text>
-          <Text style={styles.phoneText}>📱 {address.phone}</Text>
+          <View style={styles.phoneContainer}>
+            <Ionicons name="call-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.phoneText}>{address.phone}</Text>
+          </View>
         </View>
       </View>
 
       {/* Informations de livraison */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Ionicons name="cube-outline" size={20} color={COLORS.primary} />
+          <View style={styles.cardIconContainer}>
+            <Ionicons name="cube-outline" size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.cardTitle}>Livraison</Text>
         </View>
         <View style={styles.cardContent}>
-          <View style={styles.shippingRow}>
-            <Text style={styles.shippingLabel}>Méthode:</Text>
-            <Text style={styles.shippingValue}>{shipping.method}</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Méthode:</Text>
+            <Text style={styles.infoValue}>{shipping.method}</Text>
           </View>
-          <View style={styles.shippingRow}>
-            <Text style={styles.shippingLabel}>Délai:</Text>
-            <Text style={styles.shippingValue}>{shipping.deliveryTime}</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Délai:</Text>
+            <Text style={styles.infoValue}>{shipping.deliveryTime}</Text>
           </View>
-          <View style={styles.shippingRow}>
-            <Text style={styles.shippingLabel}>Coût:</Text>
-            <Text style={styles.shippingValue}>{formatPrice(shipping.cost)}</Text>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Coût:</Text>
+            <Text style={styles.infoValue}>{formatPrice(shipping.cost)}</Text>
           </View>
           {shipping.trackingNumber && (
-            <View style={styles.shippingRow}>
-              <Text style={styles.shippingLabel}>N° de suivi:</Text>
-              <Text style={styles.shippingValue}>{shipping.trackingNumber}</Text>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>N° de suivi:</Text>
+              <Text style={styles.infoValue}>{shipping.trackingNumber}</Text>
             </View>
           )}
           {order.status === 'shipped' && (
-            <TouchableOpacity style={styles.trackButton} onPress={handleTrackShipping}>
-              <Text style={styles.trackButtonText}>Suivre mon colis</Text>
+            <TouchableOpacity 
+              style={styles.trackButton} 
+              onPress={handleTrackShipping}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={COLORS.primaryGradient}
+                style={styles.trackButtonGradient}
+              >
+                <Ionicons name="locate-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.trackButtonText}>Suivre mon colis</Text>
+              </LinearGradient>
             </TouchableOpacity>
           )}
         </View>
@@ -253,15 +357,19 @@ export default function OrderDetailScreen() {
       {/* Articles */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
-          <Text style={styles.cardTitle}>Articles ({order.items?.length || 0})</Text>
+          <View style={styles.cardIconContainer}>
+            <Ionicons name="cart-outline" size={20} color={COLORS.primary} />
+          </View>
+          <Text style={styles.cardTitle}>Articles ({itemCount})</Text>
         </View>
         {order.items?.map((item, index) => (
           <View key={index} style={styles.itemRow}>
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
               <Text style={styles.itemDetails}>
-                {item.quantity || 1} × {formatPrice(item.price)} • {item.color || 'Non spécifié'} • Taille: {item.size || 'Non spécifié'}
+                {item.quantity || 1} × {formatPrice(item.price)}
+                {item.color && ` • ${item.color}`}
+                {item.size && ` • Taille: ${item.size}`}
               </Text>
             </View>
             <Text style={styles.itemTotal}>
@@ -274,7 +382,9 @@ export default function OrderDetailScreen() {
       {/* Résumé du paiement */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
-          <Ionicons name="receipt-outline" size={20} color={COLORS.primary} />
+          <View style={styles.cardIconContainer}>
+            <Ionicons name="receipt-outline" size={20} color={COLORS.primary} />
+          </View>
           <Text style={styles.cardTitle}>Résumé du paiement</Text>
         </View>
         <View style={styles.summaryRow}>
@@ -284,7 +394,7 @@ export default function OrderDetailScreen() {
         {wholesale.savings > 0 && (
           <View style={styles.summaryRow}>
             <Text style={[styles.summaryLabel, styles.discountText]}>
-              Économies gros ({wholesale.totalQuantity} articles)
+              Économies ({wholesale.totalQuantity} articles)
             </Text>
             <Text style={[styles.summaryValue, styles.discountText]}>
               -{formatPrice(wholesale.savings)}
@@ -310,16 +420,24 @@ export default function OrderDetailScreen() {
         {order.status === 'pending' && (
           <>
             <TouchableOpacity
-              style={[styles.actionButton, styles.confirmButton]}
+              style={styles.actionButton}
               onPress={() => handleUpdateStatus('confirmed')}
               disabled={isUpdating}
+              activeOpacity={0.8}
             >
-              <Text style={styles.actionButtonText}>Confirmer la commande</Text>
+              <LinearGradient
+                colors={COLORS.primaryGradient}
+                style={styles.actionButtonGradient}
+              >
+                <Text style={styles.actionButtonText}>Confirmer la commande</Text>
+              </LinearGradient>
             </TouchableOpacity>
+            
             <TouchableOpacity
               style={[styles.actionButton, styles.cancelButton]}
               onPress={() => handleUpdateStatus('cancelled')}
               disabled={isUpdating}
+              activeOpacity={0.8}
             >
               <Text style={styles.cancelButtonText}>Annuler la commande</Text>
             </TouchableOpacity>
@@ -328,30 +446,48 @@ export default function OrderDetailScreen() {
         
         {order.status === 'confirmed' && (
           <TouchableOpacity
-            style={[styles.actionButton, styles.shipButton]}
+            style={styles.actionButton}
             onPress={() => handleUpdateStatus('shipped')}
             disabled={isUpdating}
+            activeOpacity={0.8}
           >
-            <Text style={styles.actionButtonText}>Marquer comme expédiée</Text>
+            <LinearGradient
+              colors={['#34C759', '#30D158']}
+              style={styles.actionButtonGradient}
+            >
+              <Text style={styles.actionButtonText}>Marquer comme expédiée</Text>
+            </LinearGradient>
           </TouchableOpacity>
         )}
         
         {order.status === 'shipped' && (
           <TouchableOpacity
-            style={[styles.actionButton, styles.deliverButton]}
+            style={styles.actionButton}
             onPress={() => handleUpdateStatus('delivered')}
             disabled={isUpdating}
+            activeOpacity={0.8}
           >
-            <Text style={styles.actionButtonText}>Marquer comme livrée</Text>
+            <LinearGradient
+              colors={['#30D158', '#34C759']}
+              style={styles.actionButtonGradient}
+            >
+              <Text style={styles.actionButtonText}>Marquer comme livrée</Text>
+            </LinearGradient>
           </TouchableOpacity>
         )}
 
         <TouchableOpacity
           style={[styles.actionButton, styles.supportButton]}
           onPress={handleCallSupport}
+          activeOpacity={0.8}
         >
-          <Ionicons name="call-outline" size={18} color={COLORS.white} />
-          <Text style={styles.actionButtonText}>Contacter le support</Text>
+          <LinearGradient
+            colors={['#FFC107', '#FFB300']}
+            style={styles.actionButtonGradient}
+          >
+            <Ionicons name="call-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.actionButtonText}>Contacter le support</Text>
+          </LinearGradient>
         </TouchableOpacity>
       </View>
 
@@ -364,7 +500,6 @@ export default function OrderDetailScreen() {
   );
 }
 
-// Les styles restent les mêmes que dans votre code précédent
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -374,12 +509,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
   },
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: COLORS.textLight,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   errorContainer: {
     flex: 1,
@@ -388,11 +523,18 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: COLORS.background,
   },
+  errorIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
   errorTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: COLORS.danger,
-    marginTop: 16,
     marginBottom: 8,
   },
   errorText: {
@@ -401,33 +543,57 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
   },
+  errorBackButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  errorBackButtonGradient: {
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+  },
+  errorBackButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  headerGradient: {
+    paddingTop: 50,
+    paddingBottom: 20,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    paddingHorizontal: 20,
   },
   backButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: COLORS.text,
+    color: '#FFFFFF',
   },
   headerRight: {
-    width: 32,
+    width: 40,
   },
   statusSection: {
     backgroundColor: COLORS.white,
+    marginTop: -10,
+    marginHorizontal: 20,
     padding: 20,
+    borderRadius: 16,
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -443,7 +609,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   orderId: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.text,
     marginBottom: 4,
@@ -454,10 +620,10 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    margin: 16,
-    marginBottom: 0,
-    padding: 16,
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginTop: 20,
+    padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -467,11 +633,19 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
     marginBottom: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+  },
+  cardIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cardTitle: {
     fontSize: 16,
@@ -479,7 +653,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   cardContent: {
-    gap: 8,
+    gap: 12,
   },
   addressName: {
     fontSize: 15,
@@ -492,33 +666,45 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
     lineHeight: 20,
   },
+  phoneContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
   phoneText: {
     fontSize: 14,
     color: COLORS.primary,
     fontWeight: '500',
-    marginTop: 4,
   },
-  shippingRow: {
+  infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
   },
-  shippingLabel: {
+  infoLabel: {
     fontSize: 14,
     color: COLORS.textLight,
   },
-  shippingValue: {
+  infoValue: {
     fontSize: 14,
     fontWeight: '500',
     color: COLORS.text,
   },
   trackButton: {
     marginTop: 12,
-    paddingVertical: 10,
-    backgroundColor: COLORS.primary,
-    borderRadius: 8,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  trackButtonGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
   },
   trackButtonText: {
     color: COLORS.white,
@@ -586,46 +772,45 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
   },
   actionsContainer: {
-    margin: 16,
+    marginHorizontal: 20,
+    marginTop: 20,
     gap: 12,
+    marginBottom: 20,
   },
   actionButton: {
-    paddingVertical: 14,
-    borderRadius: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  actionButtonGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
+    paddingVertical: 16,
     gap: 8,
-  },
-  confirmButton: {
-    backgroundColor: COLORS.primary,
-  },
-  cancelButton: {
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.danger,
-  },
-  shipButton: {
-    backgroundColor: COLORS.success,
-  },
-  deliverButton: {
-    backgroundColor: COLORS.info,
-  },
-  supportButton: {
-    backgroundColor: COLORS.warning,
   },
   actionButtonText: {
     color: COLORS.white,
     fontSize: 15,
     fontWeight: '600',
   },
+  cancelButton: {
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.danger,
+  },
   cancelButtonText: {
     color: COLORS.danger,
     fontSize: 15,
     fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+  supportButton: {
+    marginTop: 4,
   },
   footer: {
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
     alignItems: 'center',
   },
   footerText: {

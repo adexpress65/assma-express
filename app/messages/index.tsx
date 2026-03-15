@@ -252,8 +252,8 @@ export default function MessagesScreen() {
                 [
                   { text: 'Annuler', style: 'cancel' },
                   {
-                    text: 'Assma Express',
-                    onPress: () => handleStartBusinessChat('company_assma', 'Assma Express')
+                    text: 'A2Express',
+                    onPress: () => handleStartBusinessChat('company_assma', 'A2Express')
                   },
                   {
                     text: 'TechStore',
@@ -351,7 +351,7 @@ export default function MessagesScreen() {
               {selectedTab === 'business' && (
                 <TouchableOpacity 
                   style={styles.startChatButton}
-                  onPress={() => handleStartBusinessChat('company_assma', 'Assma Express')}
+                  onPress={() => handleStartBusinessChat('company_assma', 'A2Express')}
                 >
                   <Text style={styles.startChatButtonText}>Démarrer une conversation</Text>
                 </TouchableOpacity>

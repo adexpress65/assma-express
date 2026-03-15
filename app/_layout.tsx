@@ -3,14 +3,25 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useEffect } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
-import { I18nManager, Alert } from 'react-native';
-import * as Updates from 'expo-updates'; // ✅ IMPORT POUR OTA
+import { I18nManager, Platform, Alert } from "react-native";
 
-// ✅ IMPORT I18N
+import * as Updates from "expo-updates";
+import * as Notifications from "expo-notifications";
+
+// SÉCURITÉ : Vérification pour ExpoDevice
+let Device: any = null;
+try {
+  Device = require("expo-device");
+} catch (e) {
+  console.log("ExpoDevice non disponible");
+}
+
+import { doc, updateDoc } from "firebase/firestore";
+import { db, auth } from "../src/config/firebase";
+
 import i18n from "../src/services/i18n";
 
-// CONTEXTS
-import { AuthProvider } from "../src/contexts/AuthContext";
+import { AuthProvider, useAuth } from "../src/contexts/AuthContext";
 import { CartProvider } from "../src/contexts/CartContext";
 import { OrderProvider } from "../src/contexts/OrderContext";
 import { MessagesProvider } from "../src/contexts/MessagesContext";
@@ -18,72 +29,143 @@ import { LiveProvider } from "../src/contexts/LiveContext";
 import { WebRTCProvider } from "../src/contexts/WebRTCContext";
 import { CurrencyProvider } from "../src/contexts/CurrencyContext";
 
+// Configuration du gestionnaire de notifications
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
 function LanguageDirectionManager({ children }: { children: React.ReactNode }) {
   const { i18n: i18nInstance } = useTranslation();
-  
+
   useEffect(() => {
-    const isArabic = i18nInstance.language === 'ar';
-    
+    const isArabic = i18nInstance.language === "ar";
     if (isArabic && !I18nManager.isRTL) {
       I18nManager.allowRTL(true);
       I18nManager.forceRTL(true);
     }
-    
-    console.log(`🌐 Language: ${i18nInstance.language}`);
   }, [i18nInstance.language]);
-  
+
+  return <>{children}</>;
+}
+
+function AppInitializer({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  useEffect(() => {
+    // --- 1. LOGIQUE DE MISE À JOUR FORCÉE (OTA) ---
+    async function checkOTAUpdate() {
+      try {
+        if (__DEV__) return; // On ne force pas en mode dev
+
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          
+          Alert.alert(
+            "Mise à jour disponible",
+            "Une nouvelle version de A2Express est prête. L'application va redémarrer pour appliquer les changements.",
+            [
+              { 
+                text: "Mettre à jour maintenant", 
+                onPress: async () => {
+                  await Updates.reloadAsync();
+                } 
+              }
+            ],
+            { cancelable: false } // Force l'utilisateur à cliquer
+          );
+        }
+      } catch (error) {
+        console.log("OTA Update Error:", error);
+      }
+    }
+
+    // --- 2. ENREGISTREMENT DU PUSH TOKEN ---
+    async function registerPushToken() {
+      // Évite le crash sur simulateur ou si le module natif manque
+      if (!Device || !Device.isDevice) {
+        console.log("Notifications : Uniquement sur appareil physique");
+        return;
+      }
+
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+
+        if (existingStatus !== "granted") {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+
+        if (finalStatus !== "granted") {
+          console.log("Permission de notification refusée");
+          return;
+        }
+
+        // Récupération du token avec le projectId de ton extra.eas
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId: "bb3399ba-97b7-4707-80eb-b524775df88a",
+        });
+        const token = tokenData.data;
+
+        // Affichage console pour copie manuelle si besoin
+        console.log("--------------------------");
+        console.log("TOKEN PUSH A2EXPRESS :", token);
+        console.log("--------------------------");
+
+        if (user?.uid) {
+          const userRef = doc(db, "users", user.uid);
+          await updateDoc(userRef, {
+            pushToken: token,
+            lastActive: new Date(),
+          });
+          console.log("Token sauvegardé dans Firestore pour :", user.uid);
+        }
+      } catch (e) {
+        console.log("Erreur enregistrement Token:", e);
+      }
+    }
+
+    checkOTAUpdate();
+    if (user) {
+      registerPushToken();
+    }
+  }, [user]);
+
   return <>{children}</>;
 }
 
 export default function RootLayout() {
-  
-  // ✅ LOGIQUE DE MISE À JOUR OTA AUTOMATIQUE
-  useEffect(() => {
-    async function onFetchUpdateAsync() {
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        
-        if (update.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          // Optionnel : Prévenir l'utilisateur ou redémarrer directement
-          await Updates.reloadAsync(); 
-        }
-      } catch (error) {
-        // On ignore l'erreur en production pour ne pas bloquer l'utilisateur
-        console.log("Erreur OTA Update:", error);
-      }
-    }
-
-    // On ne lance la vérification qu'en mode production
-    if (!__DEV__) {
-      onFetchUpdateAsync();
-    }
-  }, []);
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <I18nextProvider i18n={i18n}>
           <LanguageDirectionManager>
             <AuthProvider>
-              <CurrencyProvider>
-                <CartProvider>
-                  <OrderProvider>
-                    <MessagesProvider>
-                      <LiveProvider>
-                        <WebRTCProvider>
-                          <Stack
-                            screenOptions={{
-                              headerShown: false,
-                              animation: "fade",
-                            }}
-                          />
-                        </WebRTCProvider>
-                      </LiveProvider>
-                    </MessagesProvider>
-                  </OrderProvider>
-                </CartProvider>
-              </CurrencyProvider>
+              <AppInitializer>
+                <CurrencyProvider>
+                  <CartProvider>
+                    <OrderProvider>
+                      <MessagesProvider>
+                        <LiveProvider>
+                          <WebRTCProvider>
+                            <Stack
+                              screenOptions={{
+                                headerShown: false,
+                                animation: "fade",
+                              }}
+                            />
+                          </WebRTCProvider>
+                        </LiveProvider>
+                      </MessagesProvider>
+                    </OrderProvider>
+                  </CartProvider>
+                </CurrencyProvider>
+              </AppInitializer>
             </AuthProvider>
           </LanguageDirectionManager>
         </I18nextProvider>

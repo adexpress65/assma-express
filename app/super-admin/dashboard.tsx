@@ -21,6 +21,8 @@ import {
   getDocs,
   orderBy,
   limit,
+  doc,
+  updateDoc,
   Timestamp
 } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
@@ -93,6 +95,51 @@ export default function SuperAdminDashboard() {
   });
   const [currentTime, setCurrentTime] = useState<string>('');
   const [isOnline, setIsOnline] = useState<boolean>(true);
+  
+  const handleApproveCompany = async (companyId: string) => {
+  try {
+    setLoading(true);
+    const companyRef = doc(db, 'companies', companyId);
+    
+    await updateDoc(companyRef, {
+      'verification.status': 'verified',
+      'verification.verified': true,
+      'isActive': true,
+      'updatedAt': new Date()
+    });
+
+    Alert.alert("Succès", "L'entreprise a été validée avec succès !");
+    // Rafraîchir la liste après validation
+    setPendingCompanies(prev => prev.filter(company => company.id !== companyId)); 
+  } catch (error) {
+    console.error("Erreur validation:", error);
+    Alert.alert("Erreur", "Impossible de valider l'entreprise.");
+  } finally {
+    setLoading(false);
+  }
+};
+
+const handleRejectCompany = async (companyId: string) => {
+  try {
+    setLoading(true);
+    const companyRef = doc(db, 'companies', companyId);
+    
+    await updateDoc(companyRef, {
+      'verification.status': 'rejected',
+      'verification.verified': false,
+      'isActive': false,
+      'updatedAt': new Date()
+    });
+
+    Alert.alert("Refusé", "L'entreprise a été rejetée.");
+    setPendingCompanies(prev => prev.filter(c => c.id !== companyId));
+  } catch (error) {
+    console.error("Erreur rejet:", error);
+    Alert.alert("Erreur", "Action impossible.");
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Mettre à jour l'heure en temps réel
   useEffect(() => {
@@ -382,6 +429,8 @@ export default function SuperAdminDashboard() {
           userEmail: data.email || data.ownerEmail || 'Non spécifié'
         });
       });
+	  
+	  
       
       // Ajouter les produits récents
       productsSnapshot.forEach(doc => {
@@ -804,42 +853,84 @@ label: "Entreprises",
               style={styles.pendingScroll}
               contentContainerStyle={styles.pendingScrollContent}
             >
-              {pendingCompanies.map((company) => (
-                <TouchableOpacity 
-                  key={company.id}
-                  style={styles.pendingCard}
-                  onPress={() => router.push(`/super-admin/verifications/${company.id}`)}
-                >
-                  <View style={styles.pendingCardHeader}>
-                    <View style={styles.companyInitial}>
-                      <Text style={styles.initialText}>
-                        {company.name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.pendingBadge}>
-                      <Text style={styles.pendingBadgeText}>EN ATTENTE</Text>
-                    </View>
-                  </View>
-                  
-                  <Text style={styles.companyName} numberOfLines={1}>
-                    {company.name}
-                  </Text>
-                  <Text style={styles.companyEmail} numberOfLines={1}>
-                    {company.email}
-                  </Text>
-                  
-                  <View style={styles.pendingCardFooter}>
-                    <Text style={styles.pendingDate}>
-                      {formatDate(company.createdAt)}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={16} color="#999" />
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+{pendingCompanies.map((company) => (
+  <View key={company.id} style={styles.pendingCard}>
+    {/* HEADER */}
+    <View style={styles.pendingCardHeader}>
+      <View style={styles.companyInitial}>
+        <Text style={styles.initialText}>
+          {company.name.charAt(0).toUpperCase()}
+        </Text>
+      </View>
+      <View style={styles.pendingBadge}>
+        <Text style={styles.pendingBadgeText}>EN ATTENTE</Text>
+      </View>
+    </View>
 
+    {/* INFOS */}
+    <Text style={styles.companyName} numberOfLines={1}>
+      {company.name}
+    </Text>
+    <Text style={styles.companyEmail} numberOfLines={1}>
+      {company.email}
+    </Text>
+
+    <View style={styles.pendingCardFooter}>
+      <Text style={styles.pendingDate}>
+        {formatDate(company.createdAt)}
+      </Text>
+    </View>
+
+    {/* ACTIONS */}
+    <View style={styles.actionRow}>
+      <TouchableOpacity 
+        style={styles.detailsBtn}
+        onPress={() => router.push(`/super-admin/verifications/${company.id}`)}
+      >
+        <Ionicons name="eye-outline" size={20} color="#4B5563" />
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.rejectBtn}
+        onPress={() => {
+          Alert.alert(
+            "Refuser l'entreprise",
+            `Voulez-vous rejeter ${company.name} ?`,
+            [
+              { text: "Annuler", style: "cancel" },
+              { text: "Rejeter", style: "destructive", onPress: () => handleRejectCompany(company.id) }
+            ]
+          );
+        }}
+      >
+        <Ionicons name="close-outline" size={22} color="#fff" />
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.approveBtn}
+        onPress={() => {
+          Alert.alert(
+            "Valider l'entreprise",
+            `Autoriser ${company.name} ?`,
+            [
+              { text: "Annuler", style: "cancel" },
+              { text: "Valider", onPress: () => handleApproveCompany(company.id) }
+            ]
+          );
+        }}
+      >
+        <Ionicons name="checkmark-circle" size={18} color="#fff" />
+        <Text style={styles.approveBtnText}>Valider</Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+))}
+
+{/* --- CES FERMETURES SONT CELLES QUI MANQUAIENT --- */}
+          </ScrollView>
+        </View>
+      )} 
+{/* --- FIN DES FERMETURES --- */}
         {/* Activités récentes */}
         <View style={styles.activitySection}>
           <View style={styles.sectionHeader}>
@@ -1050,6 +1141,23 @@ const styles = StyleSheet.create({
     color: '#FF6B00',
     fontWeight: '600',
   },
+  rejectBtn: {
+    backgroundColor: '#EF4444', // Rouge
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  // Ajustez detailsBtn pour qu'il soit carré comme le bouton rejeter
+  detailsBtn: {
+    backgroundColor: '#F3F4F6',
+    width: 45,
+    height: 45,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+  },
   offlineBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1194,7 +1302,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF4081',
     borderRadius: 12,
     padding: 12,
-    width: '48%', // Plus large pour "Ajouter Produit"
+    width: '48%',
   },
   menuItemTop: {
     position: 'relative',
@@ -1316,17 +1424,18 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   pendingCard: {
-    width: 200,
+    width: 260, // Augmenté pour les boutons
     backgroundColor: '#FFF',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
+    shadowRadius: 6,
+    elevation: 4,
     borderWidth: 1,
     borderColor: '#FFE5CC',
+    marginRight: 12,
   },
   pendingCardHeader: {
     flexDirection: 'row',
@@ -1360,14 +1469,15 @@ const styles = StyleSheet.create({
   },
   companyName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#1A1A1A',
-    marginBottom: 4,
+    marginBottom: 2,
+    marginTop: 8,
   },
   companyEmail: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   pendingCardFooter: {
     flexDirection: 'row',
@@ -1377,6 +1487,43 @@ const styles = StyleSheet.create({
   pendingDate: {
     fontSize: 11,
     color: '#999',
+  },
+  // NOUVEAUX STYLES D'ACTION
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingTop: 12,
+  },
+  approveBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    backgroundColor: '#10B981',
+    borderRadius: 10,
+  },
+  approveBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  detailsBtn: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 10,
+  },
+  detailsBtnText: {
+    color: '#4B5563',
+    fontSize: 12,
+    fontWeight: '600',
   },
   activitySection: {
     padding: 16,

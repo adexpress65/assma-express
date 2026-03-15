@@ -1,4 +1,4 @@
-﻿// apps/mobile/src/components/CategoryPill.tsx
+// apps/mobile/src/components/CategoryPill.tsx
 import React from "react";
 import { Text, TouchableOpacity, StyleSheet } from "react-native";
 

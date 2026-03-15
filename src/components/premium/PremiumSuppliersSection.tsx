@@ -120,7 +120,7 @@ const normalizeSupplier = (data: any): Supplier => {
 const getMockSuppliers = (): Supplier[] => [
   {
     id: 'supplier-1',
-    name: 'Assma Express Pro',
+    name: 'A2Express Pro',
     logo: 'https://via.placeholder.com/80x80/ff6a00/ffffff?text=AE',
     rating: 4.8,
     totalProducts: 156,
@@ -266,7 +266,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
           </LinearGradient>
           <View>
             <Text style={styles.title}>Fournisseurs Vérifiés</Text>
-            <Text style={styles.subtitle}>Partenaire d'affaires certifiés Assma Express</Text>
+            <Text style={styles.subtitle}>Partenaire d'affaires certifiés A2Express</Text>
           </View>
         </View>
         
@@ -471,7 +471,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
 
       {/* GARANTIES ASSMA */}
       <View style={styles.guaranteesContainer}>
-        <Text style={styles.guaranteesTitle}>Garanties Assma Express</Text>
+        <Text style={styles.guaranteesTitle}>Garanties A2Express</Text>
         <View style={styles.guaranteesGrid}>
           <View style={styles.guaranteeItem}>
             <LinearGradient

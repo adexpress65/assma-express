@@ -1,742 +1,482 @@
-// apps/mobile/app/catalogue.tsx
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  TouchableOpacity,
-  Image,
-  TextInput,
-  FlatList,
-  StatusBar,
-  Dimensions,
-  Platform,
-  Alert,
-} from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '../src/config/firebase';
+// apps/mobile/app/seller/catalogue.tsx
 
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+View,
+Text,
+StyleSheet,
+FlatList,
+TouchableOpacity,
+ActivityIndicator,
+TextInput,
+SafeAreaView,
+Dimensions
+} from 'react-native';
+
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { useAuth } from '@/contexts/AuthContext';
+
+import {
+collection,
+query,
+where,
+orderBy,
+limit,
+startAfter,
+getDocs
+} from 'firebase/firestore';
+
+import { db } from '@/config/firebase';
 
 const { width } = Dimensions.get('window');
 
-const COLORS = {
-  primary: '#FF6A00',
-  secondary: '#FF8C00',
-  background: '#F8F8F8',
-  white: '#FFFFFF',
-  text: '#2D3748',
-  lightGray: '#E2E8F0',
-  darkBlue: '#1E40AF',
-  industrial: '#1E293B',
+export default function SellerCatalogue() {
+
+const router = useRouter();
+const { user } = useAuth();
+
+const [products, setProducts] = useState<any[]>([]);
+const [loading, setLoading] = useState(true);
+const [loadingMore, setLoadingMore] = useState(false);
+
+const [lastDoc, setLastDoc] = useState<any>(null);
+const [hasMore, setHasMore] = useState(true);
+
+const [search, setSearch] = useState('');
+
+useEffect(() => {
+loadProducts();
+}, [user]);
+
+// Chargement initial
+
+const loadProducts = async () => {
+
+if (!user?.uid) return;
+
+try {
+
+setLoading(true);
+
+const q = query(
+collection(db, 'products'),
+where('sellerId', '==', user.uid),
+orderBy('updatedAt', 'desc'),
+limit(20)
+);
+
+const snapshot = await getDocs(q);
+
+const items = snapshot.docs.map(doc => ({
+id: doc.id,
+...doc.data()
+}));
+
+setProducts(items);
+
+setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+
+} catch (error) {
+
+console.error('Catalogue error:', error);
+
+} finally {
+
+setLoading(false);
+
+}
+
 };
 
-interface Product {
-  id: string;
-  name: string;
-  description?: string;
-  price: number;
-  images?: string[];
-  companyId: string;
-  companyName?: string;
-  categoryId?: string;
-  categoryName?: string;
-  stock?: number;
-  moq?: number;
-  unit?: string;
-  isActive?: boolean;
-  createdAt?: any;
-  specifications?: Record<string, any>;
+// Chargement au scroll
+
+const loadMoreProducts = async () => {
+
+if (!hasMore || loadingMore || !lastDoc) return;
+
+try {
+
+setLoadingMore(true);
+
+const q = query(
+collection(db, 'products'),
+where('sellerId', '==', user.uid),
+orderBy('updatedAt', 'desc'),
+startAfter(lastDoc),
+limit(20)
+);
+
+const snapshot = await getDocs(q);
+
+const items = snapshot.docs.map(doc => ({
+id: doc.id,
+...doc.data()
+}));
+
+if (snapshot.docs.length === 0) {
+setHasMore(false);
+return;
 }
 
-interface Category {
-  id: string;
-  name: string;
-  image?: string;
-  productCount?: number;
-}
+setProducts(prev => {
 
-interface FilterState {
-  minPrice: string;
-  maxPrice: string;
-  category: string | null;
-  moq: string;
-  sortBy: 'newest' | 'price_asc' | 'price_desc' | 'popular';
-}
+  const merged = [...prev, ...items];
 
-export default function CatalogueScreen() {
-  const router = useRouter();
-  const params = useLocalSearchParams();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState<FilterState>({
-    minPrice: '',
-    maxPrice: '',
-    category: params.categoryId as string || null,
-    moq: '',
-    sortBy: 'newest',
-  });
-
-  useEffect(() => {
-    fetchData();
-  }, [filters]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch categories
-      const categoriesQuery = query(
-        collection(db, 'categories'),
-        where('isActive', '==', true),
-        orderBy('name', 'asc')
-      );
-      const categoriesSnapshot = await getDocs(categoriesQuery);
-      const categoriesList = categoriesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Category[];
-      setCategories(categoriesList);
-
-      // Build products query
-      let productsQuery = query(
-        collection(db, 'products'),
-        where('isActive', '==', true)
-      );
-
-      // Apply filters
-      // Note: Firestore doesn't support multiple inequality filters on different fields
-      // For production, consider using a more advanced filtering strategy
-      
-      const productsSnapshot = await getDocs(productsQuery);
-      let productsList = productsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Product[];
-
-      // Apply client-side filters
-      if (filters.category) {
-        productsList = productsList.filter(p => p.categoryId === filters.category);
-      }
-      
-      if (filters.minPrice) {
-        const min = parseFloat(filters.minPrice);
-        productsList = productsList.filter(p => p.price >= min);
-      }
-      
-      if (filters.maxPrice) {
-        const max = parseFloat(filters.maxPrice);
-        productsList = productsList.filter(p => p.price <= max);
-      }
-      
-      if (filters.moq) {
-        const moq = parseInt(filters.moq);
-        productsList = productsList.filter(p => (p.moq || 0) >= moq);
-      }
-
-      // Apply sorting
-      switch (filters.sortBy) {
-        case 'price_asc':
-          productsList.sort((a, b) => a.price - b.price);
-          break;
-        case 'price_desc':
-          productsList.sort((a, b) => b.price - a.price);
-          break;
-        case 'newest':
-          productsList.sort((a, b) => {
-            const dateA = a.createdAt?.toDate?.() || new Date(0);
-            const dateB = b.createdAt?.toDate?.() || new Date(0);
-            return dateB.getTime() - dateA.getTime();
-          });
-          break;
-      }
-
-      setProducts(productsList);
-    } catch (error) {
-      console.error('Erreur chargement catalogue:', error);
-      Alert.alert('Erreur', 'Impossible de charger le catalogue');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleProductPress = (productId: string) => {
-    router.push(`/product/${productId}`);
-  };
-
-  const handleRequestQuote = (productId: string) => {
-    router.push(`/demande-devis?productId=${productId}`);
-  };
-
-  const handleCategoryPress = (categoryId: string) => {
-    setFilters(prev => ({ ...prev, category: categoryId }));
-  };
-
-  const renderProductItem = ({ item }: { item: Product }) => (
-    <TouchableOpacity 
-      style={styles.productCard}
-      onPress={() => handleProductPress(item.id)}
-    >
-      <View style={styles.productImageContainer}>
-        {item.images && item.images.length > 0 ? (
-          <Image source={{ uri: item.images[0] }} style={styles.productImage} />
-        ) : (
-          <View style={styles.productImagePlaceholder}>
-            <Ionicons name="cube" size={32} color={COLORS.lightGray} />
-          </View>
-        )}
-        {item.moq && (
-          <View style={styles.moqBadge}>
-            <Text style={styles.moqText}>MOQ: {item.moq}</Text>
-          </View>
-        )}
-      </View>
-      
-      <View style={styles.productInfo}>
-        <Text style={styles.productName} numberOfLines={2}>
-          {item.name}
-        </Text>
-        
-        <Text style={styles.productCompany} numberOfLines={1}>
-          {item.companyName || 'Fournisseur industriel'}
-        </Text>
-        
-        <Text style={styles.productPrice}>
-          {item.price?.toLocaleString()} FCFA
-        </Text>
-        
-        {item.unit && (
-          <Text style={styles.productUnit}>/{item.unit}</Text>
-        )}
-        
-        <TouchableOpacity 
-          style={styles.quoteButton}
-          onPress={() => handleRequestQuote(item.id)}
-        >
-          <Ionicons name="document-text" size={16} color="#FFF" />
-          <Text style={styles.quoteButtonText}>Demander devis</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
+  const unique = Array.from(
+    new Map(merged.map(item => [item.id, item])).values()
   );
 
-  const renderCategoryItem = ({ item }: { item: Category }) => (
-    <TouchableOpacity 
-      style={[
-        styles.categoryFilterItem,
-        filters.category === item.id && styles.categoryFilterItemActive
-      ]}
-      onPress={() => handleCategoryPress(item.id)}
-    >
-      <Text style={[
-        styles.categoryFilterText,
-        filters.category === item.id && styles.categoryFilterTextActive
-      ]}>
-        {item.name}
-      </Text>
-    </TouchableOpacity>
-  );
+  return unique;
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
-      
-      {/* Header */}
-      <LinearGradient
-        colors={[COLORS.industrial, '#334155']}
-        style={styles.header}
-      >
-        <View style={styles.headerContent}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#FFF" />
-          </TouchableOpacity>
-          
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>CATALOGUE INDUSTRIEL</Text>
-            <Text style={styles.headerSubtitle}>
-              {products.length} produits disponibles
-            </Text>
-          </View>
-          
-          <TouchableOpacity 
-            style={styles.filterButton}
-            onPress={() => setShowFilters(!showFilters)}
-          >
-            <Ionicons name="filter" size={20} color="#FFF" />
-          </TouchableOpacity>
-        </View>
-        
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchInputContainer}>
-            <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Rechercher un produit..."
-              placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-        </View>
-      </LinearGradient>
+});
 
-      {/* Filters */}
-      {showFilters && (
-        <View style={styles.filtersPanel}>
-          <View style={styles.filterSection}>
-            <Text style={styles.filterLabel}>Catégorie</Text>
-            <FlatList
-              data={categories}
-              renderItem={renderCategoryItem}
-              keyExtractor={item => item.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoriesFilterList}
-            />
-          </View>
-          
-          <View style={styles.filterSection}>
-            <Text style={styles.filterLabel}>Prix (FCFA)</Text>
-            <View style={styles.priceInputs}>
-              <View style={styles.priceInputContainer}>
-                <Text style={styles.priceLabel}>Min</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  placeholder="0"
-                  keyboardType="numeric"
-                  value={filters.minPrice}
-                  onChangeText={(text) => setFilters(prev => ({ ...prev, minPrice: text }))}
-                />
-              </View>
-              <View style={styles.priceInputContainer}>
-                <Text style={styles.priceLabel}>Max</Text>
-                <TextInput
-                  style={styles.priceInput}
-                  placeholder="1000000"
-                  keyboardType="numeric"
-                  value={filters.maxPrice}
-                  onChangeText={(text) => setFilters(prev => ({ ...prev, maxPrice: text }))}
-                />
-              </View>
-            </View>
-          </View>
-          
-          <View style={styles.filterSection}>
-            <Text style={styles.filterLabel}>Quantité minimale (MOQ)</Text>
-            <TextInput
-              style={styles.moqInput}
-              placeholder="Ex: 100"
-              keyboardType="numeric"
-              value={filters.moq}
-              onChangeText={(text) => setFilters(prev => ({ ...prev, moq: text }))}
-            />
-          </View>
-          
-          <View style={styles.filterSection}>
-            <Text style={styles.filterLabel}>Trier par</Text>
-            <View style={styles.sortOptions}>
-              {[
-                { id: 'newest', label: 'Plus récents' },
-                { id: 'price_asc', label: 'Prix croissant' },
-                { id: 'price_desc', label: 'Prix décroissant' },
-              ].map(option => (
-                <TouchableOpacity
-                  key={option.id}
-                  style={[
-                    styles.sortOption,
-                    filters.sortBy === option.id && styles.sortOptionActive
-                  ]}
-                  onPress={() => setFilters(prev => ({ ...prev, sortBy: option.id as any }))}
-                >
-                  <Text style={[
-                    styles.sortOptionText,
-                    filters.sortBy === option.id && styles.sortOptionTextActive
-                  ]}>
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          
-          <TouchableOpacity 
-            style={styles.applyFiltersButton}
-            onPress={() => setShowFilters(false)}
-          >
-            <Text style={styles.applyFiltersText}>Appliquer les filtres</Text>
-          </TouchableOpacity>
-        </View>
-      )}
 
-      {/* Products Grid */}
-      <FlatList
-        data={products}
-        renderItem={renderProductItem}
-        keyExtractor={item => item.id}
-        numColumns={2}
-        contentContainerStyle={styles.productsGrid}
-        columnWrapperStyle={styles.productsRow}
-        ListHeaderComponent={
-          <View style={styles.resultsHeader}>
-            <Text style={styles.resultsText}>
-              {products.length} produits trouvés
-            </Text>
-            {filters.category && (
-              <TouchableOpacity 
-                style={styles.clearFiltersButton}
-                onPress={() => setFilters(prev => ({ ...prev, category: null }))}
-              >
-                <Ionicons name="close-circle" size={16} color={COLORS.primary} />
-                <Text style={styles.clearFiltersText}>Effacer filtre</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="search" size={64} color={COLORS.lightGray} />
-            <Text style={styles.emptyStateTitle}>Aucun produit trouvé</Text>
-            <Text style={styles.emptyStateText}>
-              Aucun produit ne correspond à vos critères de recherche
-            </Text>
-            <TouchableOpacity 
-              style={styles.resetFiltersButton}
-              onPress={() => setFilters({
-                minPrice: '',
-                maxPrice: '',
-                category: null,
-                moq: '',
-                sortBy: 'newest',
-              })}
-            >
-              <Text style={styles.resetFiltersText}>Réinitialiser les filtres</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
-    </SafeAreaView>
-  );
+setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+
+} catch (error) {
+
+console.error('Pagination error:', error);
+
+} finally {
+
+setLoadingMore(false);
+
 }
+
+};
+
+const filteredProducts = useMemo(() => {
+
+if (!search) return products;
+
+return products.filter(item =>
+item.name?.toLowerCase().includes(search.toLowerCase()) ||
+item.categoryName?.toLowerCase().includes(search.toLowerCase())
+);
+
+}, [products, search]);
+
+const renderProductItem = useCallback(({ item }: { item: any }) => {
+
+return (
+<ProductCard item={item} router={router} />
+);
+
+}, []);
+
+const getItemLayout = (_, index: number) => ({
+length: 230,
+offset: 230 * index,
+index
+});
+
+return (
+
+<SafeAreaView style={styles.container}>
+
+<View style={styles.header}>
+
+<TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
+<Ionicons name="chevron-back" size={24} color="#333" />
+</TouchableOpacity>
+
+<Text style={styles.title}>Catalogue Usine</Text>
+
+<TouchableOpacity 
+  onPress={() => router.push('/seller/add-product' as any)} 
+  style={styles.iconBtn}
+>
+  <Ionicons name="add-circle" size={28} color="#FF6B00" />
+</TouchableOpacity>
+
+</View>
+
+<View style={styles.searchBar}>
+
+<Ionicons name="search" size={18} color="#999" />
+
+<TextInput
+style={styles.input}
+placeholder="Rechercher dans mes produits..."
+value={search}
+onChangeText={setSearch}
+/>
+
+</View>
+
+{loading ? (
+
+<ActivityIndicator size="large" color="#FF6B00" style={{ marginTop: 50 }} />
+
+) : (
+
+<FlatList
+
+data={filteredProducts}
+
+renderItem={renderProductItem}
+
+keyExtractor={(item, index) => `${item.id}-${index}`}
+
+numColumns={2}
+
+contentContainerStyle={styles.list}
+
+initialNumToRender={8}
+maxToRenderPerBatch={6}
+windowSize={7}
+removeClippedSubviews
+updateCellsBatchingPeriod={50}
+
+getItemLayout={getItemLayout}
+
+onEndReached={loadMoreProducts}
+onEndReachedThreshold={0.5}
+
+keyboardShouldPersistTaps="handled"
+
+showsVerticalScrollIndicator={false}
+
+ListFooterComponent={
+loadingMore
+? <ActivityIndicator style={{ marginVertical: 20 }} />
+: null
+}
+
+ListEmptyComponent={
+
+<View style={styles.empty}>
+<Ionicons name="file-tray-stacked-outline" size={50} color="#CCC" />
+<Text style={styles.emptyText}>Aucun produit trouvé</Text>
+</View>
+
+}
+
+/>
+
+)}
+
+</SafeAreaView>
+
+);
+
+}
+
+const ProductCard = React.memo(({ item, router }: { item: any, router: any }) => (
+
+<TouchableOpacity
+style={styles.card}
+onPress={() => router.push({
+pathname: '/seller/edit-product',
+params: { id: item.id }
+} as any)}
+>
+
+<Image
+source={{ uri: item.mainImage || item.imageUrl }}
+style={styles.image}
+contentFit="cover"
+cachePolicy="disk"
+/>
+
+{item.specialOffer && (
+
+<View style={styles.promoBadge}>
+<Text style={styles.promoText}>OFFRE</Text>
+</View>
+
+)}
+
+<View style={styles.content}>
+
+<Text style={styles.category}>
+{item.categoryName || 'Général'}
+</Text>
+
+<Text style={styles.name} numberOfLines={2}>
+{item.name}
+</Text>
+
+<View style={styles.priceRow}>
+
+<Text style={styles.price}>
+{item.price?.toLocaleString()} {item.currency || 'XOF'}
+</Text>
+
+{item.originalPrice > item.price && (
+
+<Text style={styles.oldPrice}>
+{item.originalPrice?.toLocaleString()}
+</Text>
+
+)}
+
+</View>
+
+<View style={styles.footer}>
+
+<View style={styles.stockInfo}>
+<Ionicons name="cube-outline" size={12} color="#666" />
+<Text style={styles.stockText}>
+{item.stockQuantity > 1000 ? '+999' : item.stockQuantity} dispos
+</Text>
+</View>
+
+<Text style={styles.variantText}>
+{item.variantCount || 0} var.
+</Text>
+
+</View>
+
+</View>
+
+</TouchableOpacity>
+
+));
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-  },
-  header: {
-    paddingTop: 50,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  headerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitleContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFF',
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.9)',
-  },
-  filterButton: {
-    padding: 8,
-  },
-  searchContainer: {
-    marginTop: 8,
-  },
-  searchInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  searchIcon: {
-    marginRight: 12,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#FFF',
-  },
-  filtersPanel: {
-    backgroundColor: '#FFF',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-  },
-  filterSection: {
-    marginBottom: 20,
-  },
-  filterLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.industrial,
-    marginBottom: 10,
-  },
-  categoriesFilterList: {
-    gap: 8,
-  },
-  categoryFilterItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginRight: 8,
-  },
-  categoryFilterItemActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  categoryFilterText: {
-    fontSize: 12,
-    color: COLORS.industrial,
-    fontWeight: '500',
-  },
-  categoryFilterTextActive: {
-    color: '#FFF',
-  },
-  priceInputs: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  priceInputContainer: {
-    flex: 1,
-  },
-  priceLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 6,
-  },
-  priceInput: {
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: COLORS.industrial,
-  },
-  moqInput: {
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    color: COLORS.industrial,
-  },
-  sortOptions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  sortOption: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-  },
-  sortOptionActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  sortOptionText: {
-    fontSize: 12,
-    color: COLORS.industrial,
-    fontWeight: '500',
-  },
-  sortOptionTextActive: {
-    color: '#FFF',
-  },
-  applyFiltersButton: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  applyFiltersText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  productsGrid: {
-    padding: 16,
-  },
-  productsRow: {
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  resultsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  resultsText: {
-    fontSize: 14,
-    color: COLORS.industrial,
-    fontWeight: '600',
-  },
-  clearFiltersButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  clearFiltersText: {
-    fontSize: 12,
-    color: COLORS.primary,
-    fontWeight: '500',
-  },
-  productCard: {
-    width: (width - 48) / 2,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  productImageContainer: {
-    position: 'relative',
-    height: 120,
-    backgroundColor: '#F8F9FA',
-  },
-  productImage: {
-    width: '100%',
-    height: '100%',
-  },
-  productImagePlaceholder: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  moqBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: 'rgba(30, 64, 175, 0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  moqText: {
-    fontSize: 10,
-    color: '#FFF',
-    fontWeight: '600',
-  },
-  productInfo: {
-    padding: 12,
-  },
-  productName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.industrial,
-    marginBottom: 4,
-    height: 32,
-  },
-  productCompany: {
-    fontSize: 11,
-    color: '#666',
-    marginBottom: 6,
-  },
-  productPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-    marginBottom: 2,
-  },
-  productUnit: {
-    fontSize: 11,
-    color: '#666',
-    marginBottom: 10,
-  },
-  quoteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
-    paddingVertical: 8,
-    borderRadius: 6,
-    gap: 6,
-  },
-  quoteButtonText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyStateTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.industrial,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  resetFiltersButton: {
-    backgroundColor: '#F8FAFC',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  resetFiltersText: {
-    fontSize: 14,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
+
+container: { flex: 1, backgroundColor: '#FFF' },
+
+header: {
+flexDirection: 'row',
+alignItems: 'center',
+justifyContent: 'space-between',
+padding: 15
+},
+
+title: {
+fontSize: 20,
+fontWeight: '800',
+color: '#1A1A1A'
+},
+
+iconBtn: { padding: 5 },
+
+searchBar: {
+flexDirection: 'row',
+alignItems: 'center',
+backgroundColor: '#F5F5F5',
+marginHorizontal: 15,
+paddingHorizontal: 15,
+borderRadius: 12,
+marginBottom: 10
+},
+
+input: {
+flex: 1,
+height: 45,
+marginLeft: 10,
+fontSize: 14
+},
+
+list: { padding: 10 },
+
+card: {
+width: (width / 2) - 15,
+backgroundColor: '#FFF',
+margin: 5,
+borderRadius: 15,
+borderWidth: 1,
+borderColor: '#F0F0F0',
+overflow: 'hidden'
+},
+
+image: {
+width: '100%',
+height: 140,
+backgroundColor: '#F9F9F9'
+},
+
+promoBadge: {
+position: 'absolute',
+top: 10,
+left: 10,
+backgroundColor: '#FF6B00',
+paddingHorizontal: 6,
+paddingVertical: 2,
+borderRadius: 4
+},
+
+promoText: {
+color: '#FFF',
+fontSize: 9,
+fontWeight: '900'
+},
+
+content: { padding: 10 },
+
+category: {
+fontSize: 10,
+color: '#FF6B00',
+fontWeight: 'bold',
+textTransform: 'uppercase'
+},
+
+name: {
+fontSize: 13,
+fontWeight: '600',
+color: '#333',
+marginTop: 2,
+height: 35
+},
+
+priceRow: {
+flexDirection: 'row',
+alignItems: 'center',
+marginTop: 5,
+gap: 5
+},
+
+price: {
+fontSize: 14,
+fontWeight: '800',
+color: '#1A1A1A'
+},
+
+oldPrice: {
+fontSize: 11,
+color: '#AAA',
+textDecorationLine: 'line-through'
+},
+
+footer: {
+flexDirection: 'row',
+justifyContent: 'space-between',
+alignItems: 'center',
+marginTop: 10,
+paddingTop: 8,
+borderTopWidth: 1,
+borderTopColor: '#F5F5F5'
+},
+
+stockInfo: {
+flexDirection: 'row',
+alignItems: 'center',
+gap: 4
+},
+
+stockText: {
+fontSize: 10,
+color: '#666'
+},
+
+variantText: {
+fontSize: 10,
+color: '#999',
+fontStyle: 'italic'
+},
+
+empty: {
+alignItems: 'center',
+marginTop: 100
+},
+
+emptyText: {
+color: '#999',
+marginTop: 10
+}
+
 });

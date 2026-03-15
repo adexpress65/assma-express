@@ -50,9 +50,9 @@ export default function AIChatScreen() {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Tu es l'assistant de l'application e-commerce Assma Express. 
+              text: `Tu es l'assistant de l'application e-commerce A2Express. 
                      Réponds de manière courte, polie et professionnelle. 
-                     Si on te pose une question sur Assma Express, sache que c'est une boutique de livraison rapide.
+                     Si on te pose une question sur A2Express, sache que c'est une boutique de livraison rapide.
                      Voici la question du client : ${userText}`
             }]
           }]

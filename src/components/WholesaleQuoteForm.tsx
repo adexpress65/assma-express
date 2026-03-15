@@ -88,7 +88,7 @@ export default function WholesaleQuoteForm({
 ${formData.specialRequirements || 'Aucune exigence particulière'}
 
 ---------------------------------------
-📩 Cette demande a été envoyée depuis l'application Assma Express
+📩 Cette demande a été envoyée depuis l'application A2Express
 ⏰ Date: ${new Date().toLocaleString('fr-FR')}
       `;
 

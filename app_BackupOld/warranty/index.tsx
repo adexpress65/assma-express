@@ -140,7 +140,7 @@ export default function WarrantyScreen() {
 
         {/* Information sur la garantie */}
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Ã€ propos de la garantie Assma Express</Text>
+          <Text style={styles.infoTitle}>Ã€ propos de la garantie A2Express</Text>
           <View style={styles.infoItem}>
             <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
             <Text style={styles.infoText}>Garantie fabricant 1 an incluse</Text>

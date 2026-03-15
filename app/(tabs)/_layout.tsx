@@ -1,14 +1,15 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { 
   Platform, Modal, View, Text, Animated, StyleSheet, 
-  Dimensions, TouchableOpacity, Image, ActivityIndicator 
+  Dimensions, TouchableOpacity, Image, Alert
 } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
-import { db } from '../../src/config/firebase'; 
+import { collection, query, where, getDocs, limit, doc, updateDoc } from 'firebase/firestore';
+import { db, auth } from '../../src/config/firebase'; // Assure-toi d'importer auth
+import * as Notifications from 'expo-notifications'; // Import indispensable
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -16,18 +17,61 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const [showFlash, setShowFlash] = useState(false); // Par défaut false pour attendre le chargement
+  const [showFlash, setShowFlash] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   
   const fadeAnim = useRef(new Animated.Value(0)).current; 
   const blinkAnim = useRef(new Animated.Value(1)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current; 
 
-  useEffect(() => {
+useEffect(() => {
+    // --- 1. LOGIQUE DE NOTIFICATION ---
+    const setupNotifications = async () => {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== 'granted') return;
+
+        // Récupération du token Expo
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+  projectId: "bb3399ba-97b7-4707-80eb-b524775df88a" 
+});
+        const token = tokenData.data;
+
+        // On affiche le token dans le terminal de ton PC (VS Code)
+        console.log("******************************************");
+        console.log("TON TOKEN EXPO :", token);
+        console.log("******************************************");
+
+        // Alerte simple (SANS Clipboard pour éviter l'erreur Native Module)
+        Alert.alert(
+          "Token généré",
+          token, // Le token s'affiche ici sur ton téléphone
+          [{ text: "OK" }]
+        );
+
+        // Sauvegarde automatique dans Firestore
+        const user = auth.currentUser;
+        if (user) {
+          await updateDoc(doc(db, "users", user.uid), {
+            pushToken: token
+          });
+        }
+      } catch (error) {
+        console.log("Erreur setup notifications:", error);
+      }
+    };
+
+    setupNotifications();
+    // ... la suite de ton code (prepareFlashSale, etc.)
+
+    // --- 2. LOGIQUE VENTE FLASH (Ton code existant) ---
     const prepareFlashSale = async () => {
       try {
-        setLoading(true);
         const q = query(
           collection(db, 'products'),
           where('status', '==', 'published'),
@@ -45,7 +89,6 @@ export default function TabsLayout() {
           };
         });
 
-        // 🔥 ÉTAPE CLÉ : On force le téléchargement des images avant d'afficher
         const prefetchImages = items.map(item => {
           if (item.image) return Image.prefetch(item.image);
         });
@@ -53,26 +96,21 @@ export default function TabsLayout() {
         await Promise.all(prefetchImages);
         setProducts(items);
         
-        // On n'affiche le modal que si on a des produits
         if (items.length > 0) {
           setShowFlash(true);
-          // Animation d'entrée fluide
           Animated.parallel([
             Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
             Animated.spring(scaleAnim, { toValue: 1, friction: 5, useNativeDriver: true })
           ]).start();
         }
-
       } catch (e) {
         console.log("Erreur chargement flash:", e);
-      } finally {
-        setLoading(false);
       }
     };
 
-    prepareFlashSale();
+    setupNotifications(); // Lancement des notifications
+    prepareFlashSale(); // Lancement vente flash
 
-    // Animation Clignotement
     Animated.loop(
       Animated.sequence([
         Animated.timing(blinkAnim, { toValue: 0.4, duration: 400, useNativeDriver: true }),
@@ -94,15 +132,14 @@ export default function TabsLayout() {
     <>
       <Modal transparent visible={showFlash} animationType="none">
         <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
-          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+           {/* Ton contenu de Modal existant reste identique */}
+           <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
             <LinearGradient colors={['#FF4444', '#CC0000']} style={styles.modalContent}>
-              
               <Animated.View style={{ opacity: blinkAnim, alignItems: 'center' }}>
                 <Ionicons name="flash" size={50} color="#FFD700" />
                 <Text style={styles.megaTitle}>VENTE FLASH !</Text>
                 <Text style={styles.megaSubtitle}>EXCLUSIVITÉS À MOINS DE 1000F</Text>
               </Animated.View>
-
               <View style={styles.productRow}>
                 {products.map((p, i) => (
                   <View key={p.id || i} style={styles.productCircle}>
@@ -113,14 +150,12 @@ export default function TabsLayout() {
                   </View>
                 ))}
               </View>
-
               <TouchableOpacity 
                 style={styles.actionButton}
                 onPress={() => { handleClose(); router.push("/flash-deals"); }}
               >
                 <Text style={styles.actionText}>EN PROFITER</Text>
               </TouchableOpacity>
-
               <TouchableOpacity style={styles.skipBtn} onPress={handleClose}>
                 <Text style={styles.skipText}>Plus tard</Text>
               </TouchableOpacity>

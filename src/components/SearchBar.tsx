@@ -1,4 +1,4 @@
-ï»¿// apps/mobile/src/components/SearchBar.tsx
+// apps/mobile/src/components/SearchBar.tsx
 import React from "react";
 import {
   View,
@@ -26,13 +26,13 @@ export default function SearchBar({
   const router = useRouter();
 
   const openCamera = () => {
-    Keyboard.dismiss(); // ğŸ”‘ Ã©vite tout resize parasite
-    router.push("/camera"); // camÃ©ra interne
+    Keyboard.dismiss(); // ?? évite tout resize parasite
+    router.push("/camera"); // caméra interne
   };
 
   return (
     <View style={styles.container}>
-      {/* IcÃ´ne recherche */}
+      {/* Icône recherche */}
       <Ionicons
         name="search"
         size={20}
@@ -50,7 +50,7 @@ export default function SearchBar({
         returnKeyType="search"
       />
 
-      {/* IcÃ´ne camÃ©ra (REMPLACEMENT de l'icÃ´ne image) */}
+      {/* Icône caméra (REMPLACEMENT de l'icône image) */}
       <TouchableOpacity onPress={openCamera} style={styles.cameraButton}>
         <Ionicons name="camera-outline" size={22} color="#666" />
       </TouchableOpacity>

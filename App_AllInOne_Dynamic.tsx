@@ -1,4 +1,4 @@
-ï»¿// App.tsx
+// App.tsx
 import React from "react";
 import { Provider } from "react-redux";
 import { store } from "./src/store";
@@ -14,17 +14,17 @@ export default function App() {
 
 // src/data/mockData.ts
 export const categories = [
-  { id: "1", name: "VÃªtements", image: "https://picsum.photos/200/300" },
+  { id: "1", name: "Vêtements", image: "https://picsum.photos/200/300" },
   { id: "2", name: "Machines", image: "https://picsum.photos/200/301" },
   { id: "3", name: "Mini Usines", image: "https://picsum.photos/200/302" },
-  { id: "4", name: "VÃ©hicules", image: "https://picsum.photos/200/303" },
+  { id: "4", name: "Véhicules", image: "https://picsum.photos/200/303" },
 ];
 
 export const products = [
-  { id: "p1", title: "T-shirt", price: "12 $", image: "https://picsum.photos/200/310", category: "VÃªtements" },
-  { id: "p2", title: "Chaussures", price: "45 $", image: "https://picsum.photos/200/311", category: "VÃªtements" },
+  { id: "p1", title: "T-shirt", price: "12 $", image: "https://picsum.photos/200/310", category: "Vêtements" },
+  { id: "p2", title: "Chaussures", price: "45 $", image: "https://picsum.photos/200/311", category: "Vêtements" },
   { id: "p3", title: "Machine", price: "500 $", image: "https://picsum.photos/200/312", category: "Machines" },
-  { id: "p4", title: "Camion", price: "1 200 $", image: "https://picsum.photos/200/313", category: "VÃ©hicules" },
+  { id: "p4", title: "Camion", price: "1 200 $", image: "https://picsum.photos/200/313", category: "Véhicules" },
   { id: "p5", title: "Mini usine riz", price: "50 000 $", image: "https://picsum.photos/200/314", category: "Mini Usines" },
 ];
 
@@ -78,7 +78,7 @@ export default function BottomTabs() {
         tabBarIcon: ({ color, size }) => {
           let iconName: any;
           if (route.name === "Accueil") iconName = "home";
-          else if (route.name === "CatÃ©gories") iconName = "grid";
+          else if (route.name === "Catégories") iconName = "grid";
           else if (route.name === "Messagerie") iconName = "chatbubble";
           else if (route.name === "Panier") iconName = "cart";
           else if (route.name === "Profil") iconName = "person";
@@ -87,7 +87,7 @@ export default function BottomTabs() {
       })}
     >
       <Tab.Screen name="Accueil" component={HomeScreen} />
-      <Tab.Screen name="CatÃ©gories" component={CategoriesScreen} />
+      <Tab.Screen name="Catégories" component={CategoriesScreen} />
       <Tab.Screen name="Messagerie" component={MessagesScreen} />
       <Tab.Screen name="Panier" component={CartScreen} />
       <Tab.Screen name="Profil" component={ProfileScreen} />
@@ -116,7 +116,7 @@ export default function HomeScreen() {
       </View>
       <SearchBar placeholder="Rechercher un produit" value="" onChangeText={() => {}} onSubmit={() => {}} />
       <CarouselBanner />
-      <SectionTitle title="Explorer par catÃ©gories" />
+      <SectionTitle title="Explorer par catégories" />
       <View style={styles.categories}>
         {categories.map((cat) => (
           <CategoryPill key={cat.id} label={cat.name} onPress={() => navigation.navigate("Category", { category: cat.name })} />

@@ -17,6 +17,7 @@ const blurhash = '|rF?hV%2WCj[ayj[a|j[az_NaeWBj@ayfRayfQfQM{M|azj[azf6fQfQfQIpWX
 interface ProductGalleryProps {
   images: string[];
   productName: string;
+  hasFreeShipping?: boolean; // Ajout de la propriété livraison gratuite
 }
 
 const cleanFirebaseUrl = (url: string): string => {
@@ -25,7 +26,7 @@ const cleanFirebaseUrl = (url: string): string => {
   return url.includes('?') ? `${url}&alt=media` : `${url}?alt=media`;
 };
 
-export default function ProductGallery({ images = [], productName }: ProductGalleryProps) {
+export default function ProductGallery({ images = [], productName, hasFreeShipping }: ProductGalleryProps) {
   const [selectedImage, setSelectedImage] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -165,6 +166,14 @@ export default function ProductGallery({ images = [], productName }: ProductGall
             <Ionicons name="cube-outline" size={12} color="#FF6A00" />
             <Text style={styles.badgeText}>Produit B2B</Text>
           </View>
+          
+          {/* AJOUT DU BADGE LIVRAISON GRATUITE */}
+          {hasFreeShipping && (
+            <View style={[styles.badge, styles.freeShippingBadge]}>
+              <Ionicons name="airplane-outline" size={12} color="#00B050" />
+              <Text style={[styles.badgeText, styles.freeShippingText]}>Livraison gratuite</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.productName}>{productName}</Text>
       </View>
@@ -192,7 +201,7 @@ const styles = StyleSheet.create({
   },
   
   mainImageContainer: { 
-    height: width * 0.85, // Légèrement moins haut pour équilibre
+    height: width * 0.85, 
     position: 'relative',
     backgroundColor: '#FAFAFA',
     borderTopLeftRadius: 16,
@@ -201,7 +210,7 @@ const styles = StyleSheet.create({
   },
   
   imageSlide: { 
-    width: width - 24, // Compte tenu du marginHorizontal
+    width: width - 24, 
     height: width * 0.85,
     justifyContent: 'center',
     alignItems: 'center',
@@ -212,7 +221,6 @@ const styles = StyleSheet.create({
     height: '90%',
   },
 
-  // Compteur modernisé
   imageCounter: {
     position: 'absolute',
     bottom: 15,
@@ -231,7 +239,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Boutons navigation
   navButton: {
     position: 'absolute',
     top: '50%',
@@ -258,7 +265,6 @@ const styles = StyleSheet.create({
   navButtonLeft: { left: 10 },
   navButtonRight: { right: 10 },
 
-  // Pagination dots
   paginationContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -280,7 +286,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 
-  // Thumbnails B2B
   thumbnailsContainer: { 
     marginTop: 0,
     maxHeight: 90,
@@ -317,7 +322,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,106,0,0.1)',
   },
 
-  // Info produit
   productInfo: { 
     padding: 16,
     paddingTop: 8,
@@ -344,6 +348,16 @@ const styles = StyleSheet.create({
     color: '#FF6A00',
     fontWeight: '600',
     marginLeft: 4,
+  },
+
+  // STYLES SPECIFIQUES POUR LIVRAISON GRATUITE
+  freeShippingBadge: {
+    borderColor: '#E8F5E9',
+    backgroundColor: '#E8F5E9',
+    marginLeft: 8,
+  },
+  freeShippingText: {
+    color: '#00B050',
   },
   
   productName: { 

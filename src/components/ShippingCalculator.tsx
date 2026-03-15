@@ -62,7 +62,7 @@ export default function ShippingCalculator({
       cost: 6000,
       unit: 'FCFA/Kg',
       type: 'express',
-      carrier: 'Assma Express Air',
+      carrier: 'A2Express Air',
       features: ['Livraison prioritaire', 'Dédouanement inclus'],
       coverage: ['International']
     }

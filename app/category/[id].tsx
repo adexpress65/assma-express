@@ -1,4 +1,4 @@
-// CategoryPage.tsx - VERSION FINALE SYNCHRONISÉE
+// CategoryPage.tsx - VERSION CORRIGÉE AVEC VOS CHAMPS EXACTS
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -19,25 +19,13 @@ import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from '
 import { db } from '../../src/config/firebase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
- 
 
 const getCategoryNameFromId = (categoryId: string): string => {
   const categoryMap: { [key: string]: string } = {
-    'machines_industrielles': 'Machines Industrielles',
-    'electronique': 'Électronique',
-    'vetements': 'Vêtements',
-    'alimentation': 'Alimentation',
-    'construction': 'Construction',
-    'sante': 'Santé & Médical',
-    'beaute': 'Beauté & Cosmétiques',
-    'sports': 'Sports & Fitness',
-    'maison': 'Maison & Décoration',
-    'automobile': 'Automobile',
-    'trending': 'Produits Tendances',
-    'new-arrivals': 'Nouveautés',
-    'special-offers': 'Offres Spéciales',
+    'fKNpSZ7NgqyMw7uZW15w': 'Électroniques', // L'ID de votre exemple
+    'autre_id': 'Autre Catégorie',
   };
-  return categoryMap[categoryId] || categoryMap[categoryId?.toLowerCase()] || 'Catégorie Générale';
+  return categoryMap[categoryId] || 'Catégorie';
 };
 
 export default function CategoryPage() {
@@ -45,11 +33,15 @@ export default function CategoryPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
-  const categoryId = params.id as string || 'all';
-  const categoryName = params.name as string || getCategoryNameFromId(categoryId);
-  const preselectedProductId = params.preselectedProductId as string;
+  // --- CORRECTION ICI ---
+  // On vérifie tous les noms possibles pour être sûr de ne pas rater l'ID
+  const categoryId = params.categoryId as string || params.id as string || 'all';
+  const categoryName = params.categoryName as string || getCategoryNameFromId(categoryId);
   
-  // LE COEUR DE LA SYNCHRONISATION : formatPrice
+  // On accepte 'targetProductId' (venant du Home) OU 'selectedProductId'
+  const preselectedProductId = (params.targetProductId || params.selectedProductId) as string; 
+  // -----------------------
+  
   const { formatPrice } = useCurrency(); 
 
   const [loading, setLoading] = useState(true);
@@ -61,74 +53,118 @@ export default function CategoryPage() {
   const BOTTOM_PADDING = insets.bottom + TAB_BAR_HEIGHT + 20;
   const BUTTON_HEIGHT = 56;
   
+  
   // Chargement initial
+// 1. Ajoute ces états en haut de ton composant s'ils n'y sont pas déjà
+  const [lastDoc, setLastDoc] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+
   useEffect(() => {
     const loadCategoryProducts = async () => {
       try {
         setLoading(true);
         setProducts([]); 
+        setLastDoc(null); // Reset du curseur au changement de catégorie
+        setHasMore(true);
 
-        let directProduct: any = null;
+        let directProduct = null;
 
-        // 1. Charger le produit sélectionné
+        // 1. Charger le produit sélectionné si présent (Inchangé)
         if (preselectedProductId) {
           const ref = doc(db, 'products', preselectedProductId);
           const snap = await getDoc(ref);
           if (snap.exists()) {
             const data = snap.data();
-            const currentPrice = Number(data.price) || 0; // SOURCE UNIQUE = price Firestore
+            const currentPrice = Number(data.price) || 0;
             directProduct = {
               id: snap.id,
               name: data.name || 'Produit',
               price: currentPrice,
               originalPrice: Number(data.originalPrice || currentPrice),
-              image: data.imageUrl || data.images?.[0] || 'https://via.placeholder.com/300',
+              image: data.mainImage || data.imageUrl || (data.images && data.images[0]) || 'https://via.placeholder.com/300',
               rating: Number(data.rating) || 0,
               supplier: data.supplier || data.companyName || 'Fournisseur',
               minOrder: data.minOrder || 1,
               inStock: data.inStock ?? true,
+              categoryId: data.categoryId,
+              categoryName: data.categoryName,
             };
             setSelectedProduct(directProduct);
             setSelectedProductId(directProduct.id);
           }
         }
 
-        // 2. Charger les produits de la catégorie
+        // 2. Charger les produits avec limite pour pagination
+        console.log('📦 Chargement initial des produits...');
         const productsRef = collection(db, 'products');
         let q;
+        
         if (categoryId === 'all' || categoryId === 'tous') {
           q = query(productsRef, orderBy('createdAt', 'desc'), limit(50));
-        } else if (categoryId === 'trending') {
-          q = query(productsRef, limit(50));
         } else {
-          q = query(productsRef, where('categoryId', '==', categoryId), limit(50));
+          q = query(
+            productsRef, 
+            where('categoryId', '==', categoryId),
+            where('isActive', '==', true),
+            orderBy('createdAt', 'desc'), 
+            limit(50)
+          );
         }
 
         const snapshot = await getDocs(q);
-        const productsData: any[] = [];
+        console.log(`✅ ${snapshot.size} produits trouvés`);
 
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const currentPrice = Number(data.price) || 0;
-          productsData.push({
-            id: docSnap.id,
-            name: data.name || 'Produit',
-            price: currentPrice,
-            originalPrice: Number(data.originalPrice || currentPrice),
-            image: data.imageUrl || data.images?.[0] || 'https://via.placeholder.com/300',
-            rating: Number(data.rating) || 0,
-            supplier: data.supplier || data.companyName || 'Fournisseur',
-            minOrder: data.minOrder || 1,
-          });
-        });
+        // MISE À JOUR DU CURSEUR (LastDoc)
+        if (snapshot.docs.length > 0) {
+          setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+          setHasMore(snapshot.docs.length === 50); // Si on en a 50, il y en a peut-être d'autres
+        } else {
+          setHasMore(false);
+        }
+
+const productsData = [];
+snapshot.forEach((docSnap) => {
+  const data = docSnap.data();
+  
+  // Debug pour voir si les données arrivent
+  console.log("Données reçues pour :", data.name);
+
+  productsData.push({
+    id: docSnap.id,
+    // On utilise 'name' car il existe dans ton document
+    name: data.name || "Produit sans nom",
+    
+    // Ton document a 'price' et 'originalPrice'
+    price: data.price || 0,
+    originalPrice: data.originalPrice || data.price || 0,
+    
+    // Ton document utilise 'mainImage' (prioritaire) ou 'imageUrl'
+    image: data.mainImage || data.imageUrl || (data.images && data.images[0]) || 'https://via.placeholder.com/300',
+    
+    // Ton document a 'rating' (ici 0) et 'supplier' (USINE A2EXPRESS)
+    rating: data.rating !== undefined ? Number(data.rating) : 0,
+    supplier: data.supplier || data.companyName || "Fournisseur",
+    
+    // Ton document a 'minOrder' (ici 1)
+    minOrder: data.minOrder || 1,
+    
+    // Autres champs utiles
+    categoryId: data.categoryId,
+    categoryName: data.categoryName,
+    hasFreeShipping: data.hasFreeShipping || false,
+  });
+});
+
+setProducts(productsData);
 
         setProducts(productsData);
 
+        // 3. Sélection automatique (Inchangé)
         if (!directProduct && productsData.length > 0) {
-           const found = preselectedProductId ? productsData.find(p => p.id === preselectedProductId) : null;
-           const finalSelection = found || productsData[0];
-           setSelectedProduct(finalSelection);
-           setSelectedProductId(finalSelection.id);
+          const found = preselectedProductId ? productsData.find(p => p.id === preselectedProductId) : null;
+          const finalSelection = found || productsData[0];
+          setSelectedProduct(finalSelection);
+          setSelectedProductId(finalSelection.id);
         }
       } catch (e) {
         console.error('🔥 Erreur:', e);
@@ -141,15 +177,24 @@ export default function CategoryPage() {
   }, [categoryId, preselectedProductId]);
 
   const handleViewProductDetail = () => {
-    if (selectedProduct) router.push(`/product/${selectedProduct.id}`);
+    if (selectedProduct) {
+      console.log('➡️ Navigation vers détail:', selectedProduct.id);
+      router.push(`/product/${selectedProduct.id}`);
+    }
   };
 
-  const handleSelectProduct = (product: any) => {
-    setSelectedProduct(product);
-    setSelectedProductId(product.id);
-  };
+const handleSelectProduct = (product: any) => {
+  console.log('🔄 Navigation vers le produit:', product.name);
+  
+  // On met à jour l'état local pour le retour en arrière
+  setSelectedProduct(product);
+  setSelectedProductId(product.id);
 
-  // --- RENDU DE L'APERÇU (CORRIGÉ AVEC formatPrice) ---
+  // Navigation directe vers la fiche détaillée
+  router.push(`/product/${product.id}`);
+};
+
+  // RENDU DE L'APERÇU
   const renderProductPreview = () => {
     if (!selectedProduct) return null;
 
@@ -165,7 +210,12 @@ export default function CategoryPage() {
 
         <TouchableOpacity style={styles.productPreview} onPress={handleViewProductDetail}>
           <View style={styles.previewImageContainer}>
-            <Image source={{ uri: selectedProduct.image }} style={styles.previewImage} resizeMode="cover" />
+            <Image 
+              source={{ uri: selectedProduct.image }} 
+              style={styles.previewImage} 
+              resizeMode="cover"
+              defaultSource={require('../../assets/icon.png')}
+            />
           </View>
 
           <View style={styles.previewInfo}>
@@ -206,51 +256,79 @@ export default function CategoryPage() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <View style={styles.titleContainer}>
-          <Text style={styles.title}>{decodeURIComponent(categoryName)}</Text>
-          <Text style={styles.productCount}>{products.length} produits</Text>
-        </View>
+<View style={styles.titleContainer}>
+  <Text style={styles.title}>{categoryName}</Text>
+  <Text style={styles.productCount}>Découvrez nos sélections</Text>
+</View>
       </View>
 
       <View style={styles.contentWrapper}>
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: BUTTON_HEIGHT + 100 }]}>
+        <ScrollView 
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: BUTTON_HEIGHT + 100 }]}
+          showsVerticalScrollIndicator={false}
+        >
           {renderProductPreview()}
 
-          <View style={styles.productsSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Autres produits</Text>
-            </View>
+          {products.length > 0 && (
+            <View style={styles.productsSection}>
+<View style={styles.sectionHeader}>
+  <Text style={styles.sectionTitle}>Articles similaires</Text>
+</View>
 
-            <View style={styles.productsGrid}>
-              {products.map((product) => (
-                <TouchableOpacity 
-                  key={product.id}
-                  style={[styles.productCard, selectedProductId === product.id && styles.productCardSelected]}
-                  onPress={() => handleSelectProduct(product)}
-                >
-                  <Image source={{ uri: product.image }} style={styles.productImage} />
-                  <View style={styles.productInfo}>
-                    <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-                    
-                    {/* --- PRIX DE LA GRILLE (CORRIGÉ AVEC formatPrice) --- */}
-                    <View style={styles.productPriceRow}>
-                      <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
-                    </View>
-
-                    <View style={styles.productMeta}>
-                      <Text style={styles.productMetaText}>Min: {product.minOrder}</Text>
-                      <Text style={styles.productMetaText}>⭐ {product.rating.toFixed(1)}</Text>
-                    </View>
-                  </View>
-                  {selectedProductId === product.id && (
-                    <View style={styles.selectedBadge}>
-                      <Ionicons name="checkmark-circle" size={14} color="#fff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
+              <View style={styles.productsGrid}>
+                {products
+  .filter(p => p.id !== selectedProductId)
+  .map((product) => (
+    <TouchableOpacity 
+      key={product.id}
+      style={[
+        styles.productCard, 
+        selectedProductId === product.id && styles.productCardSelected
+      ]}
+      onPress={() => handleSelectProduct(product)}
+      activeOpacity={0.8}
+    >
+      {/* Image du produit avec Badge Promo si prix réduit */}
+      <View style={styles.imageWrapper}>
+        <Image 
+          source={{ uri: product.image }} 
+          style={styles.productImage} 
+          contentFit="cover"
+        />
+        {product.originalPrice > product.price && (
+          <View style={styles.promoBadge}>
+            <Text style={styles.promoText}>PROMO</Text>
           </View>
+        )}
+      </View>
+
+      <View style={styles.productInfo}>
+        <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+        
+        <View style={styles.productPriceRow}>
+          <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
+          {product.originalPrice > product.price && (
+            <Text style={styles.oldPriceSmall}>{formatPrice(product.originalPrice)}</Text>
+          )}
+        </View>
+
+        {/* Badges Dynamiques (Livraison / B2B) */}
+        <View style={styles.productMeta}>
+          {product.hasFreeShipping && (
+            <View style={styles.miniBadge}>
+              <Ionicons name="airplane" size={8} color="#00B050" />
+              <Text style={[styles.miniBadgeText, { color: '#00B050' }]}>Gratuit</Text>
+            </View>
+          )}
+          <Text style={styles.productMetaText}>Min: {product.minOrder}</Text>
+          <Text style={styles.productMetaText}>⭐ {product.rating || '5.0'}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  ))}
+              </View>
+            </View>
+          )}
         </ScrollView>
 
         {selectedProduct && (
@@ -259,7 +337,7 @@ export default function CategoryPage() {
               <View style={styles.actionButtonContent}>
                 <Ionicons name="document-text" size={20} color="#fff" />
                 <Text style={styles.actionButtonText} numberOfLines={1}>
-                  Voir la fiche de {selectedProduct.name.substring(0, 15)}...
+                  Voir la fiche de {selectedProduct.name}
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color="#fff" />
               </View>
@@ -274,14 +352,31 @@ export default function CategoryPage() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { backgroundColor: '#fff', paddingBottom: 16, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#eaeaea', flexDirection: 'row', alignItems: 'center' },
+  header: { 
+    backgroundColor: '#fff', 
+    paddingBottom: 16, 
+    paddingHorizontal: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#eaeaea', 
+    flexDirection: 'row', 
+    alignItems: 'center' 
+  },
   backButton: { marginRight: 12 },
   titleContainer: { flex: 1 },
   title: { fontSize: 20, fontWeight: '800', color: '#1a1a1a' },
   productCount: { fontSize: 13, color: '#666' },
   contentWrapper: { flex: 1 },
   scrollContent: { flexGrow: 1 },
-  previewContainer: { backgroundColor: '#fff', margin: 16, borderRadius: 12, padding: 16, elevation: 4, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8 },
+  previewContainer: { 
+    backgroundColor: '#fff', 
+    margin: 16, 
+    borderRadius: 12, 
+    padding: 16, 
+    elevation: 4, 
+    shadowColor: '#000', 
+    shadowOpacity: 0.1, 
+    shadowRadius: 8 
+  },
   previewHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   previewTitle: { fontSize: 16, fontWeight: '700' },
   viewDetailButton: { flexDirection: 'row', alignItems: 'center' },
@@ -291,25 +386,36 @@ const styles = StyleSheet.create({
   previewImage: { width: '100%', height: '100%', borderRadius: 8 },
   previewInfo: { flex: 1, justifyContent: 'center' },
   previewName: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
-  previewPriceRow: { flexDirection: 'row', alignItems: 'center' },
+  previewPriceRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   originalPrice: { fontSize: 12, color: '#999', textDecorationLine: 'line-through', marginRight: 8 },
   currentPrice: { fontSize: 18, fontWeight: '800', color: '#FF6A00' },
   previewDetails: { marginTop: 4 },
   detailText: { fontSize: 11, color: '#666' },
-  productsSection: { backgroundColor: '#fff', paddingTop: 20 },
+  productsSection: { backgroundColor: '#fff', paddingTop: 20, marginTop: 8 },
   sectionHeader: { paddingHorizontal: 16, marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: '700' },
   productsGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8 },
-  productCard: { width: '47%', backgroundColor: '#fff', borderRadius: 12, margin: '1.5%', padding: 8, elevation: 2, borderWidth: 1, borderColor: '#f0f0f0' },
+  productCard: { 
+    width: '47%', 
+    backgroundColor: '#fff', 
+    borderRadius: 12, 
+    margin: '1.5%', 
+    padding: 8, 
+    elevation: 2, 
+    borderWidth: 1, 
+    borderColor: '#f0f0f0' 
+  },
   productCardSelected: { borderColor: '#FF6A00', backgroundColor: '#FFF9F5' },
-  productImage: { width: '100%', height: 120, borderRadius: 8, marginBottom: 8 },
-  productName: { fontSize: 12, fontWeight: '600', height: 32 },
+  productImage: { width: '100%', height: 120, borderRadius: 8, marginBottom: 8, backgroundColor: '#f5f5f5' },
+  productInfo: { flex: 1 },
+  productName: { fontSize: 12, fontWeight: '600', marginBottom: 4, height: 32 },
+  productPriceRow: { marginBottom: 4 },
   productPrice: { fontSize: 14, fontWeight: '800', color: '#FF6A00' },
   productMeta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   productMetaText: { fontSize: 10, color: '#666' },
   selectedBadge: { position: 'absolute', top: 5, right: 5, backgroundColor: '#FF6A00', borderRadius: 12, padding: 2 },
   floatingAction: { position: 'absolute', zIndex: 100 },
-  actionButton: { backgroundColor: '#FF6A00', borderRadius: 12, height: 56, justifyContent: 'center' },
+  actionButton: { backgroundColor: '#FF6A00', borderRadius: 12, height: 56, justifyContent: 'center', elevation: 4 },
   actionButtonContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 },
   actionButtonText: { color: '#fff', fontSize: 14, fontWeight: '700', flex: 1, textAlign: 'center' },
 });

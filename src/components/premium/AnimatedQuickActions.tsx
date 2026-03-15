@@ -1,5 +1,5 @@
 // src/components/premium/AnimatedQuickActions.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,9 +13,11 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../contexts/AuthContext'; 
 
 const { width } = Dimensions.get('window');
 
+// --- COMPOSANT EFFET ÉTOILES (SPARKLE) ---
 const SparkleEffect = ({ isActive }: { isActive: boolean }) => {
   const sparkleAnim = new Animated.Value(0);
   
@@ -64,7 +66,7 @@ const SparkleEffect = ({ isActive }: { isActive: boolean }) => {
   );
 };
 
-// ACTIONS CONSERVÉES : Flash Deal, Tendances, Fournisseurs, Grossiste
+// --- ACTIONS DE PRODUCTION ---
 const QUICK_ACTIONS = [
   {
     id: '1',
@@ -92,41 +94,77 @@ const QUICK_ACTIONS = [
     color: ['#9C27B0', '#BA68C8'],
     badge: 'quickActions.new',
   },
+  {
+    id: 'dash_std',
+    icon: 'stats-chart-outline',
+    label: 'Gestion Stock',
+    color: ['#607D8B', '#90A4AE'],
+    isAdminOnly: true,
+  },
+  {
+    id: 'dash_prem',
+    icon: 'shield-checkmark-outline',
+    label: 'Admin Panel',
+    color: ['#FF6B00', '#FF9800'],
+    badge: 'PRO',
+    isAdminOnly: true,
+  },
 ];
 
 export default function AnimatedQuickActions() {
   const { t } = useTranslation();
   const router = useRouter();
+  const { userData } = useAuth(); 
   const [activeButton, setActiveButton] = useState<string | null>(null);
+
+  // ✅ FILTRAGE CORRIGÉ : super-admin, admin, vendeur ou Company
+  const filteredActions = useMemo(() => {
+    const role = userData?.role;
+    
+    // Log pour debug en développement
+    if (__DEV__) {
+      console.log("A2Express Auth Debug - Rôle:", role, "CompanyId:", userData?.companyId);
+    }
+
+    const isPrivileged = 
+      role === 'super-admin' || 
+      role === 'superadmin' || 
+      role === 'admin' || 
+      role === 'vendeur' ||
+      !!userData?.companyId; // Si possède un ID de société
+
+    return QUICK_ACTIONS.filter(action => {
+      if (action.isAdminOnly && !isPrivileged) return false;
+      return true;
+    });
+  }, [userData]);
 
   const handleActionPress = (action: any) => {
     setActiveButton(action.id);
     setTimeout(() => setActiveButton(null), 200);
     
-    console.log(t('quickActions.navigationLog'), action.label);
-    
+    if (action.id === 'dash_std') {
+        router.push('/suppliers/dashboard'); 
+        return;
+    }
+    if (action.id === 'dash_prem') {
+        router.push('/seller/dashboard');
+        return;
+    }
+
     switch(action.label) {
       case 'quickActions.flashDeal':
         router.push('/flash-deals');
         break;
-        
       case 'quickActions.trending':
         router.push('/trending');
         break;
-        
       case 'quickActions.suppliers':
-        router.push({
-          pathname: "/suppliers",
-          params: { 
-            category: "all"
-          },
-        });
+        router.push({ pathname: "/suppliers", params: { category: "all" } });
         break;
-        
       case 'quickActions.wholesale':
         router.push('/grossiste');
         break;
-        
       default:
         router.push("/categories");
         break;
@@ -140,39 +178,33 @@ export default function AnimatedQuickActions() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {QUICK_ACTIONS.map((action, index) => (
+        {filteredActions.map((action, index) => (
           <View key={action.id} style={[
             styles.actionWrapper,
-            index === QUICK_ACTIONS.length - 1 && styles.lastActionWrapper
+            index === filteredActions.length - 1 && styles.lastActionWrapper
           ]}>
             <SparkleEffect isActive={activeButton === action.id} />
-            <SparkleEffect isActive={activeButton === action.id} />
-            <SparkleEffect isActive={activeButton === action.id} />
-            
             <TouchableOpacity
               style={styles.actionItem}
               activeOpacity={0.7}
               onPress={() => handleActionPress(action)}
             >
-              <LinearGradient
-                colors={action.color}
-                style={styles.actionGradient}
-              >
+              <LinearGradient colors={action.color} style={styles.actionGradient}>
                 <Ionicons name={action.icon as any} size={22} color="#fff" />
                 {action.badge && (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{t(action.badge)}</Text>
+                    <Text style={styles.badgeText}>
+                        {action.isAdminOnly ? action.badge : t(action.badge)}
+                    </Text>
                   </View>
                 )}
               </LinearGradient>
               <Text style={styles.actionLabel} numberOfLines={1}>
-                {t(action.label)}
+                {action.isAdminOnly ? action.label : t(action.label)}
               </Text>
             </TouchableOpacity>
           </View>
         ))}
-        
-        {/* Espacement pour un meilleur équilibre visuel */}
         <View style={styles.rightSpacer} />
       </ScrollView>
     </View>
@@ -185,27 +217,25 @@ const styles = StyleSheet.create({
     marginTop: 30,
     marginBottom: 15,
     paddingVertical: 15,
-    paddingHorizontal: 0, // MODIFIÉ: padding horizontal enlevé pour mieux centrer
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
   scrollContent: {
     paddingHorizontal: 16,
     alignItems: 'center',
-    justifyContent: 'space-around', // AJOUTÉ: meilleure répartition
     flexGrow: 1,
   },
   actionWrapper: {
     position: 'relative',
     alignItems: 'center',
-    marginRight: 20, // AUGMENTÉ: plus d'espace entre les icônes
-    minWidth: 60, // AJOUTÉ: largeur minimum uniforme
+    marginRight: 20,
+    minWidth: 60,
   },
   lastActionWrapper: {
-    marginRight: 0, // Pas de marge à droite pour le dernier élément
+    marginRight: 0,
   },
   rightSpacer: {
-    width: 16, // Espacement à droite pour l'équilibre visuel
+    width: 16,
     height: 1,
   },
   sparkle: {
@@ -214,22 +244,19 @@ const styles = StyleSheet.create({
   },
   actionItem: {
     alignItems: 'center',
-    width: 60, // AJOUTÉ: largeur fixe pour uniformité
+    width: 60,
     zIndex: 2,
   },
   actionGradient: {
-    width: 48, // AUGMENTÉ: de 42 à 48
-    height: 48, // AUGMENTÉ: de 42 à 48
-    borderRadius: 16, // MODIFIÉ: de 12 à 16 pour un style plus moderne
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
     position: 'relative',
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 3, // AUGMENTÉ: ombre plus prononcée
-    },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
     elevation: 5,

@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors, radius } from "../theme";
@@ -10,7 +10,7 @@ export default function QuickActions({ onExplore, onQuote }: Props) {
     <View style={styles.row}>
       <TouchableOpacity style={styles.tile} onPress={onExplore}>
         <View style={styles.icon}><Ionicons name="grid-outline" size={20} color="#fff" /></View>
-        <Text style={styles.title}>Explorer par catégories</Text>
+        <Text style={styles.title}>Explorer par cat�gories</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.tile} onPress={onQuote}>

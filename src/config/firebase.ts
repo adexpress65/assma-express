@@ -1,14 +1,22 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeFirestore } from 'firebase/firestore';
+
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  getFirestore
+} from 'firebase/firestore';
+
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
+
 import {
   initializeAuth,
   getAuth,
   getReactNativePersistence,
-  browserLocalPersistence, // Importé pour le Web
-  indexedDBLocalPersistence // Importé pour le Web
+  browserLocalPersistence,
+  indexedDBLocalPersistence
 } from 'firebase/auth';
+
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -22,12 +30,25 @@ const firebaseConfig = {
 };
 
 // ---------- APP ----------
-export const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+export const app =
+  getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 // ---------- FIRESTORE ----------
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
+let firestoreInstance;
+
+try {
+  firestoreInstance = initializeFirestore(app, {
+    experimentalAutoDetectLongPolling: true,
+
+    localCache: persistentLocalCache({
+      cacheSizeBytes: 100 * 1024 * 1024 // 100MB
+    })
+  });
+} catch (e) {
+  firestoreInstance = getFirestore(app);
+}
+
+export const db = firestoreInstance;
 
 // ---------- STORAGE ----------
 export const storage = getStorage(app);
@@ -35,13 +56,12 @@ export const storage = getStorage(app);
 // ---------- FUNCTIONS ----------
 export const functions = getFunctions(app, 'europe-west1');
 
-// ---------- AUTH (Fix Web & Mobile) ----------
+// ---------- AUTH ----------
 const getAuthPersistence = () => {
   if (Platform.OS === 'web') {
-    // Sur Web, on utilise IndexedDB ou LocalStorage (standard Firebase Web)
     return [indexedDBLocalPersistence, browserLocalPersistence];
   }
-  // Sur Mobile, on garde AsyncStorage pour tes mises à jour OTA
+
   return getReactNativePersistence(AsyncStorage);
 };
 
@@ -49,7 +69,7 @@ let authInstance;
 
 try {
   authInstance = initializeAuth(app, {
-    persistence: getAuthPersistence(),
+    persistence: getAuthPersistence()
   });
 } catch (e) {
   authInstance = getAuth(app);

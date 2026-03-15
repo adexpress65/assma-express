@@ -36,7 +36,7 @@ const SellerSection = ({ onActionPress, isSeller = false }: SellerSectionProps) 
       <View style={styles.header}>
         <View style={styles.titleContainer}>
           <Text style={styles.title}>
-            {isSeller ? 'Vendre sur Assma Express' : 'Devenez Vendeur'}
+            {isSeller ? 'Vendre sur A2Express' : 'Devenez Vendeur'}
           </Text>
           <View style={[styles.statusBadge, isSeller ? styles.sellerBadge : styles.prospectBadge]}>
             <Text style={styles.statusText}>

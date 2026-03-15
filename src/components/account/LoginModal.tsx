@@ -1,4 +1,4 @@
-Ôªø// apps/mobile/src/components/account/LoginModal.tsx
+// apps/mobile/src/components/account/LoginModal.tsx
 import React, { useState } from 'react';
 import {
   Modal,
@@ -64,7 +64,7 @@ type FirebaseError = {
   message: string;
 };
 
-// Constantes pour √©viter les magic strings
+// Constantes pour Èviter les magic strings
 const USER_ROLES = {
   CLIENT: 'client',
   ADMIN: 'admin',
@@ -78,12 +78,12 @@ const ERROR_MESSAGES = {
     message: 'L\'adresse email n\'est pas valide.'
   },
   EMAIL_ALREADY_IN_USE: {
-    title: 'Email d√©j√† utilis√©',
-    message: 'Cette adresse email est d√©j√† associ√©e √† un compte.'
+    title: 'Email dÈj‡ utilisÈ',
+    message: 'Cette adresse email est dÈj‡ associÈe ‡ un compte.'
   },
   USER_NOT_FOUND: {
     title: 'Compte introuvable',
-    message: 'Aucun compte trouv√© avec cette adresse email.'
+    message: 'Aucun compte trouvÈ avec cette adresse email.'
   },
   WRONG_PASSWORD: {
     title: 'Mot de passe incorrect',
@@ -91,11 +91,11 @@ const ERROR_MESSAGES = {
   },
   WEAK_PASSWORD: {
     title: 'Mot de passe faible',
-    message: 'Le mot de passe doit contenir au moins 6 caract√®res.'
+    message: 'Le mot de passe doit contenir au moins 6 caractËres.'
   },
   DEFAULT: {
     title: 'Erreur',
-    message: 'Une erreur est survenue. Veuillez r√©essayer.'
+    message: 'Une erreur est survenue. Veuillez rÈessayer.'
   }
 } as const;
 
@@ -121,11 +121,11 @@ const createUserProfile = async (userCredential: UserCredential): Promise<void> 
   };
 
   await setDoc(userDocRef, userData);
-  console.log('‚úÖ Nouveau profil cr√©√© avec r√¥le: client');
+  console.log('? Nouveau profil crÈÈ avec rÙle: client');
 };
 
 const ensureUserProfile = async (userId: string): Promise<void> => {
-  console.log(`üîç ensureUserProfile pour: ${userId}`);
+  console.log(`?? ensureUserProfile pour: ${userId}`);
   
   try {
     const userDocRef = doc(db, 'users', userId);
@@ -133,11 +133,11 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
 
     if (userDoc.exists()) {
       const data = userDoc.data();
-      console.log(`üìã DOCUMENT EXISTANT D√âTECT√â`);
-      console.log(`üé≠ R√¥le Firestore: "${data.role || 'non d√©fini'}"`);
+      console.log(`?? DOCUMENT EXISTANT D…TECT…`);
+      console.log(`?? RÙle Firestore: "${data.role || 'non dÈfini'}"`);
       return;
     } else {
-      console.log(`üÜï NOUVEAU UTILISATEUR - cr√©ation profil`);
+      console.log(`?? NOUVEAU UTILISATEUR - crÈation profil`);
       
       const currentUser = auth.currentUser;
       const userData = {
@@ -163,11 +163,11 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
       }
       
       await setDoc(userDocRef, cleanData);
-      console.log(`‚úÖ Nouveau profil cr√©√© avec r√¥le: "client"`);
+      console.log(`? Nouveau profil crÈÈ avec rÙle: "client"`);
     }
     
   } catch (error) {
-    console.error(`‚ùå Erreur ensureUserProfile:`, error);
+    console.error(`? Erreur ensureUserProfile:`, error);
   }
 };
 
@@ -188,11 +188,11 @@ const getFirebaseErrorMessage = (error: FirebaseError): { title: string; message
     case 'auth/weak-password':
       return ERROR_MESSAGES.WEAK_PASSWORD;
     case 'auth/network-request-failed':
-      return { title: 'Erreur r√©seau', message: 'V√©rifiez votre connexion internet.' };
+      return { title: 'Erreur rÈseau', message: 'VÈrifiez votre connexion internet.' };
     case 'auth/too-many-requests':
-      return { title: 'Trop de tentatives', message: 'Veuillez r√©essayer dans quelques minutes.' };
+      return { title: 'Trop de tentatives', message: 'Veuillez rÈessayer dans quelques minutes.' };
     default:
-      console.warn('Code d\'erreur Firebase non g√©r√©:', code, message);
+      console.warn('Code d\'erreur Firebase non gÈrÈ:', code, message);
       return { title: ERROR_MESSAGES.DEFAULT.title, message: message || ERROR_MESSAGES.DEFAULT.message };
   }
 };
@@ -236,14 +236,14 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
   }, [visible, slideAnim]);
 
-  // Gestion de la r√©ponse Google
+  // Gestion de la rÈponse Google
   React.useEffect(() => {
     if (googleResponse?.type === 'success') {
       handleGoogleSignIn(googleResponse.authentication?.accessToken);
     }
   }, [googleResponse]);
 
-  // Gestion de la r√©ponse Facebook
+  // Gestion de la rÈponse Facebook
   React.useEffect(() => {
     if (facebookResponse?.type === 'success') {
       handleFacebookSignIn(facebookResponse.authentication?.accessToken);
@@ -275,12 +275,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
 
     if (password.length < 6) {
-      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caract√®res');
+      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caractËres');
       return false;
     }
 
     if (!isLogin && password !== confirmPassword) {
-      Alert.alert('Mots de passe diff√©rents', 'Les mots de passe ne correspondent pas');
+      Alert.alert('Mots de passe diffÈrents', 'Les mots de passe ne correspondent pas');
       return false;
     }
 
@@ -297,8 +297,8 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       await ensureUserProfile(userCredential.user.uid);
       handleAuthSuccess(userCredential, 'Google');
     } catch (error: any) {
-      console.error('‚ùå Erreur Google Sign-In:', error);
-      Alert.alert('Erreur', '√âchec de la connexion avec Google');
+      console.error('? Erreur Google Sign-In:', error);
+      Alert.alert('Erreur', '…chec de la connexion avec Google');
       setSocialLoading(null);
     }
   };
@@ -313,8 +313,8 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       await ensureUserProfile(userCredential.user.uid);
       handleAuthSuccess(userCredential, 'Facebook');
     } catch (error: any) {
-      console.error('‚ùå Erreur Facebook Sign-In:', error);
-      Alert.alert('Erreur', '√âchec de la connexion avec Facebook');
+      console.error('? Erreur Facebook Sign-In:', error);
+      Alert.alert('Erreur', '…chec de la connexion avec Facebook');
       setSocialLoading(null);
     }
   };
@@ -343,33 +343,33 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       }
     } catch (error: any) {
       if (error.code === 'ERR_CANCELED') {
-        // L'utilisateur a annul√© la connexion
-        console.log('Connexion Apple annul√©e');
+        // L'utilisateur a annulÈ la connexion
+        console.log('Connexion Apple annulÈe');
       } else {
-        console.error('‚ùå Erreur Apple Sign-In:', error);
-        Alert.alert('Erreur', '√âchec de la connexion avec Apple');
+        console.error('? Erreur Apple Sign-In:', error);
+        Alert.alert('Erreur', '…chec de la connexion avec Apple');
       }
       setSocialLoading(null);
     }
   };
 
   const handleAuthSuccess = (userCredential: UserCredential, provider: string) => {
-    console.log(`‚úÖ Connexion r√©ussie avec ${provider}:`, userCredential.user.email);
-    Alert.alert('üéâ Connexion r√©ussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
+    console.log(`? Connexion rÈussie avec ${provider}:`, userCredential.user.email);
+    Alert.alert('?? Connexion rÈussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
     resetForm();
     onClose();
     onLoginSuccess?.();
   };
 
   const handleLogin = async (): Promise<void> => {
-    console.log('üîç Tentative de connexion:', email);
+    console.log('?? Tentative de connexion:', email);
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       await ensureUserProfile(userCredential.user.uid);
       handleAuthSuccess(userCredential, 'Email');
     } catch (error: any) {
-      console.error('‚ùå Erreur de connexion:', error);
+      console.error('? Erreur de connexion:', error);
       const { title, message } = getFirebaseErrorMessage(error);
       Alert.alert(title, message);
       setLoading(false);
@@ -377,14 +377,14 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
   };
 
   const handleRegister = async (): Promise<void> => {
-    console.log('üìù Tentative d\'inscription:', email);
+    console.log('?? Tentative d\'inscription:', email);
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await createUserProfile(userCredential);
       handleAuthSuccess(userCredential, 'Email');
     } catch (error: any) {
-      console.error('‚ùå Erreur d\'inscription:', error);
+      console.error('? Erreur d\'inscription:', error);
       const { title, message } = getFirebaseErrorMessage(error);
       Alert.alert(title, message);
       setLoading(false);
@@ -432,7 +432,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
         await handleAppleSignIn();
       }
     } catch (error) {
-      console.error(`‚ùå Erreur ${provider} login:`, error);
+      console.error(`? Erreur ${provider} login:`, error);
       setSocialLoading(null);
     }
   };
@@ -454,7 +454,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* EN-T√äTE AVEC GRADIENT */}
+          {/* EN-T TE AVEC GRADIENT */}
           <View style={styles.header}>
             <View style={styles.headerBackground} />
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -469,12 +469,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </View>
               
               <Text style={styles.title}>
-                {isLogin ? 'Content de vous revoir ! üëã' : 'Rejoignez ASMA Express üöÄ'}
+                {isLogin ? 'Content de vous revoir ! ??' : 'Rejoignez ASMA Express ??'}
               </Text>
               <Text style={styles.subtitle}>
                 {isLogin 
-                  ? 'Connectez-vous pour acc√©der √† votre compte' 
-                  : 'Cr√©ez votre compte en quelques secondes'
+                  ? 'Connectez-vous pour accÈder ‡ votre compte' 
+                  : 'CrÈez votre compte en quelques secondes'
                 }
               </Text>
             </Animated.View>
@@ -532,7 +532,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               )}
             </View>
 
-            {/* S√©parateur */}
+            {/* SÈparateur */}
             <View style={styles.separator}>
               <View style={styles.separatorLine} />
               <Text style={styles.separatorText}>ou continuez avec</Text>
@@ -587,7 +587,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </View>
               {!isLogin && (
                 <Text style={styles.passwordHint}>
-                  üîí Minimum 6 caract√®res
+                  ?? Minimum 6 caractËres
                 </Text>
               )}
             </View>
@@ -631,7 +631,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                     color="#FFF" 
                   />
                   <Text style={styles.authButtonText}>
-                    {isLogin ? 'Se connecter' : 'Cr√©er mon compte'}
+                    {isLogin ? 'Se connecter' : 'CrÈer mon compte'}
                   </Text>
                 </View>
               )}
@@ -645,8 +645,8 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
             >
               <Text style={styles.switchText}>
                 {isLogin 
-                  ? "üéØ Pas de compte ? " 
-                  : "‚úÖ D√©j√† un compte ? "
+                  ? "?? Pas de compte ? " 
+                  : "? DÈj‡ un compte ? "
                 }
                 <Text style={styles.switchLink}>
                   {isLogin ? "S'inscrire" : "Se connecter"}
@@ -654,11 +654,11 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </Text>
             </TouchableOpacity>
 
-            {/* INFORMATIONS DE S√âCURIT√â */}
+            {/* INFORMATIONS DE S…CURIT… */}
             <View style={styles.securityInfo}>
               <Ionicons name="shield-checkmark-outline" size={16} color="#4CAF50" />
               <Text style={styles.securityText}>
-                Vos informations sont s√©curis√©es et confidentielles
+                Vos informations sont sÈcurisÈes et confidentielles
               </Text>
             </View>
           </Animated.View>

@@ -1,627 +1,766 @@
-// apps/mobile/app/seller/dashboard.tsx - VERSION AVEC DONNÉES RÉELLES
-import React, { useState, useEffect } from "react";
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
+// apps/mobile/app/seller/dashboard.tsx
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   Alert,
   SafeAreaView,
-  Image
-} from "react-native";
-import { Ionicons, MaterialIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+  Image,
+  Linking,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useAuth } from "@/contexts/AuthContext";
-import { 
-  collection, 
-  query, 
-  where, 
+import {
+  collection,
+  query,
+  where,
   getDocs,
   orderBy,
   limit,
   doc,
   getDoc,
-  Timestamp
 } from 'firebase/firestore';
-import { db } from '@/config/firebase';
+import { db } from "@/config/firebase";
 
-interface SellerStats {
+interface Address {
+  city: string;
+  country: string;
+  street: string;
+  fullAddress?: string;
+}
+
+interface Stats {
+  productCount: number;
+  orderCount?: number;
+  rating?: number;
+  viewCount?: number;
+}
+
+interface CompanyData {
+  // Informations de base
+  name: string;
+  nameLower?: string;
+  name_lower?: string;
+  uid: string;
+  
+  // Médias
+  logo?: string;
+  coverImage?: string;
+  
+  // Adresse
+  address?: Address;
+  city?: string;
+  country?: string;
+  street?: string;
+  fullAddress?: string;
+  location?: string;
+  
+  // Informations entreprise
+  type: string;
+  businessType?: string;
+  description?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  yearEstablished?: number;
+  employees?: string;
+  employeeCount?: string;
+  annualRevenue?: string;
+  
+  // Produits et catégories
+  mainProducts?: string;
+  categories?: string[];
+  mainCategory?: string;
+  
+  // Badges et statuts
+  verified?: boolean;
+  goldSupplier?: boolean;
+  isActive?: boolean;
+  status?: string;
+  
+  // Statistiques
+  stats?: Stats;
+  rating?: number;
+  responseRate?: number;
+  productCount?: number;
+  
+  // Certifications
+  certifications?: string[];
+  
+  // Dates
+  updatedAt?: any;
+}
+
+interface DashboardStats {
   totalProducts: number;
-  totalSales: number;
-  totalRevenue: number;
   pendingOrders: number;
-  averageRating: number;
-  totalViews: number;
-  totalFavorites: number;
+  totalRevenue: number;
+  totalOrders: number;
+  totalMessages: number;
+  unreadMessages: number;
 }
 
 interface RecentOrder {
   id: string;
   customerName: string;
-  customerEmail: string;
   total: number;
-  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  status: 'pending' | 'processing' | 'shipped' | 'delivered';
   createdAt: any;
   items: any[];
 }
 
-interface CompanyData {
-  name: string;
-  logo: string;
-  verified: boolean;
-  goldSupplier: boolean;
-  responseRate: number;
-  totalOrders: number;
-  rating: number;
-}
-
-interface QuickStat {
-  label: string;
-  value: string | number;
-  icon: string;
-  color: string;
-  bgColor: string;
+interface RecentMessage {
+  id: string;
+  senderName: string;
+  senderId: string;
+  lastMessage: string;
+  timestamp: any;
+  unread: boolean;
+  conversationId: string;
 }
 
 export default function SellerDashboard() {
-  const router = useRouter();
   const { user } = useAuth();
-  const [stats, setStats] = useState<SellerStats>({
+  const [company, setCompany] = useState<CompanyData | null>(null);
+  const [stats, setStats] = useState<DashboardStats>({
     totalProducts: 0,
-    totalSales: 0,
-    totalRevenue: 0,
     pendingOrders: 0,
-    averageRating: 0,
-    totalViews: 0,
-    totalFavorites: 0
+    totalRevenue: 0,
+    totalOrders: 0,
+    totalMessages: 0,
+    unreadMessages: 0,
   });
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
-  const [companyData, setCompanyData] = useState<CompanyData | null>(null);
+  const [recentMessages, setRecentMessages] = useState<RecentMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [quickStats, setQuickStats] = useState<QuickStat[]>([]);
 
-  const menuItems = [
-    { 
-      label: "Ajouter produit", 
-      icon: "add-circle", 
-      href: "/seller/add-product",
-      color: "#FF6B00",
-      description: "Créer une nouvelle fiche produit"
-    },
-    { 
-      label: "Mes produits", 
-      icon: "cube", 
-      href: "/seller/products",
-      color: "#4CAF50",
-      description: "Gérer mon catalogue"
-    },
-    { 
-      label: "Analytiques", 
-      icon: "stats-chart", 
-      href: "/seller/analytics",
-      color: "#2196F3",
-      description: "Voir mes performances"
-    },
-    { 
-      label: "Promotions", 
-      icon: "pricetag", 
-      href: "/seller/promotions",
-      color: "#9C27B0",
-      description: "Gérer les réductions"
-    },
-    { 
-      label: "Commandes", 
-      icon: "cart", 
-      href: "/seller/orders",
-      color: "#FF9800",
-      description: "Suivre les commandes"
-    },
-    { 
-      label: "Messages", 
-      icon: "chatbubbles", 
-      href: "/seller/messages",
-      color: "#795548",
-      description: "Répondre aux clients"
-    },
-    { 
-      label: "Profil Entreprise", 
-      icon: "business", 
-      href: "/seller/profile",
-      color: "#607D8B",
-      description: "Modifier mes infos"
-    },
-    { 
-      label: "Paramètres", 
-      icon: "settings", 
-      href: "/seller/settings",
-      color: "#757575",
-      description: "Préférences boutique"
-    },
-  ];
+  // Charger toutes les données en parallèle pour optimiser la performance
+  useEffect(() => {
+    if (user?.uid) {
+      loadDashboardData();
+    }
+  }, [user]);
 
-  // Charger toutes les données du vendeur
-  const loadSellerData = async () => {
-    if (!user) return;
+  const loadDashboardData = async () => {
+    if (!user?.uid) return;
 
     try {
       setLoading(true);
-      
-      // Charger les données en parallèle pour plus de rapidité
-      await Promise.all([
-        loadCompanyData(),
-        loadProductsStats(),
-        loadOrdersStats(),
-        loadRecentOrders(),
+
+      // Charger toutes les données en parallèle avec Promise.all
+      const [companySnap, productsSnap, ordersSnap, conversationsSnap] = await Promise.all([
+        getDoc(doc(db, 'companies', user.uid)),
+        getDocs(query(collection(db, 'products'), where('sellerId', '==', user.uid))),
+        getDocs(query(collection(db, 'orders'), where('sellerId', '==', user.uid))),
+        getDocs(query(
+          collection(db, 'conversations'),
+          where('participants', 'array-contains', user.uid),
+          orderBy('lastMessageTimestamp', 'desc'),
+          limit(5)
+        )),
       ]);
+
+      // Traitement des données entreprise
+      if (companySnap.exists()) {
+        const data = companySnap.data();
+        
+        // Construction de l'objet company avec tous les champs disponibles
+        const companyData: CompanyData = {
+          // Informations de base
+          name: data.name || 'Mon Entreprise',
+          nameLower: data.nameLower,
+          name_lower: data.name_lower,
+          uid: data.uid || user.uid,
+          
+          // Médias
+          logo: data.logo,
+          coverImage: data.coverImage,
+          
+          // Adresse (gestion des différentes structures possibles)
+          address: data.address,
+          city: data.city,
+          country: data.country,
+          street: data.street,
+          fullAddress: data.fullAddress,
+          location: data.location,
+          
+          // Informations entreprise
+          type: data.type || 'B2B',
+          businessType: data.businessType,
+          description: data.description || 'Aucune description disponible',
+          email: data.email,
+          phone: data.phone,
+          yearEstablished: data.yearEstablished,
+          employees: data.employees,
+          employeeCount: data.employeeCount,
+          annualRevenue: data.annualRevenue,
+          
+          // Produits et catégories
+          mainProducts: data.mainProducts || 'Aucun produit spécifié',
+          categories: data.categories || [],
+          mainCategory: data.mainCategory,
+          
+          // Badges et statuts
+          verified: data.verified || false,
+          goldSupplier: data.goldSupplier || false,
+          isActive: data.isActive || false,
+          status: data.status || 'active',
+          
+          // Statistiques
+          stats: data.stats || { productCount: 0 },
+          rating: data.rating || 0,
+          responseRate: data.responseRate || 0,
+          productCount: data.stats?.productCount || 0,
+          
+          // Certifications
+          certifications: data.certifications || [],
+          
+          // Dates
+          updatedAt: data.updatedAt,
+        };
+        
+        setCompany(companyData);
+      } else {
+        // Créer un objet par défaut si aucun document n'existe
+        setCompany({
+          name: 'Ma Boutique',
+          type: 'B2B',
+          description: 'Bienvenue sur ma boutique',
+          verified: false,
+          goldSupplier: false,
+          isActive: true,
+          status: 'active',
+          stats: { productCount: 0 },
+          rating: 0,
+          responseRate: 0,
+          productCount: 0,
+          mainProducts: 'Aucun produit spécifié',
+          categories: [],
+          certifications: [],
+          uid: user.uid,
+        });
+      }
+
+      // Calcul des statistiques
+      const totalProducts = productsSnap.size;
       
-      // Mettre à jour les statistiques rapides
-      updateQuickStats();
+      let pendingOrders = 0;
+      let totalRevenue = 0;
+      let totalOrders = 0;
+
+      ordersSnap.forEach((doc) => {
+        const order = doc.data();
+        totalOrders++;
+        
+        if (order.status === 'pending') {
+          pendingOrders++;
+        }
+        
+        // Calcul du revenu (uniquement pour les commandes livrées ou expédiées)
+        if (order.status === 'delivered' || order.status === 'shipped') {
+          totalRevenue += order.totalAmount || 0;
+        }
+      });
+
+      // Traitement des conversations
+      let unreadMessages = 0;
+      const messages: RecentMessage[] = [];
       
+      conversationsSnap.forEach((doc) => {
+        const conv = doc.data();
+        const otherParticipant = conv.participantDetails?.find(
+          (p: any) => p.id !== user.uid
+        );
+        
+        messages.push({
+          id: doc.id,
+          senderName: otherParticipant?.name || 'Client',
+          senderId: otherParticipant?.id || '',
+          lastMessage: conv.lastMessage || 'Nouveau message',
+          timestamp: conv.lastMessageTimestamp,
+          unread: conv.unreadCount?.[user.uid] > 0 || false,
+          conversationId: doc.id,
+        });
+        
+        if (conv.unreadCount?.[user.uid] > 0) {
+          unreadMessages += conv.unreadCount[user.uid];
+        }
+      });
+
+      setRecentMessages(messages);
+
+      setStats({
+        totalProducts,
+        pendingOrders,
+        totalRevenue,
+        totalOrders,
+        totalMessages: conversationsSnap.size,
+        unreadMessages,
+      });
+
+      // Charger les 5 commandes les plus récentes
+      const recentOrdersQuery = query(
+        collection(db, 'orders'),
+        where('sellerId', '==', user.uid),
+        orderBy('createdAt', 'desc'),
+        limit(5)
+      );
+      
+      const recentSnap = await getDocs(recentOrdersQuery);
+      const orders = recentSnap.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          customerName: data.userName || 'Client',
+          total: data.totalAmount || 0,
+          status: data.status || 'pending',
+          createdAt: data.createdAt,
+          items: data.items || [],
+        };
+      });
+      
+      setRecentOrders(orders);
     } catch (error) {
-      console.error('❌ Erreur chargement dashboard vendeur:', error);
-      Alert.alert('Erreur', 'Impossible de charger les données');
+      console.error('Erreur chargement dashboard:', error);
+      Alert.alert('Erreur', 'Impossible de charger les données du dashboard');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  // Charger les données de l'entreprise
-  const loadCompanyData = async () => {
-    if (!user) return;
-
-    try {
-      const companyDoc = await getDoc(doc(db, 'companies', user.uid));
-      
-      if (companyDoc.exists()) {
-        const data = companyDoc.data();
-        setCompanyData({
-          name: data.name || 'Mon Entreprise',
-          logo: data.logo || 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO',
-          verified: data.verified || data.verification?.verified || false,
-          goldSupplier: data.goldSupplier || false,
-          responseRate: data.responseRate || 0,
-          totalOrders: data.totalOrders || data.stats?.orderCount || 0,
-          rating: data.rating || data.stats?.rating || 0
-        });
-      } else {
-        // Créer un profil d'entreprise par défaut
-        setCompanyData({
-          name: 'Mon Entreprise',
-          logo: 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO',
-          verified: false,
-          goldSupplier: false,
-          responseRate: 0,
-          totalOrders: 0,
-          rating: 0
-        });
-      }
-    } catch (error) {
-      console.error('Erreur chargement entreprise:', error);
-    }
-  };
-
-  // Charger les statistiques des produits
-  const loadProductsStats = async () => {
-    if (!user) return;
-
-    try {
-      // Produits du vendeur
-      const productsQuery = query(
-        collection(db, 'products'),
-        where('sellerId', '==', user.uid),
-        where('isActive', '==', true)
-      );
-      const productsSnapshot = await getDocs(productsQuery);
-      
-      let totalViews = 0;
-      let totalFavorites = 0;
-      let totalSold = 0;
-      let totalRevenue = 0;
-      
-      productsSnapshot.forEach(doc => {
-        const product = doc.data();
-        totalViews += product.viewCount || 0;
-        totalFavorites += product.favoriteCount || 0;
-        totalSold += product.soldCount || 0;
-        
-        // Calcul du revenu total
-        if (product.soldCount && product.price) {
-          totalRevenue += (product.soldCount * product.price);
-        }
-      });
-
-      // Mettre à jour les stats
-      setStats(prev => ({
-        ...prev,
-        totalProducts: productsSnapshot.size,
-        totalSales: totalSold,
-        totalRevenue: totalRevenue,
-        totalViews: totalViews,
-        totalFavorites: totalFavorites
-      }));
-
-    } catch (error) {
-      console.error('Erreur chargement stats produits:', error);
-    }
-  };
-
-  // Charger les statistiques des commandes
-  const loadOrdersStats = async () => {
-    if (!user) return;
-
-    try {
-      // Commandes du vendeur
-      const ordersQuery = query(
-        collection(db, 'orders'),
-        where('sellerId', '==', user.uid)
-      );
-      const ordersSnapshot = await getDocs(ordersQuery);
-      
-      let pendingOrders = 0;
-      let totalRevenue = 0;
-      let totalSales = 0;
-      
-      ordersSnapshot.forEach(doc => {
-        const order = doc.data();
-        
-        // Commandes en attente
-        if (order.status === 'pending' || order.status === 'processing') {
-          pendingOrders++;
-        }
-        
-        // Total des ventes
-        if (order.items && Array.isArray(order.items)) {
-          order.items.forEach(item => {
-            if (item.sellerId === user.uid) {
-              totalSales += item.quantity || 0;
-              totalRevenue += item.total || 0;
-            }
-          });
-        }
-      });
-
-      // Mettre à jour les stats
-      setStats(prev => ({
-        ...prev,
-        pendingOrders: pendingOrders,
-        totalSales: prev.totalSales + totalSales,
-        totalRevenue: prev.totalRevenue + totalRevenue
-      }));
-
-    } catch (error) {
-      console.error('Erreur chargement stats commandes:', error);
-    }
-  };
-
-  // Charger les commandes récentes
-  const loadRecentOrders = async () => {
-    if (!user) return;
-
-    try {
-      // Chercher d'abord dans la collection orders
-      const ordersQuery = query(
-        collection(db, 'orders'),
-        where('sellerId', '==', user.uid),
-        orderBy('createdAt', 'desc'),
-        limit(5)
-      );
-
-      const snapshot = await getDocs(ordersQuery);
-      
-      if (!snapshot.empty) {
-        const orders = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            customerName: data.customerName || data.billing?.name || 'Client',
-            customerEmail: data.customerEmail || data.billing?.email || '',
-            total: data.totalAmount || data.total || 0,
-            status: data.status || 'pending',
-            createdAt: data.createdAt,
-            items: data.items || []
-          };
-        });
-        setRecentOrders(orders);
-      } else {
-        // Si pas de commandes dans orders, chercher dans quoteRequests
-        const quotesQuery = query(
-          collection(db, 'quoteRequests'),
-          where('supplierId', '==', user.uid),
-          orderBy('createdAt', 'desc'),
-          limit(5)
-        );
-        
-        const quotesSnapshot = await getDocs(quotesQuery);
-        const quotes = quotesSnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            customerName: data.buyerName || 'Client',
-            customerEmail: data.buyerEmail || '',
-            total: 0, // Les devis n'ont pas encore de prix
-            status: data.status || 'pending',
-            createdAt: data.createdAt,
-            items: []
-          };
-        });
-        setRecentOrders(quotes);
-      }
-      
-    } catch (error) {
-      console.error('Erreur chargement commandes récentes:', error);
-    }
-  };
-
-  // Mettre à jour les statistiques rapides
-  const updateQuickStats = () => {
-    const newQuickStats: QuickStat[] = [
-      {
-        label: "Produits actifs",
-        value: stats.totalProducts,
-        icon: "cube",
-        color: "#FF6B00",
-        bgColor: "#FFF3E8"
-      },
-      {
-        label: "Ventes totales",
-        value: stats.totalSales,
-        icon: "trending-up",
-        color: "#4CAF50",
-        bgColor: "#E8F5E8"
-      },
-      {
-        label: "Revenu total",
-        value: `${Math.round(stats.totalRevenue).toLocaleString()} XOF`,
-        icon: "cash",
-        color: "#2196F3",
-        bgColor: "#E3F2FD"
-      },
-      {
-        label: "Commandes en attente",
-        value: stats.pendingOrders,
-        icon: "time",
-        color: "#FF9800",
-        bgColor: "#FFF3E0"
-      },
-      {
-        label: "Vues produits",
-        value: stats.totalViews,
-        icon: "eye",
-        color: "#9C27B0",
-        bgColor: "#F3E5F5"
-      },
-      {
-        label: "Favoris",
-        value: stats.totalFavorites,
-        icon: "heart",
-        color: "#F44336",
-        bgColor: "#FFEBEE"
-      }
-    ];
-    
-    setQuickStats(newQuickStats);
-  };
-
-  useEffect(() => {
-    loadSellerData();
-  }, [user]);
-
-  const onRefresh = () => {
+  const handleRefresh = () => {
     setRefreshing(true);
-    loadSellerData();
+    loadDashboardData();
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return '#FF9800';
-      case 'confirmed': return '#2196F3';
-      case 'processing': return '#9C27B0';
-      case 'shipped': return '#673AB7';
-      case 'delivered': return '#4CAF50';
-      case 'cancelled': return '#F44336';
-      default: return '#6c757d';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'pending': return 'En attente';
-      case 'confirmed': return 'Confirmée';
-      case 'processing': return 'En traitement';
-      case 'shipped': return 'Expédiée';
-      case 'delivered': return 'Livrée';
-      case 'cancelled': return 'Annulée';
-      default: return status;
-    }
+  const formatPrice = (price: number) => {
+    return `${price.toLocaleString()} XOF`;
   };
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return '';
-    
     try {
       const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-      return date.toLocaleDateString('fr-FR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-    } catch (error) {
+      const now = new Date();
+      const diff = now.getTime() - date.getTime();
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      
+      if (days === 0) {
+        return "Aujourd'hui";
+      } else if (days === 1) {
+        return 'Hier';
+      } else if (days < 7) {
+        return `Il y a ${days} jours`;
+      } else {
+        return date.toLocaleDateString('fr-FR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+        });
+      }
+    } catch {
       return '';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return '#F59E0B';
+      case 'processing': return '#3B82F6';
+      case 'shipped': return '#8B5CF6';
+      case 'delivered': return '#10B981';
+      default: return '#6B7280';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'pending': return 'En attente';
+      case 'processing': return 'En cours';
+      case 'shipped': return 'Expédiée';
+      case 'delivered': return 'Livrée';
+      default: return status;
+    }
+  };
+
+  const getFullAddress = () => {
+    if (company?.fullAddress) return company.fullAddress;
+    if (company?.address) {
+      const addr = company.address;
+      return `${addr.street}, ${addr.city}, ${addr.country}`;
+    }
+    if (company?.city && company?.country) {
+      return `${company.city}, ${company.country}`;
+    }
+    return 'Adresse non disponible';
+  };
+
+  const handleCall = () => {
+    if (company?.phone) {
+      Linking.openURL(`tel:${company.phone}`);
+    } else {
+      Alert.alert('Info', 'Numéro de téléphone non disponible');
+    }
+  };
+
+  const handleEmail = () => {
+    if (company?.email) {
+      Linking.openURL(`mailto:${company.email}`);
+    } else {
+      Alert.alert('Info', 'Email non disponible');
     }
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF6B00" />
-        <Text style={styles.loadingText}>Chargement du dashboard...</Text>
+        <ActivityIndicator size="large" color="#3B82F6" />
+        <Text style={styles.loadingText}>Chargement de votre dashboard...</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
-        {/* En-tête avec infos entreprise */}
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <View style={styles.companyInfo}>
-              <Image 
-                source={{ uri: companyData?.logo || 'https://via.placeholder.com/100x100/007AFF/ffffff?text=LOGO' }} 
-                style={styles.companyLogo} 
-              />
-              <View style={styles.companyText}>
-                <Text style={styles.companyName}>{companyData?.name || 'Mon Entreprise'}</Text>
-                <View style={styles.badgesRow}>
-                  {companyData?.verified && (
-                    <View style={styles.verifiedBadge}>
-                      <Ionicons name="checkmark-circle" size={12} color="#4CAF50" />
-                      <Text style={styles.badgeText}>Vérifié</Text>
-                    </View>
-                  )}
-                  {companyData?.goldSupplier && (
-                    <View style={styles.goldBadge}>
-                      <Ionicons name="diamond" size={12} color="#FFD700" />
-                      <Text style={styles.badgeText}>Gold</Text>
-                    </View>
-                  )}
-                  <View style={styles.ratingBadge}>
-                    <Ionicons name="star" size={12} color="#FF9800" />
-                    <Text style={styles.badgeText}>{companyData?.rating?.toFixed(1) || '0.0'}</Text>
-                  </View>
+        {/* Image de couverture - redirige vers /suppliers/dashboard */}
+        <TouchableOpacity 
+          onPress={() => router.push('/suppliers/dashboard')}
+          activeOpacity={0.9}
+        >
+          {company?.coverImage ? (
+            <Image source={{ uri: company.coverImage }} style={styles.coverImage} />
+          ) : (
+            <View style={styles.coverPlaceholder}>
+              <Ionicons name="camera-outline" size={40} color="#CBD5E1" />
+              <Text style={styles.coverPlaceholderText}>Ajouter une couverture</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Section profil entreprise - redirige vers /suppliers/dashboard */}
+        <TouchableOpacity 
+          style={styles.profileSection}
+          onPress={() => router.push('/suppliers/dashboard')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.profileHeader}>
+            <View style={styles.logoContainer}>
+              {company?.logo ? (
+                <Image source={{ uri: company.logo }} style={styles.logo} />
+              ) : (
+                <View style={styles.logoPlaceholder}>
+                  <Text style={styles.logoPlaceholderText}>
+                    {company?.name?.charAt(0) || 'E'}
+                  </Text>
                 </View>
+              )}
+              <View style={styles.editBadge}>
+                <Ionicons name="pencil" size={12} color="#FFFFFF" />
               </View>
             </View>
             
-            <TouchableOpacity 
-              style={styles.notificationButton}
-              onPress={() => router.push('/seller/notifications')}
-            >
-              <Ionicons name="notifications-outline" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-          
-          <Text style={styles.welcomeText}>Bon retour, {user?.displayName?.split(' ')[0] || 'Vendeur'}!</Text>
-          <Text style={styles.welcomeSubtext}>Voici l'aperçu de votre boutique</Text>
-        </View>
-
-        {/* Statistiques rapides */}
-        <View style={styles.statsSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Aperçu rapide</Text>
-            <TouchableOpacity onPress={() => router.push('/seller/analytics')}>
-              <Text style={styles.seeAllText}>Détails →</Text>
-            </TouchableOpacity>
-          </View>
-          
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.statsScroll}
-            contentContainerStyle={styles.statsScrollContent}
-          >
-            {quickStats.map((stat, index) => (
-              <View key={index} style={styles.quickStatCard}>
-                <View style={[styles.quickStatIcon, { backgroundColor: stat.bgColor }]}>
-                  <Ionicons name={stat.icon as any} size={20} color={stat.color} />
-                </View>
-                <Text style={styles.quickStatValue}>{stat.value}</Text>
-                <Text style={styles.quickStatLabel}>{stat.label}</Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Menu principal */}
-        <View style={styles.menuSection}>
-          <Text style={styles.sectionTitle}>Gestion de boutique</Text>
-          <View style={styles.menuGrid}>
-            {menuItems.map((item, index) => (
-              <TouchableOpacity 
-                key={item.label} 
-                style={styles.menuItem}
-                onPress={() => router.push(item.href)}
-              >
-                <View style={[styles.menuIcon, { backgroundColor: item.color + '20' }]}>
-                  <Ionicons name={item.icon as any} size={22} color={item.color} />
-                </View>
-                <Text style={styles.menuLabel}>{item.label}</Text>
-                <Text style={styles.menuDescription}>{item.description}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Commandes récentes */}
-        <View style={styles.ordersSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Activité récente</Text>
-            <TouchableOpacity onPress={() => router.push('/seller/orders')}>
-              <Text style={styles.seeAllText}>Voir tout →</Text>
-            </TouchableOpacity>
-          </View>
-          
-          {recentOrders.length === 0 ? (
-            <View style={styles.emptyOrders}>
-              <Ionicons name="receipt" size={48} color="#E0E0E0" />
-              <Text style={styles.emptyText}>Aucune activité récente</Text>
-              <Text style={styles.emptySubtext}>
-                Les nouvelles commandes et demandes de devis apparaîtront ici
-              </Text>
-              <TouchableOpacity 
-                style={styles.createProductButton}
-                onPress={() => router.push('/seller/add-product')}
-              >
-                <Text style={styles.createProductText}>Créer mon premier produit</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            recentOrders.map((order) => (
-              <TouchableOpacity 
-                key={order.id} 
-                style={styles.orderItem}
-                onPress={() => {
-                  if (order.total > 0) {
-                    router.push(`/seller/orders/${order.id}`);
-                  } else {
-                    router.push(`/seller/quote-requests/${order.id}`);
-                  }
-                }}
-              >
-                <View style={styles.orderLeft}>
-                  <View style={styles.orderCustomerInfo}>
-                    <Ionicons name="person" size={16} color="#666" />
-                    <Text style={styles.orderCustomer}>{order.customerName}</Text>
-                  </View>
-                  {order.customerEmail && (
-                    <Text style={styles.orderEmail} numberOfLines={1}>
-                      {order.customerEmail}
+            <View style={styles.companyInfo}>
+              <Text style={styles.companyName}>{company?.name || 'Ma Boutique'}</Text>
+              
+              <View style={styles.companyMeta}>
+                {/* Localisation */}
+                {(company?.city || company?.country) && (
+                  <View style={styles.metaItem}>
+                    <Ionicons name="location-outline" size={14} color="#6B7280" />
+                    <Text style={styles.metaText}>
+                      {company.city ? company.city : ''} 
+                      {company.city && company.country ? ', ' : ''}
+                      {company.country ? company.country : ''}
                     </Text>
-                  )}
-                  <Text style={styles.orderDate}>
-                    {formatDate(order.createdAt)}
+                  </View>
+                )}
+                
+                {/* Type d'entreprise */}
+                {company?.type && (
+                  <View style={styles.metaItem}>
+                    <Ionicons name="business-outline" size={14} color="#6B7280" />
+                    <Text style={styles.metaText}>{company.type}</Text>
+                  </View>
+                )}
+
+                {/* Année d'établissement */}
+                {company?.yearEstablished && (
+                  <View style={styles.metaItem}>
+                    <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+                    <Text style={styles.metaText}>Depuis {company.yearEstablished}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Badges */}
+              <View style={styles.badgesContainer}>
+                {company?.verified && (
+                  <View style={[styles.badge, styles.verifiedBadge]}>
+                    <Ionicons name="checkmark-circle" size={12} color="#10B981" />
+                    <Text style={styles.badgeText}>Vérifié</Text>
+                  </View>
+                )}
+                {company?.goldSupplier && (
+                  <View style={[styles.badge, styles.goldBadge]}>
+                    <Ionicons name="star" size={12} color="#F59E0B" />
+                    <Text style={styles.badgeText}>Gold Supplier</Text>
+                  </View>
+                )}
+                {company?.rating ? (
+                  <View style={[styles.badge, styles.ratingBadge]}>
+                    <Ionicons name="star" size={12} color="#F59E0B" />
+                    <Text style={styles.badgeText}>{company.rating.toFixed(1)}</Text>
+                  </View>
+                ) : null}
+                {company?.isActive && (
+                  <View style={[styles.badge, styles.activeBadge]}>
+                    <Ionicons name="flash" size={12} color="#3B82F6" />
+                    <Text style={styles.badgeText}>Actif</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            
+            <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
+          </View>
+
+          {/* Description courte */}
+          {company?.description && (
+            <Text style={styles.description} numberOfLines={2}>
+              {company.description}
+            </Text>
+          )}
+
+          {/* Produits principaux */}
+          {company?.mainProducts && (
+            <View style={styles.mainProducts}>
+              <Text style={styles.mainProductsTitle}>Produits principaux :</Text>
+              <Text style={styles.mainProductsText}>
+                {company.mainProducts}
+              </Text>
+            </View>
+          )}
+
+          {/* Contacts rapides */}
+          {(company?.phone || company?.email) && (
+            <View style={styles.contactQuick}>
+              {company?.phone && (
+                <TouchableOpacity onPress={handleCall} style={styles.contactQuickItem}>
+                  <Ionicons name="call" size={16} color="#3B82F6" />
+                </TouchableOpacity>
+              )}
+              {company?.email && (
+                <TouchableOpacity onPress={handleEmail} style={styles.contactQuickItem}>
+                  <Ionicons name="mail" size={16} color="#3B82F6" />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Statistiques clés */}
+        <View style={styles.statsGrid}>
+          {/* Carte Produits - NON cliquable, affiche le nombre exact */}
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#EFF6FF' }]}>
+              <Ionicons name="cube" size={24} color="#3B82F6" />
+            </View>
+            <Text style={styles.statValue}>
+              {stats.totalProducts || company?.productCount || 0}
+            </Text>
+            <Text style={styles.statLabel}>Produits</Text>
+          </View>
+
+          {/* Carte Commandes en attente - cliquable */}
+          <TouchableOpacity 
+            style={styles.statCard}
+            onPress={() => router.push('/suppliers/orders?filter=pending')}
+          >
+            <View style={[styles.statIcon, { backgroundColor: '#FEF3C7' }]}>
+              <Ionicons name="time" size={24} color="#F59E0B" />
+              {stats.pendingOrders > 0 && (
+                <View style={styles.statBadge}>
+                  <Text style={styles.statBadgeText}>{stats.pendingOrders}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.statValue}>{stats.pendingOrders}</Text>
+            <Text style={styles.statLabel}>En attente</Text>
+          </TouchableOpacity>
+
+          {/* Carte Revenu total - non cliquable */}
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: '#D1FAE5' }]}>
+              <Ionicons name="cash" size={24} color="#10B981" />
+            </View>
+            <Text style={styles.statValue}>{formatPrice(stats.totalRevenue)}</Text>
+            <Text style={styles.statLabel}>Revenu total</Text>
+          </View>
+        </View>
+
+        {/* Actions rapides */}
+        <View style={styles.quickActions}>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => router.push('/suppliers/orders')}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#FEF3C7' }]}>
+              <Ionicons name="cart" size={24} color="#F59E0B" />
+            </View>
+            <Text style={styles.actionLabel}>Commandes</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => router.push('/seller/add-product')}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#E0F2FE' }]}>
+              <Ionicons name="add-circle" size={24} color="#0EA5E9" />
+            </View>
+            <Text style={styles.actionLabel}>Ajouter produit</Text>
+          </TouchableOpacity>
+
+          {/* Bouton Catalogue - redirige vers /catalogue */}
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => router.push('/catalogue')}
+          >
+            <View style={[styles.actionIcon, { backgroundColor: '#E9D5FF' }]}>
+              <Ionicons name="grid" size={24} color="#A855F7" />
+            </View>
+            <Text style={styles.actionLabel}>Catalogue</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Messages récents */}
+        <View style={styles.recentSection}>
+          <TouchableOpacity 
+            style={styles.sectionHeader}
+            onPress={() => router.push('/supplier/messages')}
+          >
+            <View style={styles.sectionTitleContainer}>
+              <Text style={styles.sectionTitle}>Messages récents</Text>
+              {stats.unreadMessages > 0 && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadBadgeText}>{stats.unreadMessages}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.sectionHeaderRight}>
+              <Text style={styles.seeAllText}>Voir tout</Text>
+              <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
+            </View>
+          </TouchableOpacity>
+
+          {recentMessages.length === 0 ? (
+            <TouchableOpacity 
+              style={styles.emptyState}
+              onPress={() => router.push('/supplier/messages')}
+            >
+              <Ionicons name="chatbubbles-outline" size={48} color="#CBD5E1" />
+              <Text style={styles.emptyStateTitle}>Aucun message</Text>
+              <Text style={styles.emptyStateText}>
+                Les conversations avec vos clients apparaîtront ici
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            recentMessages.map((message) => (
+              <TouchableOpacity
+                key={message.id}
+                style={[styles.messageItem, message.unread && styles.unreadMessage]}
+                onPress={() => router.push(`/conversation/${message.conversationId}`)}
+              >
+                <View style={styles.messageAvatar}>
+                  <Text style={styles.messageAvatarText}>
+                    {message.senderName.charAt(0)}
                   </Text>
                 </View>
-                
-                <View style={styles.orderRight}>
-                  {order.total > 0 ? (
-                    <Text style={styles.orderAmount}>{order.total.toLocaleString()} XOF</Text>
-                  ) : (
-                    <Text style={styles.orderAmount}>Devis</Text>
-                  )}
-                  <View style={[styles.orderStatus, { backgroundColor: getStatusColor(order.status) + '20' }]}>
-                    <Text style={[styles.orderStatusText, { color: getStatusColor(order.status) }]}>
-                      {getStatusText(order.status)}
+                <View style={styles.messageInfo}>
+                  <View style={styles.messageHeader}>
+                    <Text style={styles.messageSender}>{message.senderName}</Text>
+                    <Text style={styles.messageTime}>{formatDate(message.timestamp)}</Text>
+                  </View>
+                  <Text 
+                    style={[styles.messagePreview, message.unread && styles.unreadMessageText]}
+                    numberOfLines={1}
+                  >
+                    {message.lastMessage}
+                  </Text>
+                </View>
+                {message.unread && <View style={styles.messageDot} />}
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+
+        {/* Activités récentes (commandes) */}
+        <View style={styles.recentSection}>
+          <TouchableOpacity 
+            style={styles.sectionHeader}
+            onPress={() => router.push('/suppliers/orders')}
+          >
+            <Text style={styles.sectionTitle}>Commandes récentes</Text>
+            <View style={styles.sectionHeaderRight}>
+              <Text style={styles.seeAllText}>Voir tout</Text>
+              <Ionicons name="chevron-forward" size={16} color="#3B82F6" />
+            </View>
+          </TouchableOpacity>
+
+          {recentOrders.length === 0 ? (
+            <TouchableOpacity 
+              style={styles.emptyState}
+              onPress={() => router.push('/seller/add-product')}
+            >
+              <Ionicons name="receipt-outline" size={48} color="#CBD5E1" />
+              <Text style={styles.emptyStateTitle}>Aucune commande</Text>
+              <Text style={styles.emptyStateText}>
+                Commencez par ajouter des produits
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            recentOrders.map((order) => (
+              <TouchableOpacity
+                key={order.id}
+                style={styles.orderItem}
+                onPress={() => router.push(`/suppliers/orders/${order.id}`)}
+              >
+                <View style={styles.orderInfo}>
+                  <Text style={styles.orderCustomer}>{order.customerName}</Text>
+                  <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
+                  <Text style={styles.orderItems} numberOfLines={1}>
+                    {order.items.map((item) => item.name).join(', ')}
+                  </Text>
+                </View>
+
+                <View style={styles.orderMeta}>
+                  <Text style={styles.orderAmount}>{formatPrice(order.total)}</Text>
+                  <View
+                    style={[
+                      styles.orderStatus,
+                      { backgroundColor: `${getStatusColor(order.status)}20` },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.orderStatusText,
+                        { color: getStatusColor(order.status) },
+                      ]}
+                    >
+                      {getStatusLabel(order.status)}
                     </Text>
                   </View>
                 </View>
@@ -630,151 +769,349 @@ export default function SellerDashboard() {
           )}
         </View>
 
-        {/* Section Insights */}
-        <View style={styles.insightsSection}>
-          <Text style={styles.sectionTitle}>Conseils pour booster vos ventes</Text>
-          <View style={styles.insightsGrid}>
-            <View style={styles.insightCard}>
-              <Ionicons name="image" size={24} color="#FF6B00" />
-              <Text style={styles.insightTitle}>Photos de qualité</Text>
-              <Text style={styles.insightText}>
-                Ajoutez au moins 3 photos HD de vos produits
-              </Text>
+        {/* Informations entreprise supplémentaires */}
+        <View style={styles.companyDetails}>
+          <Text style={styles.companyDetailsTitle}>Informations entreprise</Text>
+          
+          {company?.businessType && (
+            <View style={styles.detailRow}>
+              <Ionicons name="briefcase-outline" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>Type d'entreprise :</Text>
+              <Text style={styles.detailValue}>{company.businessType}</Text>
             </View>
-            <View style={styles.insightCard}>
-              <Ionicons name="time" size={24} color="#4CAF50" />
-              <Text style={styles.insightTitle}>Réponse rapide</Text>
-              <Text style={styles.insightText}>
-                Répondez aux messages dans les 24h
-              </Text>
+          )}
+          
+          {company?.employees && (
+            <View style={styles.detailRow}>
+              <Ionicons name="people-outline" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>Employés :</Text>
+              <Text style={styles.detailValue}>{company.employees}</Text>
             </View>
-            <View style={styles.insightCard}>
-              <Ionicons name="pricetag" size={24} color="#2196F3" />
-              <Text style={styles.insightTitle}>Promotions</Text>
-              <Text style={styles.insightText}>
-                Les produits en promo se vendent 3x plus
-              </Text>
+          )}
+          
+          {company?.annualRevenue && (
+            <View style={styles.detailRow}>
+              <Ionicons name="trending-up-outline" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>CA annuel :</Text>
+              <Text style={styles.detailValue}>{company.annualRevenue}</Text>
             </View>
-            <View style={styles.insightCard}>
-              <Ionicons name="star" size={24} color="#FFD700" />
-              <Text style={styles.insightTitle}>Avis clients</Text>
-              <Text style={styles.insightText}>
-                Demandez des avis après chaque vente
-              </Text>
-            </View>
+          )}
+          
+          <View style={styles.detailRow}>
+            <Ionicons name="location-outline" size={18} color="#6B7280" />
+            <Text style={styles.detailLabel}>Adresse :</Text>
+            <Text style={styles.detailValue} numberOfLines={2}>
+              {getFullAddress()}
+            </Text>
           </View>
         </View>
 
-        {/* Espace pour le bas */}
-        <View style={styles.bottomSpacer} />
+        {/* Actions supplémentaires */}
+        <View style={styles.extraActions}>
+          <TouchableOpacity 
+            style={styles.extraActionItem}
+            onPress={() => router.push('/supplier/analytics')}
+          >
+            <Ionicons name="stats-chart" size={20} color="#3B82F6" />
+            <Text style={styles.extraActionText}>Analytiques</Text>
+            <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.extraActionItem}
+            onPress={() => router.push('/supplier/reviews')}
+          >
+            <Ionicons name="star" size={20} color="#F59E0B" />
+            <Text style={styles.extraActionText}>Avis clients</Text>
+            <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.extraActionItem}
+            onPress={() => router.push('/supplier/settings')}
+          >
+            <Ionicons name="settings" size={20} color="#6B7280" />
+            <Text style={styles.extraActionText}>Paramètres</Text>
+            <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: "#F8F9FA" 
-  },
-  scrollView: {
+  container: {
     flex: 1,
+    backgroundColor: '#F9FAFB',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#F9FAFB',
   },
   loadingText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#6c757d',
+    color: '#6B7280',
   },
-  header: {
-    backgroundColor: '#FFF',
-    padding: 20,
+  coverImage: {
+    width: '100%',
+    height: 150,
+  },
+  coverPlaceholder: {
+    width: '100%',
+    height: 150,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coverPlaceholderText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
+  profileSection: {
+    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
+    borderBottomColor: '#F3F4F6',
+    padding: 16,
+	paddingTop: 8,
   },
-  headerContent: {
+  profileHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
+  logoContainer: {
+    position: 'relative',
+    marginRight: 16,
+  },
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    marginTop: -20,
+  },
+  logoPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -20,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  logoPlaceholderText: {
+    fontSize: 32,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  editBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#3B82F6',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
   companyInfo: {
+    flex: 1,
+    marginTop: 8,
+  },
+  companyName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  companyMeta: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 8,
+  },
+  metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  companyLogo: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#f0f0f0',
-  },
-  companyText: {
-    flex: 1,
-  },
-  companyName: { 
-    fontSize: 20, 
-    fontWeight: "700", 
-    color: "#1A1A1A",
+    marginRight: 12,
     marginBottom: 4,
   },
-  badgesRow: {
+  metaText: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginLeft: 4,
+  },
+  badgesContainer: {
     flexDirection: 'row',
-    gap: 6,
+    flexWrap: 'wrap',
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+    marginBottom: 4,
   },
   verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E8',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
+    backgroundColor: '#D1FAE5',
   },
   goldBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF8E6',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
+    backgroundColor: '#FEF3C7',
   },
   ratingBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF3E0',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4,
+    backgroundColor: '#FEF3C7',
+  },
+  activeBadge: {
+    backgroundColor: '#EFF6FF',
   },
   badgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#666',
+    fontSize: 11,
+    fontWeight: '500',
+    marginLeft: 4,
+    color: '#374151',
   },
-  notificationButton: {
-    padding: 8,
+  description: {
+    fontSize: 14,
+    color: '#4B5563',
+    marginBottom: 12,
+    lineHeight: 20,
   },
-  welcomeText: {
-    fontSize: 16,
-    color: '#333',
+  mainProducts: {
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  mainProductsTitle: {
+    fontSize: 13,
     fontWeight: '600',
+    color: '#4B5563',
     marginBottom: 4,
   },
-  welcomeSubtext: {
+  mainProductsText: {
     fontSize: 14,
-    color: '#666',
+    color: '#111827',
   },
-  statsSection: {
+  contactQuick: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  contactQuickItem: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statsGrid: {
+    flexDirection: 'row',
     padding: 16,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  statIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+    position: 'relative',
+  },
+  statBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  statBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 24,
+  },
+  actionButton: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  actionLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  recentSection: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -782,222 +1119,213 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1A1A1A",
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   seeAllText: {
-    color: '#FF6B00',
     fontSize: 14,
+    color: '#3B82F6',
+    fontWeight: '500',
+  },
+  unreadBadge: {
+    backgroundColor: '#EF4444',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  unreadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
     fontWeight: '600',
   },
-  statsScroll: {
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-  },
-  statsScrollContent: {
-    gap: 12,
-    paddingRight: 16,
-  },
-  quickStatCard: {
-    backgroundColor: '#FFF',
-    padding: 16,
-    borderRadius: 12,
-    width: 140,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-  },
-  quickStatIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
+  emptyState: {
     alignItems: 'center',
-    marginBottom: 8,
+    paddingVertical: 24,
   },
-  quickStatValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1A1A1A',
-    marginBottom: 2,
-  },
-  quickStatLabel: {
-    fontSize: 12,
-    color: '#6c757d',
-  },
-  menuSection: {
-    padding: 16,
-  },
-  menuGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  menuItem: {
-    width: '48%',
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  menuIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  menuLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1A1A1A',
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 12,
     marginBottom: 4,
   },
-  menuDescription: {
-    fontSize: 11,
-    color: '#6c757d',
-    lineHeight: 14,
+  emptyStateText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
   },
-  ordersSection: {
-    padding: 16,
-    backgroundColor: '#FFF',
-    margin: 16,
-    marginTop: 0,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
+  messageItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  unreadMessage: {
+    backgroundColor: '#F0F9FF',
+  },
+  messageAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  messageAvatarText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  messageInfo: {
+    flex: 1,
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  messageSender: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  messageTime: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  messagePreview: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  unreadMessageText: {
+    fontWeight: '600',
+    color: '#111827',
+  },
+  messageDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3B82F6',
+    marginLeft: 8,
   },
   orderItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#F3F4F6',
   },
-  orderLeft: {
+  orderInfo: {
     flex: 1,
     marginRight: 12,
-  },
-  orderCustomerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
   },
   orderCustomer: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#1A1A1A',
-  },
-  orderEmail: {
-    fontSize: 12,
-    color: '#666',
+    color: '#111827',
     marginBottom: 4,
   },
   orderDate: {
-    fontSize: 11,
-    color: '#999',
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
   },
-  orderRight: {
+  orderItems: {
+    fontSize: 13,
+    color: '#4B5563',
+  },
+  orderMeta: {
     alignItems: 'flex-end',
   },
   orderAmount: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#4CAF50',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#111827',
     marginBottom: 6,
   },
   orderStatus: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
-  },
-  orderStatusText: {
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  emptyOrders: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#6c757d',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  emptySubtext: {
-    fontSize: 12,
-    color: '#9e9e9e',
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 16,
-  },
-  createProductButton: {
-    backgroundColor: '#FF6B00',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
     borderRadius: 8,
   },
-  createProductText: {
-    color: '#FFF',
-    fontSize: 14,
+  orderStatusText: {
+    fontSize: 11,
     fontWeight: '600',
   },
-  insightsSection: {
-    padding: 16,
-  },
-  insightsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  insightCard: {
-    width: '48%',
-    backgroundColor: '#FFF',
+  companyDetails: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
     borderRadius: 12,
     padding: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  companyDetailsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
+    flexWrap: 'wrap',
   },
-  insightTitle: {
+  detailLabel: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#1A1A1A',
-    marginTop: 8,
-    marginBottom: 4,
-    textAlign: 'center',
+    color: '#6B7280',
+    marginLeft: 8,
+    marginRight: 4,
   },
-  insightText: {
-    fontSize: 11,
-    color: '#6c757d',
-    textAlign: 'center',
-    lineHeight: 14,
+  detailValue: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '500',
+    flex: 1,
   },
-  bottomSpacer: {
-    height: 80,
+  extraActions: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 24,
+    borderRadius: 12,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  extraActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  extraActionText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#374151',
+    marginLeft: 12,
   },
 });

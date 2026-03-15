@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
   ScrollView,
   Alert,
   SafeAreaView,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useCurrency } from '../../src/contexts/CurrencyContext'; // Ajout du contexte
+import { useCurrency } from '../../src/contexts/CurrencyContext';
 
 const COLORS = {
   primary: '#FF6A00',
@@ -19,6 +19,7 @@ const COLORS = {
   primaryDark: '#E55A00',
   background: '#FFFAF5',
   success: '#28A745',
+  successLight: '#E6F7E6',
   text: '#2D3748',
   textLight: '#718096',
   border: '#E2E8F0',
@@ -33,6 +34,7 @@ interface OrderItem {
   quantity: number;
   imageUrl?: string;
   companyName?: string;
+  hasFreeShipping?: boolean;   // correspond au champ Firestore
 }
 
 interface ShippingOption {
@@ -40,20 +42,25 @@ interface ShippingOption {
   name: string;
   price: number;
   deliveryTime: string;
-  description: string;
-  type: 'local' | 'air' | 'sea';
-  details: string;
-  features?: string[];
-  coverage?: string[];
-  recommended?: boolean;
+  description: string;        // courte description affichée pour tous
+  type: 'free' | 'air' | 'sea';
+  details: string;             // détails de calcul (ex: "2.5 kg × 12 000 F")
+  explanation?: string;        // texte complémentaire (pour l'option gratuite)
+}
+
+interface OrderSummary {
+  subtotal: number;
+  shipping: number;
+  discount: number;
+  total: number;
 }
 
 export default function CheckoutShipping() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { formatPrice } = useCurrency(); // Hook pour la devise
-  
-  const [selectedShipping, setSelectedShipping] = useState('tellimani_bamako');
+  const { formatPrice } = useCurrency();
+
+  const [selectedShipping, setSelectedShipping] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [orderData, setOrderData] = useState<any>(null);
   const [selectedItems, setSelectedItems] = useState<OrderItem[]>([]);
@@ -61,55 +68,16 @@ export default function CheckoutShipping() {
   const [totalWeight, setTotalWeight] = useState(0);
   const [totalVolume, setTotalVolume] = useState(0);
   const [isWholesaleOrder, setIsWholesaleOrder] = useState(false);
-  const [summary, setSummary] = useState({
+  const [summary, setSummary] = useState<OrderSummary>({
     subtotal: 0,
     shipping: 0,
     discount: 0,
     total: 0
   });
+  const [hasFreeShippingEligible, setHasFreeShippingEligible] = useState(false);
+  const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
 
-  const shippingOptions: ShippingOption[] = [
-    {
-      id: 'tellimani_bamako',
-      name: '🚚 Tellimani à Bamako',
-      price: 0,
-      deliveryTime: '24-48 heures',
-      description: 'Livraison locale rapide et gratuite dans Bamako et environs',
-      type: 'local',
-      details: 'Livraison GRATUITE',
-      features: ['Livraison porte à porte', 'Suivi en temps réel', '100% gratuit'],
-      coverage: ['Bamako', 'Kati', 'Koulikoro', 'Sébénikoro'],
-      recommended: true
-    },
-    {
-      id: 'vol_express',
-      name: '✈️ Vol Express',
-      price: Math.ceil(totalWeight * 12000),
-      deliveryTime: '5 jours',
-      description: 'Livraison express par avion - Idéal pour les urgences',
-      type: 'air',
-      details: `${totalWeight.toFixed(1)} kg × ${formatPrice(12000)}`
-    },
-    {
-      id: 'vol_cargo', 
-      name: '✈️ Vol Cargo',
-      price: Math.ceil(totalWeight * 10000),
-      deliveryTime: '2 semaines',
-      description: 'Livraison économique par cargo aérien',
-      type: 'air',
-      details: `${totalWeight.toFixed(1)} kg × ${formatPrice(10000)}`
-    },
-    {
-      id: 'voie_maritime',
-      name: '🚢 Voie Maritime',
-      price: Math.ceil(totalVolume * 295000),
-      deliveryTime: '12 semaines',
-      description: 'Livraison la plus économique par bateau',
-      type: 'sea',
-      details: `${totalVolume.toFixed(2)} CBM × ${formatPrice(295000)}`
-    }
-  ];
-
+  // Chargement et calcul des données
   useEffect(() => {
     const loadOrderData = async () => {
       try {
@@ -136,20 +104,34 @@ export default function CheckoutShipping() {
           total: 0
         });
 
-        const quantity = parsedData.items.reduce((total: number, item: OrderItem) => 
+        // Calculs généraux
+        const quantity = parsedData.items.reduce((total: number, item: OrderItem) =>
           total + item.quantity, 0);
         setTotalQuantity(quantity);
-        
-        setIsWholesaleOrder(quantity >= 10 || 
+
+        setIsWholesaleOrder(quantity >= 10 ||
           parsedData.items.some((item: OrderItem) => item.quantity >= 10));
 
-        const weight = parsedData.items.reduce((total: number, item: OrderItem) => 
-          total + (item.quantity * 0.5), 0);
-        setTotalWeight(weight);
+// Remplace cette partie dans ton premier useEffect :
+const weight = parsedData.items.reduce((total: number, item: any) => {
+  // On cherche item.weight. S'il n'existe pas, on met 0 (ou 0.1 selon ton besoin)
+  const itemWeight = item.weight || 0; 
+  return total + (item.quantity * itemWeight);
+}, 0);
+setTotalWeight(weight);
 
-        const volume = parsedData.items.reduce((total: number, item: OrderItem) => 
-          total + (item.quantity * 0.01), 0);
-        setTotalVolume(volume);
+const volume = parsedData.items.reduce((total: number, item: any) => {
+  // On cherche item.volume. S'il n'existe pas, on met 0
+  const itemVolume = item.volume || 0;
+  return total + (item.quantity * itemVolume);
+}, 0);
+setTotalVolume(volume);
+
+        // ✅ Détection correcte du champ Firestore "hasFreeShipping"
+        const freeEligible = parsedData.items.some(
+          (item: OrderItem) => item.hasFreeShipping === true || item.price === 0
+        );
+        setHasFreeShippingEligible(freeEligible);
 
       } catch (error) {
         Alert.alert('Erreur', 'Impossible de charger les données de la commande');
@@ -162,13 +144,77 @@ export default function CheckoutShipping() {
     loadOrderData();
   }, [params.orderData]);
 
+  // Construction dynamique des options de livraison
+// Dans le useEffect qui construit shippingOptions
+// Construction dynamique des options de livraison
+  useEffect(() => {
+    const options: ShippingOption[] = [];
+
+    // Sécurité : On utilise le poids calculé (0.0 par défaut)
+    const displayWeight = totalWeight > 0 ? totalWeight : 0;
+    const displayVolume = totalVolume > 0 ? totalVolume : 0;
+
+    // 1. Option gratuite (si éligible)
+    if (hasFreeShippingEligible) {
+      options.push({
+        id: 'free_shipping',
+        name: '🎁 Livraison Offerte',
+        price: 0,
+        deliveryTime: 'Variable selon articles',
+        description: 'Profitez de la livraison gratuite sur vos articles éligibles.',
+        type: 'free',
+        details: 'Gratuite',
+        explanation: 'Cette option est disponible pour vos articles bénéficiant de la livraison gratuite.'
+      });
+    }
+
+    // 2. Options payantes
+    options.push(
+      {
+        id: 'vol_express',
+        name: '✈️ Vol Express',
+        price: Math.ceil(displayWeight * 12000),
+        deliveryTime: '5 jours',
+        description: 'Livraison express par avion – Idéal pour les urgences',
+        type: 'air',
+        details: `${displayWeight.toFixed(2)} kg × ${formatPrice(12000)}`
+      },
+      {
+        id: 'vol_cargo',
+        name: '✈️ Vol Cargo',
+        price: Math.ceil(displayWeight * 10000),
+        deliveryTime: '2 semaines',
+        description: 'Livraison économique par cargo aérien',
+        type: 'air',
+        details: `${displayWeight.toFixed(2)} kg × ${formatPrice(10000)}`
+      },
+      {
+        id: 'voie_maritime',
+        name: '🚢 Voie Maritime',
+        price: Math.ceil(displayVolume * 295000),
+        deliveryTime: '12 semaines',
+        description: 'Livraison la plus économique par bateau',
+        type: 'sea',
+        details: `${displayVolume.toFixed(3)} CBM × ${formatPrice(295000)}`
+      }
+    );
+
+    setShippingOptions(options);
+
+    // Sélection par défaut
+    if (options.length > 0) {
+      setSelectedShipping(hasFreeShippingEligible ? 'free_shipping' : options[0].id);
+    }
+  }, [hasFreeShippingEligible, totalWeight, totalVolume, formatPrice]); // La ligne 214 est ici, bien fermée.
+
+
   const getSelectedShippingOption = () => {
     return shippingOptions.find(option => option.id === selectedShipping);
   };
 
   const handleContinue = () => {
     const selectedOption = getSelectedShippingOption();
-    
+
     if (!selectedOption) {
       Alert.alert('Erreur', 'Veuillez sélectionner un mode de livraison');
       return;
@@ -180,7 +226,7 @@ export default function CheckoutShipping() {
     }
 
     const newTotal = summary.subtotal + selectedOption.price - summary.discount;
-    
+
     const completeOrderData = {
       ...orderData,
       items: selectedItems,
@@ -195,7 +241,7 @@ export default function CheckoutShipping() {
         shipping: selectedOption.price,
         total: newTotal
       },
-      selectedItems: selectedItems,
+      selectedItems,
       timestamp: new Date().toISOString()
     };
 
@@ -207,62 +253,25 @@ export default function CheckoutShipping() {
     });
   };
 
-  const renderCoverage = (coverage: string[]) => {
-    if (!coverage || coverage.length === 0) return null;
-    return (
-      <View style={styles.coverageSection}>
-        <Text style={styles.coverageLabel}>📍 Zones couvertes:</Text>
-        <View style={styles.coverageTags}>
-          {coverage.map((zone, index) => (
-            <View key={index} style={styles.coverageTag}>
-              <Text style={styles.coverageText}>{zone}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  };
-
-  const renderFeatures = (features: string[]) => {
-    if (!features || features.length === 0) return null;
-    return (
-      <View style={styles.featuresSection}>
-        <View style={styles.featuresContainer}>
-          {features.map((feature, index) => (
-            <View key={index} style={styles.featureItem}>
-              <Ionicons name="checkmark-circle" size={12} color={COLORS.success} />
-              <Text style={styles.featureText}>{feature}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  };
-
   const renderShippingCalculations = () => (
     <View style={styles.calculationsSection}>
       <Text style={styles.calculationsTitle}>Calcul des frais de transport</Text>
-      
       <View style={styles.calculationRow}>
-        <Text style={styles.calculationLabel}>Articles commandés:</Text>
+        <Text style={styles.calculationLabel}>Articles commandés :</Text>
         <Text style={styles.calculationValue}>{selectedItems.length} produit(s)</Text>
       </View>
-      
       <View style={styles.calculationRow}>
-        <Text style={styles.calculationLabel}>Quantité totale:</Text>
+        <Text style={styles.calculationLabel}>Quantité totale :</Text>
         <Text style={styles.calculationValue}>{totalQuantity} unité(s)</Text>
       </View>
-      
       <View style={styles.calculationRow}>
-        <Text style={styles.calculationLabel}>Poids total estimé:</Text>
+        <Text style={styles.calculationLabel}>Poids total estimé :</Text>
         <Text style={styles.calculationValue}>{totalWeight.toFixed(1)} kg</Text>
       </View>
-      
       <View style={styles.calculationRow}>
-        <Text style={styles.calculationLabel}>Volume total estimé:</Text>
+        <Text style={styles.calculationLabel}>Volume total estimé :</Text>
         <Text style={styles.calculationValue}>{totalVolume.toFixed(2)} CBM</Text>
       </View>
-      
       <View style={styles.calculationNote}>
         <Ionicons name="information-circle" size={16} color={COLORS.textLight} />
         <Text style={styles.calculationNoteText}>
@@ -281,16 +290,13 @@ export default function CheckoutShipping() {
           <Ionicons name="receipt-outline" size={20} color={COLORS.primary} />
           <Text style={styles.summaryTitle}>Résumé de votre commande</Text>
         </View>
-        
         <View style={styles.summaryItems}>
           {selectedItems.slice(0, 3).map((item, index) => (
             <View key={index} style={styles.summaryItem}>
               <Text style={styles.summaryItemName} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={styles.summaryItemQty}>
-                ×{item.quantity}
-              </Text>
+              <Text style={styles.summaryItemQty}>×{item.quantity}</Text>
               <Text style={styles.summaryItemPrice}>
                 {formatPrice(item.price * item.quantity)}
               </Text>
@@ -302,21 +308,15 @@ export default function CheckoutShipping() {
             </Text>
           )}
         </View>
-        
         <View style={styles.summaryTotals}>
           <View style={styles.summaryTotalRow}>
-            <Text style={styles.summaryTotalLabel}>Sous-total:</Text>
-            <Text style={styles.summaryTotalValue}>
-              {formatPrice(summary.subtotal)}
-            </Text>
+            <Text style={styles.summaryTotalLabel}>Sous-total :</Text>
+            <Text style={styles.summaryTotalValue}>{formatPrice(summary.subtotal)}</Text>
           </View>
-          
           {summary.discount > 0 && (
             <View style={styles.summaryTotalRow}>
-              <Text style={styles.summaryDiscountLabel}>Réduction:</Text>
-              <Text style={styles.summaryDiscountValue}>
-                -{formatPrice(summary.discount)}
-              </Text>
+              <Text style={styles.summaryDiscountLabel}>Réduction :</Text>
+              <Text style={styles.summaryDiscountValue}>-{formatPrice(summary.discount)}</Text>
             </View>
           )}
         </View>
@@ -341,10 +341,7 @@ export default function CheckoutShipping() {
         <View style={styles.emptyContainer}>
           <Ionicons name="cart-outline" size={64} color={COLORS.textLight} />
           <Text style={styles.emptyTitle}>Commande invalide</Text>
-          <TouchableOpacity 
-            style={styles.emptyButton}
-            onPress={() => router.replace('/cart')}
-          >
+          <TouchableOpacity style={styles.emptyButton} onPress={() => router.replace('/cart')}>
             <Text style={styles.emptyButtonText}>Retour au panier</Text>
           </TouchableOpacity>
         </View>
@@ -354,11 +351,12 @@ export default function CheckoutShipping() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView 
-        style={styles.container} 
+      <ScrollView
+        style={styles.container}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Indicateur de progression */}
         <View style={styles.progressHeader}>
           <View style={styles.progressStep}>
             <View style={[styles.stepIndicator, styles.stepCompleted]}>
@@ -384,6 +382,19 @@ export default function CheckoutShipping() {
 
         <Text style={styles.title}>Mode de livraison</Text>
 
+        {/* Bandeau de succès si livraison gratuite disponible */}
+        {hasFreeShippingEligible && (
+          <View style={styles.successBanner}>
+            <Ionicons name="gift" size={24} color={COLORS.success} />
+            <View style={styles.successBannerText}>
+              <Text style={styles.successBannerTitle}>🎉 Félicitations !</Text>
+              <Text style={styles.successBannerMessage}>
+                Vous bénéficiez de la livraison gratuite sur certains articles !
+              </Text>
+            </View>
+          </View>
+        )}
+
         {renderOrderSummary()}
 
         {isWholesaleOrder && (
@@ -396,64 +407,57 @@ export default function CheckoutShipping() {
         )}
 
         {renderShippingCalculations()}
-        
+
         <View style={styles.shippingOptions}>
           {shippingOptions.map(option => {
             const isSelected = selectedShipping === option.id;
-            const isLocal = option.type === 'local';
-            const isFree = option.price === 0;
-            
+            const isFree = option.type === 'free';
+
             return (
               <TouchableOpacity
                 key={option.id}
                 style={[
                   styles.shippingCard,
                   isSelected && styles.shippingCardSelected,
-                  isLocal && styles.localCard
+                  isFree && styles.freeCard
                 ]}
                 onPress={() => setSelectedShipping(option.id)}
               >
                 <View style={styles.shippingInfo}>
                   <View style={styles.shippingHeader}>
-                    <View style={styles.shippingTitleContainer}>
-                      <Text style={styles.shippingName}>{option.name}</Text>
-                      {option.recommended && (
-                        <View style={styles.recommendedBadge}>
-                          <Text style={styles.recommendedBadgeText}>Recommandé</Text>
-                        </View>
-                      )}
-                      {isFree && (
-                        <View style={styles.freeBadge}>
-                          <Text style={styles.freeBadgeText}>GRATUIT</Text>
-                        </View>
-                      )}
-                    </View>
-                    <View style={[
-                      styles.typeBadge,
-                      isLocal ? styles.typeLocal : 
-                      option.type === 'air' ? styles.typeAir : styles.typeSea
-                    ]}>
+                    <Text style={styles.shippingName}>{option.name}</Text>
+                    <View
+                      style={[
+                        styles.typeBadge,
+                        isFree
+                          ? styles.typeFree
+                          : option.type === 'air'
+                          ? styles.typeAir
+                          : styles.typeSea
+                      ]}
+                    >
                       <Text style={styles.typeBadgeText}>
-                        {isLocal ? 'LOCAL' : option.type === 'air' ? 'AÉRIEN' : 'MARITIME'}
+                        {isFree ? 'OFFERT' : option.type === 'air' ? 'AÉRIEN' : 'MARITIME'}
                       </Text>
                     </View>
                   </View>
-                  
+
                   <Text style={styles.shippingTime}>📅 {option.deliveryTime}</Text>
                   <Text style={styles.shippingDescription}>{option.description}</Text>
+
+                  {/* Explication dédiée pour l'option gratuite */}
+                  {isFree && option.explanation && (
+                    <Text style={styles.freeExplanation}>{option.explanation}</Text>
+                  )}
+
                   <Text style={styles.shippingDetails}>{option.details}</Text>
-                  
-                  {option.coverage && renderCoverage(option.coverage)}
-                  {option.features && renderFeatures(option.features)}
                 </View>
-                
+
                 <View style={styles.shippingPriceContainer}>
                   {isFree ? (
                     <Text style={[styles.shippingPrice, styles.freePrice]}>GRATUIT</Text>
                   ) : (
-                    <Text style={[styles.shippingPrice, isLocal && styles.localPrice]}>
-                      {formatPrice(option.price)}
-                    </Text>
+                    <Text style={styles.shippingPrice}>{formatPrice(option.price)}</Text>
                   )}
                 </View>
 
@@ -473,24 +477,34 @@ export default function CheckoutShipping() {
             <Text style={styles.infoTitle}>Informations importantes</Text>
           </View>
           <View style={styles.infoList}>
-            <Text style={styles.infoItem}>• 🚚 <Text style={styles.infoBold}>Tellimani</Text>: Livraison locale GRATUITE</Text>
-            <Text style={styles.infoItem}>• ✈️ <Text style={styles.infoBold}>Vol Express</Text>: {formatPrice(12000)}/kg</Text>
-            <Text style={styles.infoItem}>• 🚢 <Text style={styles.infoBold}>Maritime</Text>: {formatPrice(295000)}/CBM</Text>
+            <Text style={styles.infoItem}>
+              • ✈️ <Text style={styles.infoBold}>Vol Express</Text> : {formatPrice(12000)}/kg
+            </Text>
+            <Text style={styles.infoItem}>
+              • ✈️ <Text style={styles.infoBold}>Vol Cargo</Text> : {formatPrice(10000)}/kg
+            </Text>
+            <Text style={styles.infoItem}>
+              • 🚢 <Text style={styles.infoBold}>Maritime</Text> : {formatPrice(295000)}/CBM
+            </Text>
+            {hasFreeShippingEligible && (
+              <Text style={styles.infoItem}>
+                • 🎁 <Text style={styles.infoBold}>Livraison Offerte</Text> : réservée aux articles éligibles
+              </Text>
+            )}
           </View>
         </View>
       </ScrollView>
 
       <View style={styles.fixedBottomContainer}>
-        <TouchableOpacity 
-          style={styles.continueButton} 
-          onPress={handleContinue}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.continueButton} onPress={handleContinue} activeOpacity={0.8}>
           <View style={styles.buttonContent}>
             <View>
               <Text style={styles.continueButtonText}>Continuer vers le paiement</Text>
               <Text style={styles.continueButtonSubtext}>
-                Total: {formatPrice(summary.subtotal + (shippingOptions.find(o => o.id === selectedShipping)?.price || 0) - summary.discount)}
+                Total :{' '}
+                {formatPrice(
+                  summary.subtotal + (getSelectedShippingOption()?.price || 0) - summary.discount
+                )}
               </Text>
             </View>
             <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
@@ -523,6 +537,20 @@ const styles = StyleSheet.create({
   progressLine: { width: 40, height: 2, backgroundColor: COLORS.border, marginHorizontal: 8 },
   progressLineCompleted: { width: 40, height: 2, backgroundColor: COLORS.primary, marginHorizontal: 8 },
   title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, textAlign: 'center', color: COLORS.text },
+  successBanner: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.successLight,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.success,
+    alignItems: 'center',
+    gap: 12
+  },
+  successBannerText: { flex: 1 },
+  successBannerTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.success, marginBottom: 4 },
+  successBannerMessage: { fontSize: 14, color: COLORS.text },
   orderSummary: { backgroundColor: COLORS.white, padding: 16, borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: COLORS.border, elevation: 2 },
   summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   summaryTitle: { fontSize: 16, fontWeight: '700', color: COLORS.primary },
@@ -549,39 +577,25 @@ const styles = StyleSheet.create({
   calculationNoteText: { flex: 1, fontSize: 12, color: COLORS.textLight },
   shippingOptions: { gap: 12, marginBottom: 20 },
   shippingCard: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: COLORS.white, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: COLORS.border },
-  localCard: { borderColor: '#8B5CF6', backgroundColor: '#F5F3FF' },
+  freeCard: { borderColor: COLORS.success, backgroundColor: COLORS.successLight },
   shippingCardSelected: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryLight },
   shippingInfo: { flex: 1 },
-  shippingHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  shippingTitleContainer: { flex: 1 },
-  shippingName: { fontSize: 16, fontWeight: '600' },
-  recommendedBadge: { backgroundColor: COLORS.success, paddingHorizontal: 6, borderRadius: 4, marginBottom: 2 },
-  recommendedBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: 'bold' },
-  freeBadge: { backgroundColor: '#10b981', paddingHorizontal: 6, borderRadius: 4, marginTop: 2 },
-  freeBadgeText: { color: COLORS.white, fontSize: 10, fontWeight: 'bold' },
-  typeBadge: { paddingHorizontal: 6, borderRadius: 4 },
+  shippingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  shippingName: { fontSize: 16, fontWeight: '600', flex: 1 },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 },
   typeAir: { backgroundColor: '#E3F2FD' },
   typeSea: { backgroundColor: '#E8F5E8' },
-  typeLocal: { backgroundColor: '#EDE9FE' },
+  typeFree: { backgroundColor: COLORS.successLight, borderWidth: 1, borderColor: COLORS.success },
   typeBadgeText: { fontSize: 10, fontWeight: '700' },
   shippingTime: { fontSize: 14, color: COLORS.textLight, marginBottom: 4 },
   shippingDescription: { fontSize: 12, color: COLORS.textLight, lineHeight: 16 },
   shippingDetails: { fontSize: 11, color: COLORS.primary, fontWeight: '600' },
-  coverageSection: { marginTop: 8 },
-  coverageLabel: { fontSize: 12, fontWeight: '600', color: COLORS.textLight },
-  coverageTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  coverageTag: { backgroundColor: '#E0E7FF', paddingHorizontal: 6, borderRadius: 4 },
-  coverageText: { fontSize: 10, color: '#4F46E5' },
-  featuresSection: { marginTop: 8 },
-  featuresContainer: { gap: 4 },
-  featureItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  featureText: { fontSize: 11, color: '#7C3AED' },
+  freeExplanation: { fontSize: 12, color: COLORS.success, marginTop: 4, fontStyle: 'italic' },
   shippingPriceContainer: { alignItems: 'flex-end', justifyContent: 'center' },
   shippingPrice: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary },
-  localPrice: { color: '#8B5CF6' },
-  freePrice: { color: '#10b981', fontSize: 18 },
+  freePrice: { color: COLORS.success, fontSize: 18 },
   selectedIndicator: { position: 'absolute', top: 12, right: 12 },
-  infoSection: { backgroundColor: COLORS.primaryLight, padding: 16, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: COLORS.primary },
+  infoSection: { backgroundColor: COLORS.primaryLight, padding: 16, borderRadius: 12, borderLeftWidth: 4, borderLeftColor: COLORS.primary, marginBottom: 20 },
   infoHeader: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   infoTitle: { fontSize: 16, fontWeight: '700', color: COLORS.primary },
   infoList: { gap: 6 },

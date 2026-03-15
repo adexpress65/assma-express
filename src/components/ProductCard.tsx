@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Colors, radius } from "../theme";
 

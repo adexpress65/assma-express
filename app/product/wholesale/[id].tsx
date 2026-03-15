@@ -593,24 +593,33 @@ export default function ProductDetailScreen() {
     }, 500);
   };
 
-  const handleChat = () => {
-    if (!product || !product.companyId) return;
-    
-    const mainImage = product.images?.[0] || product.mainImage || '';
-    
-    router.push({
-      pathname: '/conversation/[id]',
-      params: { 
-        id: product.companyId,
-        productId: product.id,
-        productName: product.name,
-        productImage: mainImage,
-        productPrice: `${product.price.toLocaleString()} ${product.currency || 'FCFA'}`,
-        sellerId: product.companyId,
-        sellerName: product.companyName || product.supplier || 'Vendeur'
-      }
-    });
-  };
+const handleChat = () => {
+  if (!product?.uid) {
+    console.error("UID vendeur manquant");
+    return;
+  }
+
+  const mainImage =
+    product.images?.[0] || product.mainImage || "";
+
+  router.push({
+    pathname: "/conversation/[id]",
+    params: {
+      id: product.uid,
+      sellerId: product.uid,
+      productId: product.id,
+      productName: product.name,
+      productImage: mainImage,
+      productPrice: `${product.price.toLocaleString()} ${
+        product.currency || "FCFA"
+      }`,
+      sellerName:
+        product.companyName ||
+        product.supplier ||
+        "Vendeur",
+    },
+  });
+};
 
   const handleCompanyPress = () => {
     if (company?.id) {
