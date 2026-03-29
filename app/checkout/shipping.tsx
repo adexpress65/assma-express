@@ -34,7 +34,13 @@ interface OrderItem {
   quantity: number;
   imageUrl?: string;
   companyName?: string;
-  hasFreeShipping?: boolean;   // correspond au champ Firestore
+  hasFreeShipping?: boolean;
+  // Ajoute cette section :
+  specifications?: {
+    weight?: number;
+    volume?: number;
+    modelNumber?: string;
+  };
 }
 
 interface ShippingOption {
@@ -113,17 +119,17 @@ export default function CheckoutShipping() {
           parsedData.items.some((item: OrderItem) => item.quantity >= 10));
 
 // Remplace cette partie dans ton premier useEffect :
-const weight = parsedData.items.reduce((total: number, item: any) => {
-  // On cherche item.weight. S'il n'existe pas, on met 0 (ou 0.1 selon ton besoin)
-  const itemWeight = item.weight || 0; 
-  return total + (item.quantity * itemWeight);
+const weight = parsedData.items.reduce((total: number, item: OrderItem) => {
+  // On vérifie d'abord dans specifications, puis à la racine, sinon 0
+  const itemWeight = item.specifications?.weight ?? (item as any).weight ?? 0;
+  return total + (item.quantity * Number(itemWeight));
 }, 0);
 setTotalWeight(weight);
 
-const volume = parsedData.items.reduce((total: number, item: any) => {
-  // On cherche item.volume. S'il n'existe pas, on met 0
-  const itemVolume = item.volume || 0;
-  return total + (item.quantity * itemVolume);
+const volume = parsedData.items.reduce((total: number, item: OrderItem) => {
+  // Idem pour le volume
+  const itemVolume = item.specifications?.volume ?? (item as any).volume ?? 0;
+  return total + (item.quantity * Number(itemVolume));
 }, 0);
 setTotalVolume(volume);
 

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, startTransition } from 'react';
 import { 
   View, Text, StyleSheet, SafeAreaView, ScrollView, 
   TextInput, TouchableOpacity, Alert, Switch, Image,
-  ActivityIndicator, Linking, Modal, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform
+  ActivityIndicator, Linking, Modal, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform,
+  InteractionManager,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -104,6 +105,8 @@ export default function AddProductScreen() {
   
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(isEditMode);
+  /** Évite de monter tout le JSX (~3000 lignes) pendant la transition de navigation (bloque le JS thread). */
+  const [screenHydrated, setScreenHydrated] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [images, setImages] = useState<string[]>([]);
@@ -242,7 +245,9 @@ useEffect(() => {
     };
   });
 
-  setGeneratedVariants(variants);
+  startTransition(() => {
+    setGeneratedVariants(variants);
+  });
 }, [attributes, selectedAttributes, form.price, priceAdjustment, form.title, images]); 
 // Ajoute "images" dans les dépendances pour que la variante prenne la photo si tu l'ajoutes après
 
@@ -257,6 +262,17 @@ useEffect(() => {
       setFilteredCategories(filtered);
     }
   }, [categorySearch, categoriesDB]);
+
+  // Montage léger d’abord : chargement Firestore après les animations / navigation
+  useEffect(() => {
+    if (initialLoading) return;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setScreenHydrated(true));
+      });
+    });
+    return () => handle.cancel();
+  }, [initialLoading]);
 
   // --- CHARGEMENT DES CATÉGORIES DEPUIS FIRESTORE ---
   useEffect(() => {
@@ -276,8 +292,11 @@ useEffect(() => {
         console.error("❌ Erreur lors du chargement des catégories:", error);
       }
     };
-    
-    fetchCategories();
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchCategories();
+    });
+    return () => task.cancel();
   }, []);
 
   // --- CHARGEMENT DES DONNÉES DU PRODUIT EN MODIFICATION ---
@@ -407,10 +426,19 @@ useEffect(() => {
         console.log('🔍 Chargement des entreprises depuis Firestore...');
         const q = query(collection(db, 'companies'), orderBy('name', 'asc'));
         const querySnapshot = await getDocs(q);
-        const companiesList = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+        // Champs strictement nécessaires au formulaire / soumission (évite de cloner des docs énormes en mémoire)
+        const companiesList = querySnapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            name: data.name ?? '',
+            type: data.type,
+            location: data.location,
+            isPremium: data.isPremium,
+            logo: data.logo ?? null,
+            uid: data.uid ?? d.id,
+          };
+        });
         console.log(`✅ ${companiesList.length} entreprises chargées`);
         setCompanies(companiesList);
       } catch (error) {
@@ -418,18 +446,16 @@ useEffect(() => {
         Alert.alert('Erreur', 'Impossible de charger la liste des entreprises');
       }
     };
-    
-    fetchCompanies();
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchCompanies();
+    });
+    return () => task.cancel();
   }, []);
 
-  // ✅ DEBUG STORAGE BUCKET
   useEffect(() => {
-    console.log('🧪 DEBUG STORAGE BUCKET');
-    console.log('🧪 Storage object exists:', !!storage);
-    if (storage) {
-      console.log('🧪 Storage app exists:', !!storage.app);
-      console.log('🧪 Storage Bucket:', storage.app?.options?.storageBucket);
-    }
+    if (!__DEV__) return;
+    console.log('🧪 DEBUG STORAGE BUCKET', !!storage, storage?.app?.options?.storageBucket);
   }, []);
 
   // --- FONCTIONS POUR GÉRER LES ATTRIBUTS ---
@@ -763,11 +789,16 @@ useEffect(() => {
         slug: generateSlug(form.title.trim()),
         updatedAt: new Date(),
 
-        specifications: {
-          modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
-          weight: form.weight.trim() || '',
-          dimensions: form.dimensions.trim() || '',
-        },
+// DANS AddProductScreen.tsx (Fonction handleSubmit)
+
+specifications: {
+  modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
+  // ANCIEN CODE : weight: form.weight.trim() || '',
+  
+  // NOUVEAU CODE (Correction) :
+  weight: form.weight ? parseFloat(form.weight.replace(',', '.')) : 0, 
+  dimensions: form.dimensions.trim() || '',
+},
 
         personalization: {
           enabled: hasPersonalization,
@@ -840,6 +871,18 @@ useEffect(() => {
           updatedAt: new Date(),
           updatedBy: user.uid
         });
+
+        try {
+          await fetch('https://ngenius-backend.onrender.com/notify-new-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: docRef.id,
+              name: productData.name,
+              imageUrl: productData.imageUrl,
+            }),
+          });
+        } catch (e) {}
 
         clearInterval(progressInterval);
         
@@ -988,6 +1031,15 @@ useEffect(() => {
       <SafeAreaView style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#FF6B00" />
         <Text style={styles.loadingText}>Chargement du produit...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!screenHydrated) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#FF6B00" />
+        <Text style={styles.loadingText}>Préparation du formulaire…</Text>
       </SafeAreaView>
     );
   }

@@ -1,70 +1,98 @@
 import React, { useEffect, useState, useMemo, memo, useCallback } from "react";
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Image,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, Dimensions, TextInput,
 } from "react-native";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCategories, Category } from "../services/firebase/categoriesService";
-import { getProductsByCategory, Product, getAllProducts } from "../services/firebase/productsService";
-import { getAllCompanies, Company } from "../services/firebase/companyService";
+import {
+  getProductsByCategoryPaginated,
+  getLatestProducts,
+  Product,
+} from "../services/firebase/productsService";
 import { Ionicons } from "@expo/vector-icons";
 
 const { width } = Dimensions.get("window");
 const SIDEBAR_WIDTH = 100;
+const CATEGORY_PAGE_SIZE = 20;
 
-// ============= 1. LOGIQUE DE RÉPARATION ET FUSION =============
+// ============= 1. LOGIQUE DE R?PARATION ET FUSION =============
 
 /**
- * Répare les erreurs d'encodage (Ã© -> é) et supprime les bruits
+ * R?pare les erreurs d'encodage (? -> ?) et supprime les bruits
  */
 const fixEncoding = (str: string): string => {
   if (!str) return "";
   try {
-    // Tente de réparer l'encodage ISO-8859-1 vers UTF-8
+    // Tente de r?parer l'encodage ISO-8859-1 vers UTF-8
     return decodeURIComponent(escape(str)).replace(/\?/g, "");
   } catch (e) {
-    // Si déjà en UTF-8, on nettoie juste les "?"
+    // Si d?j? en UTF-8, on nettoie juste les "?"
     return str.replace(/\?/g, "");
   }
 };
 
-const normalizeCategoryName = (name: string): string => {
-  // On répare d'abord l'encodage
-  const cleanName = fixEncoding(name).trim();
-  
-  // Normalisation pour comparaison (sans accents)
-  const n = cleanName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  
-  // Fusion Électronique
-  if (n.includes("electronique")) return "Électronique";
-  // Fusion Maison et Jardin
-  if (n.includes("maison") || n.includes("jardin")) return "Maison & Jardin";
-  
-  return cleanName;
+/**
+ * Cle de dedoublonnage (minuscules, sans accents).
+ * Pas de regroupement par mots-cles (electronique / maison / jardin).
+ */
+const categoryDedupKey = (name: string): string => {
+  const clean = fixEncoding(name).trim();
+  if (!clean) return "";
+  return clean.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+};
+
+/** Evite les doublons Firestore avec le meme id. */
+const dedupeById = (cats: Category[]): Category[] => {
+  const byId = new Map<string, Category>();
+  cats.forEach((cat) => {
+    if (!cat?.id) return;
+    if (!byId.has(cat.id)) byId.set(cat.id, cat);
+  });
+  return Array.from(byId.values());
 };
 
 const cleanCategories = (cats: Category[]): Category[] => {
   const map = new Map<string, Category>();
-  cats.forEach(cat => {
-    const normalized = normalizeCategoryName(cat.name);
-    if (map.has(normalized)) {
-      const existing = map.get(normalized)!;
+  cats.forEach((cat) => {
+    const displayName = fixEncoding(cat.name || "").trim();
+    const key = categoryDedupKey(cat.name || "");
+    if (!key) return;
+    if (map.has(key)) {
+      const existing = map.get(key)!;
       existing.productCount = (existing.productCount || 0) + (cat.productCount || 0);
     } else {
-      map.set(normalized, { ...cat, name: normalized });
+      map.set(key, { ...cat, name: displayName });
     }
   });
   return Array.from(map.values());
 };
 
-// ============= 2. COMPOSANTS UI MÉMOÏSÉS =============
+/** Filtre noms vides / bruit uniquement (pas productCount). */
+const filterUsableCategories = (cats: Category[]): Category[] => {
+  return cats
+    .filter((c) => {
+      const n = (c.name || "").trim();
+      if (n.length < 2) return false;
+      if (n === "?" || /^[\s?.]+$/.test(n)) return false;
+      return true;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
+};
+
+// ============= 2. COMPOSANTS UI M?MO?S?S =============
 
 const ProductCard = memo(({ product, onPress }: { product: Product, onPress: () => void }) => (
   <TouchableOpacity style={styles.inspiCard} onPress={onPress}>
     <View style={styles.inspiImageWrapper}>
       <Image 
         source={{ uri: product.mainImage || product.imageUrl || "https://via.placeholder.com/150" }} 
-        style={styles.inspiImage} 
+        style={styles.inspiImage}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={120}
       />
       <View style={styles.scanBadge}><Ionicons name="scan-outline" size={12} color="#666" /></View>
     </View>
@@ -75,39 +103,77 @@ const ProductCard = memo(({ product, onPress }: { product: Product, onPress: () 
   </TouchableOpacity>
 ));
 
-// ============= 3. ÉCRAN PRINCIPAL =============
+// ============= 3. ?CRAN PRINCIPAL =============
 export default function CategoriesScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
-  // États
+  // ?tats
   const [categories, setCategories] = useState<Category[]>([]);
   const [recentProducts, setRecentProducts] = useState<Product[]>([]); 
   const [displayedProducts, setDisplayedProducts] = useState<Product[]>([]); 
   const [menuIndex, setMenuIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [categoryLastDoc, setCategoryLastDoc] = useState<any>(null);
+  const [categoryHasMore, setCategoryHasMore] = useState(true);
 
   // Chargement Initial
   const initData = async () => {
     try {
-      const [allCats, allProds] = await Promise.all([getCategories(), getAllProducts()]);
+      const [allCats, latest] = await Promise.all([
+        getCategories(),
+        getLatestProducts(9),
+      ]);
       
-      // Nettoyage et fusion
-      const cleaned = cleanCategories(allCats);
+      // Dedup par id, fusion si meme nom normalise, filtre noms vides / bruit
+      const cleaned = filterUsableCategories(
+        cleanCategories(dedupeById(allCats))
+      );
       setCategories(cleaned);
 
-      // Produits récents (les 9 derniers ajoutés à la base)
-      const sorted = allProds.slice().sort((a, b) => {
-        const dateA = a.createdAt?.seconds || 0;
-        const dateB = b.createdAt?.seconds || 0;
-        return dateB - dateA;
-      }).slice(0, 9);
-      
-      setRecentProducts(sorted);
+      setRecentProducts(latest);
 
-      // Initialiser la liste de droite avec la première catégorie
-      if (cleaned.length > 0) loadCategoryData(cleaned[0].id);
+      // Initialiser la liste de droite avec la cat?gorie la plus demand?e
+      if (cleaned.length > 0) {
+        const prefExactKey = categoryDedupKey("Automobile et Moto");
+        const autoKey = categoryDedupKey("Automobile");
+        const motoKey = categoryDedupKey("Moto");
+
+        // PrioritÃ© utilisateur: Automobile et Moto (ou contient automobile/moto)
+        const preferredCategory =
+          cleaned.find((c) => categoryDedupKey(c.name) === prefExactKey) ||
+          cleaned.find((c) => {
+            const k = categoryDedupKey(c.name);
+            return k.includes(autoKey) && k.includes(motoKey);
+          }) ||
+          cleaned
+            .filter((c) => {
+              const k = categoryDedupKey(c.name);
+              return k.includes(autoKey) || k.includes(motoKey);
+            })
+            .reduce((best, cat) => {
+              const bestScore = best.productCount || 0;
+              const catScore = cat.productCount || 0;
+              return catScore > bestScore ? cat : best;
+            }, cleaned[0]);
+
+        const bestByDemand = cleaned.reduce((best, cat) => {
+          const bestScore = best.productCount || 0;
+          const catScore = cat.productCount || 0;
+          return catScore > bestScore ? cat : best;
+        }, cleaned[0]);
+
+        const chosen = preferredCategory || bestByDemand;
+        const chosenIndex = cleaned.findIndex((c) => c.id === chosen.id);
+        setActiveCategoryId(chosen.id);
+        setMenuIndex(chosenIndex >= 0 ? chosenIndex : 0);
+        void loadCategoryData(chosen.id, true);
+      }
     } catch (e) { 
         console.error("Erreur lors du chargement :", e); 
     } finally { 
@@ -120,16 +186,57 @@ export default function CategoriesScreen() {
     initData();
   }, []);
 
-  const loadCategoryData = async (catId: string) => {
-    setLoading(true);
+  useEffect(() => {
+    const imageUris = [
+      ...recentProducts.map((item) => item.mainImage || item.imageUrl),
+      ...displayedProducts.slice(0, 24).map((item) => item.mainImage || item.imageUrl),
+    ]
+      .filter(Boolean)
+      .map((item) => String(item));
+
+    if (!imageUris.length) {
+      return;
+    }
+
+    Image.prefetch(imageUris, "memory-disk").catch(() => {});
+  }, [displayedProducts, recentProducts]);
+
+  const loadCategoryData = async (catId: string, reset: boolean) => {
+    if (reset) {
+      setCategoryLastDoc(null);
+      setCategoryHasMore(true);
+      setDisplayedProducts([]);
+    }
+
+    if (!reset && !categoryHasMore) return;
+    if (!reset && loadingMoreProducts) return;
+    if (reset) setProductsLoading(true);
+    else setLoadingMoreProducts(true);
+
     try {
-      const data = await getProductsByCategory(catId);
-      setDisplayedProducts(data);
+      const resp = await getProductsByCategoryPaginated(
+        catId,
+        CATEGORY_PAGE_SIZE,
+        reset ? undefined : categoryLastDoc
+      );
+
+      setDisplayedProducts((prev) =>
+        reset ? resp.products : [...prev, ...resp.products]
+      );
+      setCategoryLastDoc(resp.lastDoc);
+      setCategoryHasMore(resp.hasMore);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      setProductsLoading(false);
+      setLoadingMoreProducts(false);
     }
+  };
+
+  const loadMoreForActiveCategory = () => {
+    if (!activeCategoryId) return;
+    if (productsLoading || loadingMoreProducts) return;
+    void loadCategoryData(activeCategoryId, false);
   };
 
   // Filtrage local pour la recherche
@@ -142,7 +249,7 @@ export default function CategoriesScreen() {
 
   const renderHeader = () => (
     <View>
-      <Text style={styles.rightSectionTitle}>Nouveautés à la une</Text>
+      <Text style={styles.rightSectionTitle}>Nouveautes a la une</Text>
       <View style={styles.circularGrid}>
         {recentProducts.map((p) => (
           <TouchableOpacity 
@@ -153,7 +260,10 @@ export default function CategoriesScreen() {
             <View style={styles.circleImageWrapper}>
               <Image 
                 source={{ uri: p.mainImage || p.imageUrl }} 
-                style={styles.circleImage} 
+                style={styles.circleImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={120}
               />
             </View>
             <Text style={styles.circleText} numberOfLines={1}>Nouveau</Text>
@@ -174,8 +284,13 @@ export default function CategoriesScreen() {
 
   return (
     <View style={styles.mainWrapper}>
-      {/* HEADER DE RECHERCHE */}
-      <View style={styles.topHeader}>
+      {/* HEADER DE RECHERCHE ï¿½ sous la barre dï¿½ï¿½tat (heure, rï¿½seau, batterie) */}
+      <View
+        style={[
+          styles.topHeader,
+          { paddingTop: insets.top + 8, paddingBottom: 10 },
+        ]}
+      >
         <View style={styles.searchBox}>
           <Ionicons name="search-outline" size={18} color="#999" />
           <TextInput 
@@ -199,7 +314,8 @@ export default function CategoriesScreen() {
                 style={[styles.sidebarItem, menuIndex === index && styles.sidebarItemActive]}
                 onPress={() => { 
                   setMenuIndex(index); 
-                  loadCategoryData(item.id); 
+                  setActiveCategoryId(item.id);
+                  void loadCategoryData(item.id, true); 
                 }}
               >
                 {menuIndex === index && <View style={styles.activeIndicator} />}
@@ -224,10 +340,28 @@ export default function CategoriesScreen() {
             )}
             onRefresh={initData}
             refreshing={refreshing}
-            ListFooterComponent={loading ? <ActivityIndicator color="#ff6a00" style={{ margin: 20 }} /> : <View style={{ height: 50 }} />}
+            ListEmptyComponent={
+              (productsLoading || loadingMoreProducts) ? (
+                <View style={{ padding: 20, alignItems: "center" }}>
+                  <ActivityIndicator color="#ff6a00" />
+                </View>
+              ) : null
+            }
+            ListFooterComponent={
+              loadingMoreProducts ? (
+                <ActivityIndicator color="#ff6a00" style={{ margin: 20 }} />
+              ) : (
+                <View style={{ height: 40 }} />
+              )
+            }
             showsVerticalScrollIndicator={false}
             columnWrapperStyle={{ justifyContent: 'space-between' }}
-            removeClippedSubviews={true} // Améliore la performance au scroll
+            removeClippedSubviews={true}
+            onEndReachedThreshold={0.4}
+            onEndReached={loadMoreForActiveCategory}
+            initialNumToRender={8}
+            maxToRenderPerBatch={10}
+            windowSize={8}
           />
         </View>
       </View>
@@ -238,7 +372,13 @@ export default function CategoriesScreen() {
 const styles = StyleSheet.create({
   mainWrapper: { flex: 1, backgroundColor: "#fff" },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  topHeader: { height: 60, paddingHorizontal: 15, justifyContent: "center", borderBottomWidth: 1, borderBottomColor: "#f4f4f4" },
+  topHeader: {
+    paddingHorizontal: 15,
+    justifyContent: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f4f4f4",
+    backgroundColor: "#fff",
+  },
   searchBox: { flexDirection: "row", alignItems: "center", backgroundColor: "#f2f2f2", borderRadius: 20, paddingHorizontal: 15, height: 38 },
   searchInput: { flex: 1, marginLeft: 8, fontSize: 14, color: "#333" },
   splitLayout: { flex: 1, flexDirection: "row" },

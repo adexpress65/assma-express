@@ -1,709 +1,795 @@
-// app/(tabs)/messages.tsx
-import React, { useState, useRef, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  SafeAreaView, 
-  FlatList, 
-  TouchableOpacity, 
-  TextInput,
-  ScrollView,
-  Dimensions,
+import React, { useMemo, useState } from 'react';
+import {
   Alert,
-  ActivityIndicator,
+  FlatList,
   Image,
+  SafeAreaView,
+  ScrollView,
   StatusBar as RNStatusBar,
-  Platform
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../../src/contexts/AuthContext';
-import { useMessages, ConversationType } from '../../src/contexts/MessagesContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { useMessages } from '../../src/contexts/MessagesContext';
 
-const { width: screenWidth } = Dimensions.get('window');
+type TabType = 'social' | 'business' | 'shopping';
+
+const stories = [
+  { id: '1', name: 'Tech News', avatar: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=150', hasNewStories: true, live: true },
+  { id: '2', name: 'Gaming', avatar: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150', hasNewStories: true, live: false },
+  { id: '3', name: 'Design', avatar: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=150', hasNewStories: false, live: true },
+];
 
 export default function HybridMessagesScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { conversations, loading, createConversation, refreshConversations } = useMessages();
+  const { conversations, loading, refreshConversations } = useMessages();
   const insets = useSafeAreaInsets();
 
-  const [activeTab, setActiveTab] = useState<'social' | 'business' | 'shopping'>('business'); // Changé à 'business' par défaut
+  const [activeTab, setActiveTab] = useState<TabType>('business');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearchVisible, setIsSearchVisible] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const stories = [
-    { id: '1', name: 'Tech News', avatar: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=150', hasNewStories: true, live: true },
-    { id: '2', name: 'Gaming', avatar: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150', hasNewStories: true, live: false },
-    { id: '3', name: 'Design', avatar: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=150', hasNewStories: false, live: true },
-  ];
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+
+  const filterConversations = useMemo(() => {
+    return (types: string[]) =>
+      conversations.filter((conversation) => {
+        const inTab = types.includes(conversation.type);
+        if (!inTab) {
+          return false;
+        }
+
+        if (!normalizedSearch) {
+          return true;
+        }
+
+        const haystack = `${conversation.title || ''} ${conversation.lastMessage || ''} ${conversation.type || ''}`.toLowerCase();
+        return haystack.includes(normalizedSearch);
+      });
+  }, [conversations, normalizedSearch]);
+
+  const socialConversations = useMemo(
+    () => filterConversations(['group', 'channel', 'direct']),
+    [filterConversations]
+  );
+  const businessConversations = useMemo(
+    () => filterConversations(['support', 'seller', 'entrepreneur']),
+    [filterConversations]
+  );
+  const shoppingConversations = useMemo(
+    () => filterConversations(['order', 'promo']),
+    [filterConversations]
+  );
+
+  const unreadConversationCount = useMemo(
+    () => conversations.filter((item) => (item.unreadCount?.[user?.uid || ''] || 0) > 0).length,
+    [conversations, user?.uid]
+  );
+
+  const activeConversations = useMemo(() => {
+    if (activeTab === 'social') {
+      return socialConversations;
+    }
+    if (activeTab === 'shopping') {
+      return shoppingConversations;
+    }
+    return businessConversations;
+  }, [activeTab, businessConversations, shoppingConversations, socialConversations]);
 
   const navigateToConversation = (conversation: any) => {
-    if (!conversation?.id) return;
+    if (!conversation?.id) {
+      return;
+    }
     router.push(`/conversation/${conversation.id}`);
   };
 
   const startCall = (type: 'audio' | 'video', conversationId: string) => {
-    if (!user) { Alert.alert('Connexion requise', 'Veuillez vous connecter'); return; }
-    const roomId = `call-${conversationId}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    router.push({ pathname: '/call/webrtc/[roomId]', params: { roomId, type, conversationId, userId: user.uid }});
+    if (!user) {
+      Alert.alert('Connexion requise', 'Veuillez vous connecter');
+      return;
+    }
+
+    const roomId = `call-${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    router.push({
+      pathname: '/call/webrtc/[roomId]',
+      params: { roomId, type, conversationId, userId: user.uid },
+    });
   };
 
   const startLiveStream = (channelName?: string) => {
-    if (!user) { Alert.alert('Connexion requise', 'Veuillez vous connecter'); return; }
-    const roomId = `live-${channelName || 'general'}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    router.push({ pathname: '/call/webrtc/[roomId]', params: { roomId, type: 'video', mode: 'live', isHost: 'true', userId: user.uid, userName: user.displayName || 'Utilisateur', title: channelName || 'Live A2Express' }});
+    if (!user) {
+      Alert.alert('Connexion requise', 'Veuillez vous connecter');
+      return;
+    }
+
+    const roomId = `live-${channelName || 'general'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    router.push({
+      pathname: '/call/webrtc/[roomId]',
+      params: {
+        roomId,
+        type: 'video',
+        mode: 'live',
+        isHost: 'true',
+        userId: user.uid,
+        userName: user.displayName || 'Utilisateur',
+        title: channelName || 'Live A2Express',
+      },
+    });
   };
 
   const joinLiveStream = (storyId: string) => {
-    if (!user) { Alert.alert('Connexion requise', 'Veuillez vous connecter'); return; }
-    router.push({ pathname: '/call/webrtc/[roomId]', params: { roomId: `live-${storyId}`, type: 'video', mode: 'live', isHost: 'false', userId: user.uid, userName: user.displayName || 'Spectateur' }});
+    if (!user) {
+      Alert.alert('Connexion requise', 'Veuillez vous connecter');
+      return;
+    }
+
+    router.push({
+      pathname: '/call/webrtc/[roomId]',
+      params: {
+        roomId: `live-${storyId}`,
+        type: 'video',
+        mode: 'live',
+        isHost: 'false',
+        userId: user.uid,
+        userName: user.displayName || 'Spectateur',
+      },
+    });
+  };
+
+  const createNewConversation = (type: string = 'direct') => {
+    try {
+      if (type === 'entrepreneur' || type === 'seller') {
+        router.push('/search-entrepreneurs');
+        return;
+      }
+
+      router.push({
+        pathname: '/search-users',
+        params: { type },
+      });
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de créer la conversation');
+      console.error(error);
+    }
   };
 
   const formatTime = (timestamp: any) => {
     if (!timestamp) return '';
+
     try {
       const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
       const now = new Date();
       const diff = now.getTime() - date.getTime();
-      if (diff < 60000) return 'maintenant';
+
+      if (diff < 60000) return 'Maintenant';
       if (diff < 3600000) return `${Math.floor(diff / 60000)} min`;
-      if (diff < 86400000) return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      if (diff < 86400000) {
+        return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      }
       return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-    } catch { return ''; }
+    } catch {
+      return '';
+    }
   };
 
-  const SocialTab = () => {
-    const socialConversations = conversations.filter(conv => ['group', 'channel', 'direct'].includes(conv.type));
+  const getConversationIcon = (type: string) => {
+    switch (type) {
+      case 'group':
+        return 'people';
+      case 'support':
+        return 'headset';
+      case 'order':
+        return 'bag-handle';
+      case 'seller':
+        return 'storefront';
+      case 'entrepreneur':
+        return 'briefcase';
+      default:
+        return 'chatbubbles';
+    }
+  };
+
+  const renderConversationItem = ({ item }: { item: any }) => {
+    const unreadCount = item.unreadCount?.[user?.uid || ''] || 0;
+
     return (
-      <View style={{ flex: 1 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storiesContent}>
+      <TouchableOpacity
+        style={[styles.conversationCard, unreadCount > 0 && styles.conversationCardUnread]}
+        onPress={() => navigateToConversation(item)}
+        activeOpacity={0.9}
+      >
+        <View style={styles.conversationAvatar}>
+          <Ionicons name={getConversationIcon(item.type) as any} size={22} color="#ff6a00" />
+          {unreadCount > 0 ? (
+            <View style={styles.unreadBadge}>
+              <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.conversationContent}>
+          <View style={styles.conversationHeader}>
+            <Text style={[styles.conversationTitle, unreadCount > 0 && styles.conversationTitleUnread]} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.conversationTime}>{formatTime(item.lastMessageTime)}</Text>
+          </View>
+
+          <Text style={[styles.conversationMessage, unreadCount > 0 && styles.conversationMessageUnread]} numberOfLines={2}>
+            {item.lastMessage || 'Commencez la conversation...'}
+          </Text>
+
+          <View style={styles.conversationFooter}>
+            <View style={styles.typePill}>
+              <Text style={styles.typePillText}>
+                {item.type === 'entrepreneur' ? 'Entrepreneur' : item.type}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.callButton} onPress={() => startCall('video', item.id)}>
+          <Ionicons name="videocam" size={18} color="#ff6a00" />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderEmptyState = () => {
+    const icon = activeTab === 'shopping' ? 'bag-handle-outline' : activeTab === 'social' ? 'chatbubbles-outline' : 'briefcase-outline';
+    const title = activeTab === 'shopping' ? 'Aucune conversation shopping' : activeTab === 'social' ? 'Aucune conversation sociale' : 'Aucune conversation business';
+
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons name={icon as any} size={56} color="#b49a85" />
+        <Text style={styles.emptyTitle}>{title}</Text>
+        <Text style={styles.emptySubtitle}>Votre prochaine discussion importante apparaîtra ici.</Text>
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
+      <RNStatusBar barStyle="dark-content" backgroundColor="#f6efe8" />
+
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={styles.headerEyebrow}>Messagerie</Text>
+            <Text style={styles.headerTitle}>A2Express</Text>
+            <Text style={styles.headerSubtitle}>Messages rapides, business et commandes en un seul écran</Text>
+          </View>
+
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={() => router.push('/search-entrepreneurs')} style={styles.headerIconButton}>
+              <Ionicons name="briefcase-outline" size={20} color="#8b5e34" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => createNewConversation()} style={styles.headerIconButton}>
+              <Ionicons name="create-outline" size={20} color="#8b5e34" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>{conversations.length}</Text>
+            <Text style={styles.metricLabel}>Conversations</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>{unreadConversationCount}</Text>
+            <Text style={styles.metricLabel}>Non lus</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>{loading ? '...' : activeConversations.length}</Text>
+            <Text style={styles.metricLabel}>Affichés</Text>
+          </View>
+        </View>
+
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={18} color="#a2866d" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Rechercher un message, un vendeur, une commande..."
+            placeholderTextColor="#a2866d"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+
+        <View style={styles.tabsContainer}>
+          {[
+            { key: 'social', label: 'Social', icon: 'sparkles-outline' },
+            { key: 'business', label: 'Business', icon: 'business-outline' },
+            { key: 'shopping', label: 'Shopping', icon: 'bag-handle-outline' },
+          ].map((tab) => {
+            const isActive = activeTab === tab.key;
+
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.tabButton, isActive && styles.tabButtonActive]}
+                onPress={() => setActiveTab(tab.key as TabType)}
+              >
+                <Ionicons
+                  name={tab.icon as any}
+                  size={18}
+                  color={isActive ? '#ffffff' : '#8b6b50'}
+                />
+                <Text style={[styles.tabButtonText, isActive && styles.tabButtonTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {activeTab === 'social' ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.storiesContent}
+        >
           <TouchableOpacity style={styles.storyCard}>
-            <View style={styles.yourStoryCircle}>
+            <View style={styles.storyCircleOwn}>
               <Image source={{ uri: user?.photoURL || 'https://via.placeholder.com/150' }} style={styles.storyAvatar} />
-              <View style={styles.addStoryBtn}><Ionicons name="add" size={16} color="#000" /></View>
+              <View style={styles.addStoryButton}>
+                <Ionicons name="add" size={14} color="#ffffff" />
+              </View>
             </View>
             <Text style={styles.storyName}>Votre story</Text>
           </TouchableOpacity>
+
           {stories.map((story) => (
-            <TouchableOpacity key={story.id} style={styles.storyCard} onPress={() => story.live ? joinLiveStream(story.id) : null}>
-              <View style={[styles.storyCircle, story.hasNewStories && styles.storyCircleNew]}>
+            <TouchableOpacity
+              key={story.id}
+              style={styles.storyCard}
+              onPress={() => (story.live ? joinLiveStream(story.id) : undefined)}
+            >
+              <View style={[styles.storyCircle, story.hasNewStories && styles.storyCircleActive]}>
                 <Image source={{ uri: story.avatar }} style={styles.storyAvatar} />
-                {story.live && (<View style={styles.liveBadge}><View style={styles.liveDot} /><Text style={styles.liveText}>LIVE</Text></View>)}
+                {story.live ? (
+                  <View style={styles.liveBadge}>
+                    <View style={styles.liveDot} />
+                    <Text style={styles.liveText}>LIVE</Text>
+                  </View>
+                ) : null}
               </View>
               <Text style={styles.storyName}>{story.name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
-        
-        <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.quickActionBtn} onPress={() => setIsSearchVisible(!isSearchVisible)}>
-            <Ionicons name="search" size={20} color="#FFF" />
-            <Text style={styles.quickActionText}>Rechercher</Text>
+      ) : activeTab === 'business' ? (
+        <View style={styles.quickRow}>
+          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/search-entrepreneurs')}>
+            <Ionicons name="people-outline" size={22} color="#ff6a00" />
+            <Text style={styles.quickCardTitle}>Entrepreneurs</Text>
+            <Text style={styles.quickCardText}>Nouveaux contacts qualifiés</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.quickActionBtn} 
-            onPress={() => router.push('/innovation-hub')}
-          >
-            <Ionicons name="rocket" size={20} color="#FFF" /> 
-            <Text style={styles.quickActionText}>Innovation</Text> 
-          </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.quickActionBtn, styles.liveBtn]} onPress={() => startLiveStream('general')}>
-            <Ionicons name="videocam" size={20} color="#FFF" />
-            <Text style={styles.quickActionText}>Live</Text>
+          <TouchableOpacity style={styles.quickCard} onPress={() => createNewConversation('support')}>
+            <Ionicons name="headset-outline" size={22} color="#ff6a00" />
+            <Text style={styles.quickCardTitle}>Support</Text>
+            <Text style={styles.quickCardText}>Assistance rapide et directe</Text>
           </TouchableOpacity>
         </View>
-
-        {isSearchVisible && (
-          <View style={styles.searchBox}>
-            <TextInput 
-              style={styles.searchInput} 
-              placeholder="Rechercher..." 
-              placeholderTextColor="#666" 
-              value={searchQuery} 
-              onChangeText={setSearchQuery} 
-            />
-          </View>
-        )}
-        
-        <View style={styles.listHeader}>
-          <Text style={styles.listTitle}>Messages Sociaux</Text>
-          <Text style={styles.listSubtitle}>
-            {socialConversations.filter(c => (c.unreadCount?.[user?.uid || ''] || 0) > 0).length} non lus
-          </Text>
+      ) : (
+        <View style={styles.quickRow}>
+          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/orders')}>
+            <Ionicons name="bag-check-outline" size={22} color="#ff6a00" />
+            <Text style={styles.quickCardTitle}>Commandes</Text>
+            <Text style={styles.quickCardText}>Suivi et discussions achats</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.quickCard, styles.quickCardAccent]} onPress={() => startLiveStream('shopping')}>
+            <Ionicons name="videocam-outline" size={22} color="#ffffff" />
+            <Text style={[styles.quickCardTitle, styles.quickCardTitleAccent]}>Live produits</Text>
+            <Text style={[styles.quickCardText, styles.quickCardTextAccent]}>Démonstrations en direct</Text>
+          </TouchableOpacity>
         </View>
-        
-        <FlatList
-          data={socialConversations}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <ConversationItem item={item} onPress={() => navigateToConversation(item)} />}
-          contentContainerStyle={{ paddingBottom: 20 }}
-          refreshing={refreshing}
-          onRefresh={() => { setRefreshing(true); refreshConversations().finally(() => setRefreshing(false));}}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Ionicons name="chatbubbles-outline" size={64} color="#333" />
-              <Text style={styles.emptyTitle}>Aucune conversation</Text>
-            </View>
-          }
-        />
-      </View>
-    );
-  };
-
-  const BusinessTab = () => (
-    <View style={{ flex: 1 }}>
-      <View style={styles.tabHeader}>
-        <Text style={styles.tabTitle}>Business</Text>
-        <Text style={styles.tabSubtitle}>Entrepreneurs, vendeurs et support</Text>
-      </View>
-      
-      {/* ? NOUVEAU : Bannière pour contacter les entrepreneurs */}
-      <TouchableOpacity 
-        style={styles.entrepreneurBanner}
-        onPress={() => router.push('/search-entrepreneurs')}
-        activeOpacity={0.7}
-      >
-        <View style={styles.bannerContent}>
-          <View style={styles.bannerIconContainer}>
-            <Ionicons name="people" size={32} color="#FF6B00" />
-          </View>
-          <View style={styles.bannerTextContainer}>
-            <Text style={styles.bannerTitle}>Contacter un entrepreneur</Text>
-            <Text style={styles.bannerSubtitle}>
-              Discutez directement avec les créateurs et innovateurs
-            </Text>
-            <View style={styles.bannerBadge}>
-              <Ionicons name="chatbubble" size={12} color="#FF6B00" />
-              <Text style={styles.bannerBadgeText}>Nouveau</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={24} color="#666" />
-        </View>
-      </TouchableOpacity>
-
-      <View style={styles.businessActions}>
-        <TouchableOpacity 
-          style={styles.bizActionBtn} 
-          onPress={() => router.push('/search-entrepreneurs')}
-        >
-          <Ionicons name="briefcase" size={24} color="#FF6B00" />
-          <Text style={styles.bizActionText}>Entrepreneurs</Text>
-          <Text style={styles.bizActionSubtext}>Voir tous</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.bizActionBtn} 
-          onPress={() => createNewConversation('seller')}
-        >
-          <Ionicons name="storefront" size={24} color="#FF6B00" />
-          <Text style={styles.bizActionText}>Vendeurs</Text>
-          <Text style={styles.bizActionSubtext}>Marketplace</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.bizActionBtn} 
-          onPress={() => createNewConversation('support')}
-        >
-          <Ionicons name="headset" size={24} color="#FF6B00" />
-          <Text style={styles.bizActionText}>Support</Text>
-          <Text style={styles.bizActionSubtext}>Assistance</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionHeaderTitle}>Conversations Business</Text>
-        <TouchableOpacity onPress={() => router.push('/search-entrepreneurs')}>
-          <Text style={styles.sectionHeaderLink}>Voir tout</Text>
-        </TouchableOpacity>
-      </View>
+      )}
 
       <FlatList
-        data={conversations.filter(c => ['support', 'seller', 'entrepreneur'].includes(c.type))}
+        data={activeConversations}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ConversationItem item={item} onPress={() => navigateToConversation(item)} showType={true} />}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="briefcase-outline" size={64} color="#333" />
-            <Text style={styles.emptyTitle}>Aucune conversation business</Text>
-            <TouchableOpacity 
-              style={styles.emptyStateButton}
-              onPress={() => router.push('/search-entrepreneurs')}
-            >
-              <Text style={styles.emptyStateButtonText}>Contacter un entrepreneur</Text>
-            </TouchableOpacity>
-          </View>
-        }
-      />
-    </View>
-  );
-
-  const ShoppingTab = () => (
-    <View style={{ flex: 1 }}>
-      <View style={styles.tabHeader}>
-        <Text style={styles.tabTitle}>Shopping</Text>
-        <Text style={styles.tabSubtitle}>Commandes et promotions</Text>
-      </View>
-      
-      <View style={styles.shoppingSummary}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>0</Text>
-          <Text style={styles.summaryLabel}>Commandes</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>0</Text>
-          <Text style={styles.summaryLabel}>Panier</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>0</Text>
-          <Text style={styles.summaryLabel}>Favoris</Text>
-        </View>
-      </View>
-
-      <FlatList
-        data={conversations.filter(c => ['order', 'promo'].includes(c.type))}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ConversationItem item={item} onPress={() => navigateToConversation(item)} showType={true} />}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="cart-outline" size={64} color="#333" />
-            <Text style={styles.emptyTitle}>Aucune commande</Text>
-          </View>
-        }
-      />
-    </View>
-  );
-
-  const ConversationItem = ({ item, onPress, showType }: any) => {
-    const unreadCount = item.unreadCount?.[user?.uid || ''] || 0;
-    const getIcon = (type: string) => { 
-      switch(type) { 
-        case 'group': return 'people'; 
-        case 'support': return 'headset'; 
-        case 'order': return 'bag';
-        case 'seller': return 'storefront';
-        case 'entrepreneur': return 'briefcase';
-        default: return 'chatbubbles'; 
-      }
-    };
-    return (
-      <TouchableOpacity style={[styles.convCard, unreadCount > 0 && styles.unreadCard]} onPress={onPress}>
-        <View style={styles.convAvatar}>
-          <Ionicons name={getIcon(item.type)} size={24} color="#FF6B00" />
-          {unreadCount > 0 && <View style={styles.unreadDot} />}
-        </View>
-        <View style={styles.convContent}>
-          <View style={styles.convHeader}>
-            <Text style={[styles.convTitle, unreadCount > 0 && styles.unreadTitle]} numberOfLines={1}>
-              {item.title}
+        renderItem={renderConversationItem}
+        contentContainerStyle={styles.listContent}
+        refreshing={refreshing}
+        onRefresh={() => {
+          setRefreshing(true);
+          refreshConversations().finally(() => setRefreshing(false));
+        }}
+        ListHeaderComponent={
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {activeTab === 'social' ? 'Messages sociaux' : activeTab === 'business' ? 'Conversations business' : 'Conversations shopping'}
             </Text>
-            <Text style={styles.convTime}>{formatTime(item.lastMessageTime)}</Text>
+            <Text style={styles.sectionMeta}>
+              {loading ? 'Chargement...' : `${activeConversations.length} résultats`}
+            </Text>
           </View>
-          <Text style={[styles.convMessage, unreadCount > 0 && styles.unreadMessage]} numberOfLines={2}>
-            {item.lastMessage || 'Commencez la conversation...'}
-          </Text>
-          {showType && (
-            <View style={styles.typeContainer}>
-              <Text style={styles.convType}>{item.type === 'entrepreneur' ? 'Entrepreneur' : item.type}</Text>
-            </View>
-          )}
-        </View>
-        <TouchableOpacity onPress={() => startCall('video', item.id)} style={styles.callBtn}>
-          <Ionicons name="videocam" size={18} color="#FFF" />
-        </TouchableOpacity>
-      </TouchableOpacity>
-    );
-  };
-  
-  const createNewConversation = async (type: string = 'direct') => {
-    try {
-      if (type === 'entrepreneur' || type === 'seller') {
-        router.push('/search-entrepreneurs');
-      } else {
-        router.push({
-          pathname: '/search-users',
-          params: { type }
-        });
-      }
-    } catch (error) {
-      Alert.alert("Erreur", "Impossible de créer la conversation");
-      console.error(error);
-    }
-  };
-
-  return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-      <RNStatusBar barStyle="light-content" backgroundColor="#000" />
-      
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.headerTitle}>A2Express Messenger</Text>
-          <View style={styles.headerActions}>
-            <TouchableOpacity 
-              onPress={() => router.push('/search-entrepreneurs')}
-              style={styles.headerButton}
-            >
-              <Ionicons name="briefcase" size={24} color="#FF6B00" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => createNewConversation()}>
-              <Ionicons name="create-outline" size={24} color="#FF6B00" />
-            </TouchableOpacity>
-          </View>
-        </View>
-        
-        <View style={styles.tabsContainer}>
-          {['social', 'business', 'shopping'].map((tab) => (
-            <TouchableOpacity key={tab} style={styles.tab} onPress={() => setActiveTab(tab as any)}>
-              <View style={styles.tabContent}>
-                <Ionicons 
-                  name={tab === 'social' ? 'flash' : tab === 'business' ? 'business' : 'cart'} 
-                  size={18} 
-                  color={activeTab === tab ? '#FF6B00' : '#666'} 
-                />
-                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </Text>
-              </View>
-              {activeTab === tab && <View style={styles.activeIndicator} />}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.content}>
-        {activeTab === 'social' && <SocialTab />}
-        {activeTab === 'business' && <BusinessTab />}
-        {activeTab === 'shopping' && <ShoppingTab />}
-      </View>
+        }
+        ListEmptyComponent={renderEmptyState}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={8}
+        maxToRenderPerBatch={10}
+        windowSize={8}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000000' },
-  content: { flex: 1 },
-  header: { backgroundColor: '#000000', borderBottomWidth: 1, borderBottomColor: '#1A1A1A' },
-  headerTop: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingHorizontal: 16, 
-    paddingVertical: 12 
+  container: {
+    flex: 1,
+    backgroundColor: '#f7f1eb',
   },
-  headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: 'bold' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  headerButton: { marginRight: 8 },
-  tabsContainer: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 4 },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 8 },
-  tabContent: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  tabText: { color: '#666', fontSize: 14, fontWeight: '600' },
-  tabTextActive: { color: '#FF6B00' },
-  activeIndicator: { 
-    position: 'absolute', 
-    bottom: 0, 
-    width: '60%', 
-    height: 3, 
-    backgroundColor: '#FF6B00', 
-    borderRadius: 2 
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    backgroundColor: '#f6efe8',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eaded3',
   },
-  storiesContent: { paddingHorizontal: 12, paddingVertical: 12 },
-  storyCard: { alignItems: 'center', marginHorizontal: 8, width: 80 },
-  yourStoryCircle: { 
-    width: 70, 
-    height: 70, 
-    borderRadius: 35, 
-    borderWidth: 2, 
-    borderColor: '#666', 
-    padding: 2, 
-    position: 'relative' 
-  },
-  storyCircle: { 
-    width: 70, 
-    height: 70, 
-    borderRadius: 35, 
-    borderWidth: 2, 
-    borderColor: '#333', 
-    padding: 2, 
-    position: 'relative' 
-  },
-  storyCircleNew: { borderColor: '#FF6B00' },
-  storyAvatar: { width: '100%', height: '100%', borderRadius: 35 },
-  addStoryBtn: { 
-    position: 'absolute', 
-    bottom: -2, 
-    right: -2, 
-    backgroundColor: '#FFF', 
-    width: 24, 
-    height: 24, 
-    borderRadius: 12, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    borderWidth: 2, 
-    borderColor: '#000' 
-  },
-  storyName: { color: '#FFFFFF', fontSize: 12, marginTop: 6 },
-  liveBadge: { 
-    position: 'absolute', 
-    bottom: 0, 
-    alignSelf: 'center', 
-    backgroundColor: '#FF0066', 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingHorizontal: 6, 
-    paddingVertical: 2, 
-    borderRadius: 10 
-  },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFFFFF', marginRight: 3 },
-  liveText: { color: '#FFFFFF', fontSize: 9, fontWeight: 'bold' },
-  quickActions: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-around', 
-    paddingHorizontal: 12, 
-    paddingVertical: 12 
-  },
-  quickActionBtn: { 
-    backgroundColor: '#1A1A1A', 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingHorizontal: 16, 
-    paddingVertical: 10, 
-    borderRadius: 20, 
-    gap: 6 
-  },
-  liveBtn: { backgroundColor: '#FF0066' },
-  quickActionText: { color: '#FFFFFF', fontSize: 13, fontWeight: '500' },
-  searchBox: { margin: 12, backgroundColor: '#1A1A1A', borderRadius: 10, paddingHorizontal: 12 },
-  searchInput: { color: '#FFFFFF', paddingVertical: 12, fontSize: 15 },
-  listHeader: { 
-    paddingHorizontal: 16, 
-    paddingVertical: 8, 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8 
-  },
-  listTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: 'bold' },
-  listSubtitle: { color: '#FF6B00', fontSize: 14, fontWeight: '600' },
-  
-  // ? Nouveaux styles pour les entrepreneurs
-  entrepreneurBanner: {
-    backgroundColor: '#1A1A1A',
-    margin: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#FF6B00',
-    overflow: 'hidden',
-  },
-  bannerContent: {
+  headerTop: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
-  bannerIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#FF6B0020',
+  headerEyebrow: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#b56d27',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  headerTitle: {
+    marginTop: 4,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#2f241b',
+  },
+  headerSubtitle: {
+    marginTop: 4,
+    maxWidth: 240,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#7d6857',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  headerIconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#fff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#eaded3',
   },
-  bannerTextContainer: {
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  metricCard: {
     flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#eaded3',
   },
-  bannerTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
+  metricValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2f241b',
   },
-  bannerSubtitle: {
-    color: '#999',
-    fontSize: 13,
-    marginBottom: 8,
+  metricLabel: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#8c7665',
   },
-  bannerBadge: {
+  searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF6B0020',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    gap: 4,
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#eaded3',
+    paddingHorizontal: 14,
   },
-  bannerBadgeText: {
-    color: '#FF6B00',
-    fontSize: 11,
-    fontWeight: '600',
+  searchInput: {
+    flex: 1,
+    paddingVertical: 13,
+    paddingLeft: 10,
+    color: '#2f241b',
+    fontSize: 15,
   },
-  
-  businessActions: { 
-    flexDirection: 'row', 
-    paddingHorizontal: 16, 
-    paddingBottom: 16, 
-    gap: 12 
+  tabsContainer: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
   },
-  bizActionBtn: { 
-    flex: 1, 
-    backgroundColor: '#1A1A1A', 
-    borderRadius: 12, 
-    padding: 16, 
-    alignItems: 'center', 
-    borderWidth: 1, 
-    borderColor: '#2A2A2A' 
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#eaded3',
   },
-  bizActionText: { color: '#FFFFFF', marginTop: 8, fontWeight: '500' },
-  bizActionSubtext: { color: '#999', fontSize: 11, marginTop: 2 },
-  
+  tabButtonActive: {
+    backgroundColor: '#1f1f1f',
+    borderColor: '#1f1f1f',
+  },
+  tabButtonText: {
+    color: '#8b6b50',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tabButtonTextActive: {
+    color: '#fff',
+  },
+  storiesContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    gap: 12,
+  },
+  storyCard: {
+    alignItems: 'center',
+    width: 80,
+  },
+  storyCircleOwn: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    padding: 2,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#eaded3',
+  },
+  storyCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    padding: 2,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#eaded3',
+  },
+  storyCircleActive: {
+    borderColor: '#ff6a00',
+  },
+  storyAvatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 34,
+  },
+  addStoryButton: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#ff6a00',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyName: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#6f5a49',
+  },
+  liveBadge: {
+    position: 'absolute',
+    bottom: -2,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ff4d73',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+    marginRight: 4,
+  },
+  liveText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  quickRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  quickCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#eaded3',
+  },
+  quickCardAccent: {
+    backgroundColor: '#1f1f1f',
+    borderColor: '#1f1f1f',
+  },
+  quickCardTitle: {
+    marginTop: 12,
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#2f241b',
+  },
+  quickCardTitleAccent: {
+    color: '#fff',
+  },
+  quickCardText: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#816d5d',
+  },
+  quickCardTextAccent: {
+    color: '#e7d9cc',
+  },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#1A1A1A',
+    paddingTop: 18,
+    paddingBottom: 10,
   },
-  sectionHeaderTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#2f241b',
   },
-  sectionHeaderLink: {
-    color: '#FF6B00',
-    fontSize: 14,
+  sectionMeta: {
+    fontSize: 12,
+    color: '#9a836f',
   },
-  
-  convCard: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    padding: 14, 
-    borderBottomWidth: 0.5, 
-    borderBottomColor: '#1A1A1A', 
-    backgroundColor: '#000000' 
+  listContent: {
+    paddingBottom: 28,
   },
-  unreadCard: { backgroundColor: '#0A0A0A' },
-  convAvatar: { 
-    width: 48, 
-    height: 48, 
-    borderRadius: 24, 
-    backgroundColor: '#1A1A1A', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginRight: 12, 
-    position: 'relative' 
+  conversationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#eaded3',
   },
-  unreadDot: { 
-    position: 'absolute', 
-    top: 0, 
-    right: 0, 
-    width: 12, 
-    height: 12, 
-    borderRadius: 6, 
-    backgroundColor: '#FF6B00', 
-    borderWidth: 2, 
-    borderColor: '#000' 
+  conversationCardUnread: {
+    borderColor: '#ffd0aa',
+    backgroundColor: '#fffaf6',
   },
-  convContent: { flex: 1 },
-  convHeader: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginBottom: 4 
+  conversationAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#fff2e6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    position: 'relative',
   },
-  convTitle: { 
-    color: '#FFFFFF', 
-    fontSize: 16, 
-    fontWeight: '600', 
-    flex: 1, 
-    marginRight: 8 
+  unreadBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#ff6a00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
   },
-  unreadTitle: { fontWeight: 'bold' },
-  convTime: { color: '#666', fontSize: 12 },
-  convMessage: { color: '#666', fontSize: 14, lineHeight: 20 },
-  unreadMessage: { color: '#CCCCCC' },
-  typeContainer: {
-    marginTop: 4,
+  unreadBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
   },
-  convType: { 
-    color: '#FF6B00', 
-    fontSize: 11, 
-    textTransform: 'uppercase' 
+  conversationContent: {
+    flex: 1,
   },
-  callBtn: { 
-    width: 36, 
-    height: 36, 
-    borderRadius: 18, 
-    backgroundColor: '#2A2A2A', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    marginLeft: 8 
+  conversationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
-  emptyState: { 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    paddingVertical: 60,
-    paddingHorizontal: 32,
+  conversationTitle: {
+    flex: 1,
+    marginRight: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#2f241b',
   },
-  emptyTitle: { 
-    color: '#FFFFFF', 
-    fontSize: 16, 
-    marginTop: 16,
-    marginBottom: 12,
+  conversationTitleUnread: {
+    color: '#1f1f1f',
   },
-  emptyStateButton: {
-    backgroundColor: '#FF6B00',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 24,
+  conversationTime: {
+    fontSize: 11,
+    color: '#9b8573',
+  },
+  conversationMessage: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#816d5d',
+  },
+  conversationMessageUnread: {
+    color: '#5d4a3c',
+  },
+  conversationFooter: {
+    flexDirection: 'row',
     marginTop: 8,
   },
-  emptyStateButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+  typePill: {
+    backgroundColor: '#fff3e7',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  tabHeader: { 
-    padding: 16, 
-    borderBottomWidth: 0.5, 
-    borderColor: '#1A1A1A' 
+  typePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#c56d20',
+    textTransform: 'uppercase',
   },
-  tabTitle: { 
-    color: '#FFFFFF', 
-    fontSize: 24, 
-    fontWeight: 'bold' 
+  callButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff2e6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
   },
-  tabSubtitle: { 
-    color: '#666', 
-    fontSize: 14, 
-    marginTop: 4 
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 56,
+    paddingHorizontal: 24,
   },
-  shoppingSummary: { 
-    flexDirection: 'row', 
-    padding: 16, 
-    gap: 12 
+  emptyTitle: {
+    marginTop: 14,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#4d392b',
   },
-  summaryCard: { 
-    flex: 1, 
-    backgroundColor: '#1A1A1A', 
-    borderRadius: 12, 
-    padding: 16, 
-    alignItems: 'center', 
-    borderWidth: 1, 
-    borderColor: '#2A2A2A' 
-  },
-  summaryNumber: { 
-    color: '#FF6B00', 
-    fontSize: 24, 
-    fontWeight: 'bold' 
-  },
-  summaryLabel: { 
-    color: '#666', 
-    fontSize: 12, 
-    marginTop: 4 
+  emptySubtitle: {
+    marginTop: 6,
+    textAlign: 'center',
+    color: '#8e7766',
+    lineHeight: 20,
   },
 });

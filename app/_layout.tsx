@@ -4,12 +4,13 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useEffect } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { I18nManager, Platform, Alert } from "react-native";
+import { PortalProvider } from "@gorhom/portal"; // Ajout pour la gestion des menus superposés
 
 import * as Updates from "expo-updates";
 import * as Notifications from "expo-notifications";
 
 // SÉCURITÉ : Vérification pour ExpoDevice
-let Device: any = null;
+let Device = null;
 try {
   Device = require("expo-device");
 } catch (e) {
@@ -38,7 +39,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-function LanguageDirectionManager({ children }: { children: React.ReactNode }) {
+function LanguageDirectionManager({ children }) {
   const { i18n: i18nInstance } = useTranslation();
 
   useEffect(() => {
@@ -46,28 +47,30 @@ function LanguageDirectionManager({ children }: { children: React.ReactNode }) {
     if (isArabic && !I18nManager.isRTL) {
       I18nManager.allowRTL(true);
       I18nManager.forceRTL(true);
+      // Note: Un redémarrage est souvent nécessaire pour le RTL natif
     }
   }, [i18nInstance.language]);
 
   return <>{children}</>;
 }
 
-function AppInitializer({ children }: { children: React.ReactNode }) {
+function AppInitializer({ children }) {
   const { user } = useAuth();
 
   useEffect(() => {
-    // --- 1. LOGIQUE DE MISE À JOUR FORCÉE (OTA) ---
+    // --- 1. LOGIQUE DE MISE À JOUR FORCÉE (OTA OPTIMISÉE) ---
     async function checkOTAUpdate() {
       try {
-        if (__DEV__) return; // On ne force pas en mode dev
+        if (__DEV__) return; 
 
         const update = await Updates.checkForUpdateAsync();
+        
         if (update.isAvailable) {
           await Updates.fetchUpdateAsync();
           
           Alert.alert(
-            "Mise à jour disponible",
-            "Une nouvelle version de A2Express est prête. L'application va redémarrer pour appliquer les changements.",
+            "Mise à jour installée 🚀",
+            "Une nouvelle version de A2Express a été téléchargée. L'application va redémarrer pour appliquer les corrections immédiatement.",
             [
               { 
                 text: "Mettre à jour maintenant", 
@@ -76,17 +79,16 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
                 } 
               }
             ],
-            { cancelable: false } // Force l'utilisateur à cliquer
+            { cancelable: false }
           );
         }
       } catch (error) {
-        console.log("OTA Update Error:", error);
+        console.log("Erreur lors de la vérification OTA:", error);
       }
     }
 
     // --- 2. ENREGISTREMENT DU PUSH TOKEN ---
     async function registerPushToken() {
-      // Évite le crash sur simulateur ou si le module natif manque
       if (!Device || !Device.isDevice) {
         console.log("Notifications : Uniquement sur appareil physique");
         return;
@@ -106,13 +108,11 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Récupération du token avec le projectId de ton extra.eas
         const tokenData = await Notifications.getExpoPushTokenAsync({
           projectId: "bb3399ba-97b7-4707-80eb-b524775df88a",
         });
         const token = tokenData.data;
 
-        // Affichage console pour copie manuelle si besoin
         console.log("--------------------------");
         console.log("TOKEN PUSH A2EXPRESS :", token);
         console.log("--------------------------");
@@ -142,34 +142,37 @@ function AppInitializer({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <I18nextProvider i18n={i18n}>
-          <LanguageDirectionManager>
-            <AuthProvider>
-              <AppInitializer>
-                <CurrencyProvider>
-                  <CartProvider>
-                    <OrderProvider>
-                      <MessagesProvider>
-                        <LiveProvider>
-                          <WebRTCProvider>
-                            <Stack
-                              screenOptions={{
-                                headerShown: false,
-                                animation: "fade",
-                              }}
-                            />
-                          </WebRTCProvider>
-                        </LiveProvider>
-                      </MessagesProvider>
-                    </OrderProvider>
-                  </CartProvider>
-                </CurrencyProvider>
-              </AppInitializer>
-            </AuthProvider>
-          </LanguageDirectionManager>
-        </I18nextProvider>
-      </SafeAreaProvider>
+      {/* PortalProvider enveloppe tout pour permettre aux composants de "sortir" du layout standard */}
+      <PortalProvider>
+        <SafeAreaProvider>
+          <I18nextProvider i18n={i18n}>
+            <LanguageDirectionManager>
+              <AuthProvider>
+                <AppInitializer>
+                  <CurrencyProvider>
+                    <CartProvider>
+                      <OrderProvider>
+                        <MessagesProvider>
+                          <LiveProvider>
+                            <WebRTCProvider>
+                              <Stack
+                                screenOptions={{
+                                  headerShown: false,
+                                  animation: "fade",
+                                }}
+                              />
+                            </WebRTCProvider>
+                          </LiveProvider>
+                        </MessagesProvider>
+                      </OrderProvider>
+                    </CartProvider>
+                  </CurrencyProvider>
+                </AppInitializer>
+              </AuthProvider>
+            </LanguageDirectionManager>
+          </I18nextProvider>
+        </SafeAreaProvider>
+      </PortalProvider>
     </GestureHandlerRootView>
   );
 }

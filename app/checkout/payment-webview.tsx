@@ -6,92 +6,104 @@ import {
   Text,
   TouchableOpacity,
   Linking,
+  Platform,
 } from "react-native";
-
-import { WebView } from "react-native-webview";
+import { WebView, WebViewNavigation } from "react-native-webview";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "@/config/firebase";
 
 export default function PaymentWebView() {
   const router = useRouter();
-
   const { paymentUrl, orderId } = useLocalSearchParams<{
     paymentUrl?: string;
     orderId?: string;
   }>();
 
   const [loading, setLoading] = useState(true);
-
-  const closedRef = useRef(false);
   const handledRef = useRef(false);
+  const closedRef = useRef(false);
 
-  // sécurité si url manquante
+  // 1. Sécurité : URL manquante
   useEffect(() => {
     if (!paymentUrl || typeof paymentUrl !== "string") {
       router.replace("/");
     }
   }, [paymentUrl]);
 
-  // timeout sécurité
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!closedRef.current) {
-        router.replace({
-          pathname: "/checkout/pending" as any,
-          params: { orderId },
-        });
-      }
-    }, 180000); // 3 minutes
+  // 2. Logique de redirection (Inspirée d'Alibaba)
+  const processNavigation = (url: string): boolean => {
+    if (handledRef.current) return false;
 
-    return () => clearTimeout(timer);
-  }, []);
+    console.log("🌐 Analyse URL:", url);
 
-  const handleNavigation = (url: string) => {
-    if (!url || handledRef.current) return;
+    const lower = url.toLowerCase();
 
-    console.log("🌐 Navigation:", url);
+    const markOrderConfirmed = () => {
+      if (!orderId || typeof orderId !== "string") return;
+      // On marque côté base dès que la passerelle signale "success".
+      // Même si le backend met déjà "paid", on force "confirmed" pour l’UI.
+      void updateDoc(doc(db, "orders", orderId), {
+        status: "confirmed",
+        paidAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }).catch((e) => {
+        console.error("[payment-webview] update order confirmed error:", e);
+      });
+    };
 
-    // retour succès
-    if (url.startsWith("https://a2-expres.com/payment/success")) {
+    // CAS : Succès
+    if (lower.includes("payment/success")) {
       handledRef.current = true;
       closedRef.current = true;
-
+      markOrderConfirmed();
       router.replace({
-        pathname: "/checkout/success" as any,
-        params: { orderId },
+        pathname: "/checkout/confirmation" as any,
+        params: { status: "success", orderId },
       });
-
-      return;
-    }
-
-    // retour annulation
-    if (url.startsWith("https://a2-expres.com/payment/cancel")) {
-      handledRef.current = true;
-      closedRef.current = true;
-
-      router.replace({
-        pathname: "/checkout/failed" as any,
-        params: { orderId },
-      });
-
-      return;
-    }
-  };
-
-  const handleShouldStart = (request: any) => {
-    const url = request.url;
-
-    // ouverture app externe
-    if (
-      url.startsWith("tel:") ||
-      url.startsWith("mailto:") ||
-      url.startsWith("intent:")
-    ) {
-      Linking.openURL(url);
       return false;
     }
 
-    handleNavigation(url);
+    // CAS : Annulation ou Erreur
+    if (lower.includes("payment/cancel") || lower.includes("payment/error")) {
+      handledRef.current = true;
+      closedRef.current = true;
+      router.replace({
+        pathname: "/checkout/confirmation" as any,
+        params: { status: "cancel", orderId },
+      });
+      return false;
+    }
+
+    // CAS : Retour Boutique / Panier (Éviter l'écran blanc sur a2-expres.com)
+    if (
+      lower === "https://a2-expres.com/" ||
+      lower === "https://a2-expres.com" ||
+      lower.includes("back_to_cart") ||
+      lower.includes("return_url")
+    ) {
+      handledRef.current = true;
+      closedRef.current = true;
+      router.replace("/cart");
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleShouldStart = (request: any) => {
+    const { url } = request;
+
+    // Interception des redirections de paiement
+    const navigationHandled = processNavigation(url);
+    if (!navigationHandled) return false;
+
+    // Ouverture des apps externes (WhatsApp, Téléphone, etc.)
+    if (!url.startsWith("http")) {
+      Linking.openURL(url).catch(() => {});
+      return false;
+    }
 
     return true;
   };
@@ -100,43 +112,46 @@ export default function PaymentWebView() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {loading && (
-        <View style={styles.loader}>
-          <ActivityIndicator size="large" color="#FF6A00" />
-          <Text style={styles.text}>
-            Connexion sécurisée à la passerelle de paiement…
-          </Text>
-        </View>
-      )}
+      {/* Header minimaliste style Browser */}
+      <View style={styles.miniHeader}>
+        <Text style={styles.secureText}>🔒 Paiement Sécurisé</Text>
+      </View>
 
-      <WebView
-        source={{ uri: paymentUrl }}
-        javaScriptEnabled
-        domStorageEnabled
-        startInLoadingState
-        mixedContentMode="always"
-        thirdPartyCookiesEnabled
-        sharedCookiesEnabled
-        onLoadEnd={() => setLoading(false)}
-        onShouldStartLoadWithRequest={handleShouldStart}
-        style={styles.webview}
-      />
+      <View style={styles.container}>
+        {loading && (
+          <View style={styles.loader}>
+            <ActivityIndicator size="large" color="#FF6A00" />
+            <Text style={styles.loadingText}>Initialisation de la transaction...</Text>
+          </View>
+        )}
+
+        <WebView
+          source={{ uri: paymentUrl }}
+          javaScriptEnabled
+          domStorageEnabled
+          startInLoadingState
+          mixedContentMode="always"
+          onLoadEnd={() => setLoading(false)}
+          onShouldStartLoadWithRequest={handleShouldStart}
+          onNavigationStateChange={(navState) => processNavigation(navState.url)}
+          style={styles.webview}
+        />
+      </View>
 
       <View style={styles.footer}>
         <TouchableOpacity
+          activeOpacity={0.7}
           style={styles.closeButton}
           onPress={() => {
             if (closedRef.current) return;
-
             closedRef.current = true;
-
             router.replace({
               pathname: "/checkout/pending" as any,
               params: { orderId },
             });
           }}
         >
-          <Text style={styles.closeText}>Annuler et fermer</Text>
+          <Text style={styles.closeText}>Annuler et retourner</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -148,26 +163,37 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#fff",
   },
-
+  container: {
+    flex: 1,
+    position: "relative",
+  },
+  miniHeader: {
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F0F0",
+  },
+  secureText: {
+    fontSize: 12,
+    color: "#4A5568",
+    fontWeight: "600",
+  },
   webview: {
     flex: 1,
   },
-
   loader: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.98)",
+    backgroundColor: "#fff",
   },
-
-  text: {
+  loadingText: {
     marginTop: 15,
-    fontSize: 15,
-    color: "#2D3748",
-    fontWeight: "500",
+    fontSize: 14,
+    color: "#718096",
   },
-
   footer: {
     paddingVertical: 15,
     paddingHorizontal: 20,
@@ -176,16 +202,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     alignItems: "center",
   },
-
   closeButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 25,
   },
-
   closeText: {
-    color: "#718096",
-    fontWeight: "600",
+    color: "#E53E3E",
+    fontWeight: "700",
     fontSize: 14,
-    textDecorationLine: "underline",
   },
 });

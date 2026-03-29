@@ -37,6 +37,8 @@ import {
   QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { isZeroDollarsShop } from '../../src/utils/zeroDollarsShop';
+import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
 
 const { width } = Dimensions.get('window');
 
@@ -315,14 +317,24 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
 
 interface ProductCardProps {
   product: Product;
+  companyName?: string;
   onPress: (id: string) => void;
 }
 
-const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onPress }) => {
+const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, companyName, onPress }) => {
   const moqDisplay = useMemo(() => {
     if (product.moq === undefined || product.moq === null) return 'MOQ: Contactez-nous';
     return `MOQ: ${product.moq} unités`;
   }, [product.moq]);
+
+  const showZeroDollarsFree = useMemo(
+    () =>
+      isZeroDollarsShop({
+        companyName: companyName ?? product.supplier,
+        supplier: product.supplier,
+      }),
+    [companyName, product.supplier]
+  );
 
   return (
     <TouchableOpacity
@@ -330,11 +342,18 @@ const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onPress }
       onPress={() => onPress(product.id)}
       activeOpacity={0.7}
     >
-      <Image
-        source={{ uri: product.imageUrl || FALLBACK_PRODUCT_IMAGE }}
-        style={styles.productImage}
-        resizeMode="cover"
-      />
+      <View style={styles.productImageContainer}>
+        <Image
+          source={{ uri: product.imageUrl || FALLBACK_PRODUCT_IMAGE }}
+          style={styles.productImage}
+          resizeMode="cover"
+        />
+        {showZeroDollarsFree && (
+          <View style={styles.productZeroDollarsBadge}>
+            <ZeroDollarsFreeBadge compact />
+          </View>
+        )}
+      </View>
       <View style={styles.productInfo}>
         <Text style={styles.productName} numberOfLines={2}>
           {product.name}
@@ -874,7 +893,11 @@ const renderAbout = useCallback(() => (
   ), [activeTab]);
 
   const renderProduct = useCallback(({ item }: { item: Product }) => (
-    <ProductCard product={item} onPress={handleProductPress} />
+    <ProductCard
+      product={item}
+      companyName={company?.name}
+      onPress={handleProductPress}
+    />
   ), [handleProductPress]);
 
   const getItemKey = useCallback((item: Product | Review, index: number) => {
@@ -1023,7 +1046,21 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 20 },
   productRow: { justifyContent: 'space-between', paddingHorizontal: 10 },
   productCard: { width: (width - 30) / 2, backgroundColor: '#fff', borderRadius: 12, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-  productImage: { width: '100%', height: 150, borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+  productImageContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 150,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: 'hidden',
+  },
+  productImage: { width: '100%', height: '100%' },
+  productZeroDollarsBadge: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    zIndex: 2,
+  },
   productInfo: { padding: 10 },
   productName: { fontSize: 14, color: '#333', marginBottom: 5 },
   productPrice: { fontSize: 16, fontWeight: 'bold', color: '#FF6B00', marginBottom: 5 },

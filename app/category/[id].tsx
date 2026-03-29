@@ -1,171 +1,208 @@
-// CategoryPage.tsx - VERSION CORRIGÉE AVEC VOS CHAMPS EXACTS
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   ActivityIndicator,
   TouchableOpacity,
-  Dimensions,
-  Image,
+  FlatList,
   SafeAreaView,
-  useWindowDimensions,
   Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, getDocs, orderBy, limit, doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, doc, getDoc, startAfter } from 'firebase/firestore';
 import { db } from '../../src/config/firebase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
+import { isZeroDollarsShop } from '../../src/utils/zeroDollarsShop';
+import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
+
+const PAGE_SIZE = 24;
+const CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const categoryProductsCache = new Map<
+  string,
+  { products: CategoryProduct[]; lastDoc: any; hasMore: boolean; timestamp: number }
+>();
+
+type CategoryProduct = {
+  id: string;
+  name: string;
+  price: number;
+  originalPrice: number;
+  image: string;
+  rating: number;
+  supplier: string;
+  companyName: string;
+  minOrder: number;
+  categoryId?: string;
+  categoryName?: string;
+  hasFreeShipping: boolean;
+};
 
 const getCategoryNameFromId = (categoryId: string): string => {
   const categoryMap: { [key: string]: string } = {
-    'fKNpSZ7NgqyMw7uZW15w': 'Électroniques', // L'ID de votre exemple
+    'fKNpSZ7NgqyMw7uZW15w': 'Électroniques',
     'autre_id': 'Autre Catégorie',
   };
   return categoryMap[categoryId] || 'Catégorie';
 };
 
+function normalizeProduct(docSnap: any): CategoryProduct {
+  const data = docSnap.data();
+  const currentPrice = Number(data.price) || 0;
+
+  return {
+    id: docSnap.id,
+    name: data.name || 'Produit sans nom',
+    price: currentPrice,
+    originalPrice: Number(data.originalPrice || currentPrice),
+    image: data.mainImage || data.imageUrl || (Array.isArray(data.images) ? data.images[0] : '') || 'https://via.placeholder.com/300',
+    rating: data.rating !== undefined ? Number(data.rating) : 0,
+    supplier: data.supplier || data.companyName || 'Fournisseur',
+    companyName: data.companyName || data.supplier || '',
+    minOrder: data.minOrder || 1,
+    categoryId: data.categoryId,
+    categoryName: data.categoryName,
+    hasFreeShipping: Boolean(data.hasFreeShipping),
+  };
+}
+
 export default function CategoryPage() {
   const params = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  
-  // --- CORRECTION ICI ---
-  // On vérifie tous les noms possibles pour être sûr de ne pas rater l'ID
   const categoryId = params.categoryId as string || params.id as string || 'all';
   const categoryName = params.categoryName as string || getCategoryNameFromId(categoryId);
-  
-  // On accepte 'targetProductId' (venant du Home) OU 'selectedProductId'
-  const preselectedProductId = (params.targetProductId || params.selectedProductId) as string; 
-  // -----------------------
-  
-  const { formatPrice } = useCurrency(); 
+  const preselectedProductId = (params.targetProductId || params.selectedProductId) as string;
+  const selectedProductPayload = params.selectedProductData as string | undefined;
+  const { formatPrice } = useCurrency();
+
+  const preloadedSelectedProduct = useMemo(() => {
+    if (!selectedProductPayload) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(selectedProductPayload) as CategoryProduct;
+    } catch {
+      return null;
+    }
+  }, [selectedProductPayload]);
 
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<any[]>([]);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(preselectedProductId || null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [products, setProducts] = useState<CategoryProduct[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<CategoryProduct | null>(preloadedSelectedProduct);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(
+    preselectedProductId || preloadedSelectedProduct?.id || null
+  );
+  const [lastDoc, setLastDoc] = useState<any>(null);
+  const [hasMore, setHasMore] = useState(true);
 
   const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 83 : 60;
   const BOTTOM_PADDING = insets.bottom + TAB_BAR_HEIGHT + 20;
   const BUTTON_HEIGHT = 56;
-  
-  
-  // Chargement initial
-// 1. Ajoute ces états en haut de ton composant s'ils n'y sont pas déjà
-  const [lastDoc, setLastDoc] = useState(null);
-  const [hasMore, setHasMore] = useState(true);
+
+  const buildProductsQuery = useCallback((cursor?: any) => {
+    const productsRef = collection(db, 'products');
+
+    if (categoryId === 'all' || categoryId === 'tous') {
+      return cursor
+        ? query(productsRef, orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE_SIZE))
+        : query(productsRef, orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
+    }
+
+    return cursor
+      ? query(
+          productsRef,
+          where('categoryId', '==', categoryId),
+          where('isActive', '==', true),
+          orderBy('createdAt', 'desc'),
+          startAfter(cursor),
+          limit(PAGE_SIZE)
+        )
+      : query(
+          productsRef,
+          where('categoryId', '==', categoryId),
+          where('isActive', '==', true),
+          orderBy('createdAt', 'desc'),
+          limit(PAGE_SIZE)
+        );
+  }, [categoryId]);
 
   useEffect(() => {
     const loadCategoryProducts = async () => {
+      const cached = categoryProductsCache.get(categoryId);
+      const hasFreshCache =
+        cached && Date.now() - cached.timestamp < CATEGORY_CACHE_TTL_MS;
+
       try {
-        setLoading(true);
-        setProducts([]); 
-        setLastDoc(null); // Reset du curseur au changement de catégorie
-        setHasMore(true);
+        if (hasFreshCache) {
+          setProducts(cached.products);
+          setLastDoc(cached.lastDoc);
+          setHasMore(cached.hasMore);
 
-        let directProduct = null;
+          const cachedSelected =
+            cached.products.find((item) => item.id === preselectedProductId) ||
+            preloadedSelectedProduct ||
+            cached.products[0] ||
+            null;
 
-        // 1. Charger le produit sélectionné si présent (Inchangé)
-        if (preselectedProductId) {
-          const ref = doc(db, 'products', preselectedProductId);
-          const snap = await getDoc(ref);
-          if (snap.exists()) {
-            const data = snap.data();
-            const currentPrice = Number(data.price) || 0;
-            directProduct = {
-              id: snap.id,
-              name: data.name || 'Produit',
-              price: currentPrice,
-              originalPrice: Number(data.originalPrice || currentPrice),
-              image: data.mainImage || data.imageUrl || (data.images && data.images[0]) || 'https://via.placeholder.com/300',
-              rating: Number(data.rating) || 0,
-              supplier: data.supplier || data.companyName || 'Fournisseur',
-              minOrder: data.minOrder || 1,
-              inStock: data.inStock ?? true,
-              categoryId: data.categoryId,
-              categoryName: data.categoryName,
-            };
-            setSelectedProduct(directProduct);
-            setSelectedProductId(directProduct.id);
+          setSelectedProduct(cachedSelected);
+          setSelectedProductId(cachedSelected?.id || null);
+          setLoading(false);
+        } else {
+          setLoading(true);
+          setProducts(preloadedSelectedProduct ? [preloadedSelectedProduct] : []);
+          setLastDoc(null);
+          setHasMore(true);
+          setSelectedProduct(preloadedSelectedProduct);
+          setSelectedProductId(preselectedProductId || preloadedSelectedProduct?.id || null);
+        }
+
+        let directProduct: CategoryProduct | null = null;
+
+        if (preloadedSelectedProduct) {
+          directProduct = preloadedSelectedProduct;
+        } else if (preselectedProductId) {
+          const productRef = doc(db, 'products', preselectedProductId);
+          const productSnap = await getDoc(productRef);
+          if (productSnap.exists()) {
+            directProduct = normalizeProduct(productSnap);
           }
         }
 
-        // 2. Charger les produits avec limite pour pagination
-        console.log('📦 Chargement initial des produits...');
-        const productsRef = collection(db, 'products');
-        let q;
-        
-        if (categoryId === 'all' || categoryId === 'tous') {
-          q = query(productsRef, orderBy('createdAt', 'desc'), limit(50));
-        } else {
-          q = query(
-            productsRef, 
-            where('categoryId', '==', categoryId),
-            where('isActive', '==', true),
-            orderBy('createdAt', 'desc'), 
-            limit(50)
-          );
-        }
-
-        const snapshot = await getDocs(q);
-        console.log(`✅ ${snapshot.size} produits trouvés`);
-
-        // MISE À JOUR DU CURSEUR (LastDoc)
+        const snapshot = await getDocs(buildProductsQuery());
         if (snapshot.docs.length > 0) {
           setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
-          setHasMore(snapshot.docs.length === 50); // Si on en a 50, il y en a peut-être d'autres
+          setHasMore(snapshot.docs.length === PAGE_SIZE);
         } else {
           setHasMore(false);
         }
 
-const productsData = [];
-snapshot.forEach((docSnap) => {
-  const data = docSnap.data();
-  
-  // Debug pour voir si les données arrivent
-  console.log("Données reçues pour :", data.name);
+        const productsData = snapshot.docs.map((docSnap) => normalizeProduct(docSnap));
+        const mergedProducts = directProduct
+          ? [directProduct, ...productsData.filter((item) => item.id !== directProduct?.id)]
+          : productsData;
 
-  productsData.push({
-    id: docSnap.id,
-    // On utilise 'name' car il existe dans ton document
-    name: data.name || "Produit sans nom",
-    
-    // Ton document a 'price' et 'originalPrice'
-    price: data.price || 0,
-    originalPrice: data.originalPrice || data.price || 0,
-    
-    // Ton document utilise 'mainImage' (prioritaire) ou 'imageUrl'
-    image: data.mainImage || data.imageUrl || (data.images && data.images[0]) || 'https://via.placeholder.com/300',
-    
-    // Ton document a 'rating' (ici 0) et 'supplier' (USINE A2EXPRESS)
-    rating: data.rating !== undefined ? Number(data.rating) : 0,
-    supplier: data.supplier || data.companyName || "Fournisseur",
-    
-    // Ton document a 'minOrder' (ici 1)
-    minOrder: data.minOrder || 1,
-    
-    // Autres champs utiles
-    categoryId: data.categoryId,
-    categoryName: data.categoryName,
-    hasFreeShipping: data.hasFreeShipping || false,
-  });
-});
+        setProducts(mergedProducts);
 
-setProducts(productsData);
+        const found = preselectedProductId
+          ? mergedProducts.find((item) => item.id === preselectedProductId)
+          : null;
+        const finalSelection = directProduct || found || mergedProducts[0] || null;
+        setSelectedProduct(finalSelection);
+        setSelectedProductId(finalSelection?.id || null);
 
-        setProducts(productsData);
-
-        // 3. Sélection automatique (Inchangé)
-        if (!directProduct && productsData.length > 0) {
-          const found = preselectedProductId ? productsData.find(p => p.id === preselectedProductId) : null;
-          const finalSelection = found || productsData[0];
-          setSelectedProduct(finalSelection);
-          setSelectedProductId(finalSelection.id);
-        }
+        categoryProductsCache.set(categoryId, {
+          products: mergedProducts,
+          lastDoc: snapshot.docs[snapshot.docs.length - 1] || null,
+          hasMore: snapshot.docs.length === PAGE_SIZE,
+          timestamp: Date.now(),
+        });
       } catch (e) {
         console.error('🔥 Erreur:', e);
       } finally {
@@ -174,28 +211,76 @@ setProducts(productsData);
     };
 
     loadCategoryProducts();
-  }, [categoryId, preselectedProductId]);
+  }, [buildProductsQuery, categoryId, preloadedSelectedProduct, preselectedProductId]);
 
-  const handleViewProductDetail = () => {
+  useEffect(() => {
+    const imageUris = products
+      .slice(0, 16)
+      .map((item) => item.image)
+      .filter(Boolean)
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .map((item) => String(item));
+
+    if (!imageUris.length) {
+      return;
+    }
+
+    Image.prefetch(imageUris, 'memory-disk').catch(() => {});
+  }, [products]);
+
+  const relatedProducts = useMemo(
+    () => products.filter((product) => product.id !== selectedProductId),
+    [products, selectedProductId]
+  );
+
+  const handleViewProductDetail = useCallback(() => {
     if (selectedProduct) {
-      console.log('➡️ Navigation vers détail:', selectedProduct.id);
       router.push(`/product/${selectedProduct.id}`);
     }
-  };
+  }, [router, selectedProduct]);
 
-const handleSelectProduct = (product: any) => {
-  console.log('🔄 Navigation vers le produit:', product.name);
-  
-  // On met à jour l'état local pour le retour en arrière
-  setSelectedProduct(product);
-  setSelectedProductId(product.id);
+  const handleSelectProduct = useCallback((product: CategoryProduct) => {
+    setSelectedProduct(product);
+    setSelectedProductId(product.id);
+  }, []);
 
-  // Navigation directe vers la fiche détaillée
-  router.push(`/product/${product.id}`);
-};
+  const loadMoreProducts = useCallback(async () => {
+    if (loadingMore || !hasMore || !lastDoc) {
+      return;
+    }
 
-  // RENDU DE L'APERÇU
-  const renderProductPreview = () => {
+    setLoadingMore(true);
+    try {
+      const snapshot = await getDocs(buildProductsQuery(lastDoc));
+      const nextItems = snapshot.docs.map((docSnap) => normalizeProduct(docSnap));
+
+      setProducts((prev) => {
+        const map = new Map(prev.map((item) => [item.id, item]));
+        nextItems.forEach((item) => map.set(item.id, item));
+        const merged = Array.from(map.values());
+
+        categoryProductsCache.set(categoryId, {
+          products: merged,
+          lastDoc: snapshot.docs[snapshot.docs.length - 1] || lastDoc,
+          hasMore: snapshot.docs.length === PAGE_SIZE,
+          timestamp: Date.now(),
+        });
+
+        return merged;
+      });
+
+      if (snapshot.docs.length > 0) {
+        setLastDoc(snapshot.docs[snapshot.docs.length - 1]);
+      }
+      setHasMore(snapshot.docs.length === PAGE_SIZE);
+    } catch (error) {
+      console.error('Erreur pagination catégorie:', error);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [buildProductsQuery, hasMore, lastDoc, loadingMore]);
+
+  const renderProductPreview = useCallback(() => {
     if (!selectedProduct) return null;
 
     return (
@@ -210,12 +295,21 @@ const handleSelectProduct = (product: any) => {
 
         <TouchableOpacity style={styles.productPreview} onPress={handleViewProductDetail}>
           <View style={styles.previewImageContainer}>
-            <Image 
-              source={{ uri: selectedProduct.image }} 
-              style={styles.previewImage} 
-              resizeMode="cover"
-              defaultSource={require('../../assets/icon.png')}
+            <Image
+              source={{ uri: selectedProduct.image }}
+              style={styles.previewImage}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={120}
             />
+            {isZeroDollarsShop({
+              companyName: selectedProduct.companyName,
+              supplier: selectedProduct.supplier,
+            }) && (
+              <View style={styles.previewZeroDollarsBadge}>
+                <ZeroDollarsFreeBadge compact />
+              </View>
+            )}
           </View>
 
           <View style={styles.previewInfo}>
@@ -240,7 +334,82 @@ const handleSelectProduct = (product: any) => {
         </TouchableOpacity>
       </View>
     );
-  };
+  }, [formatPrice, handleViewProductDetail, selectedProduct]);
+
+  const renderProductCard = useCallback(({ item: product }: { item: CategoryProduct }) => (
+    <TouchableOpacity
+      style={[
+        styles.productCard,
+        selectedProductId === product.id && styles.productCardSelected
+      ]}
+      onPress={() => handleSelectProduct(product)}
+      activeOpacity={0.85}
+    >
+      <View style={styles.imageWrapper}>
+        <Image
+          source={{ uri: product.image }}
+          style={styles.productImage}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          transition={120}
+        />
+        {product.originalPrice > product.price && (
+          <View style={styles.promoBadge}>
+            <Text style={styles.promoText}>PROMO</Text>
+          </View>
+        )}
+        {isZeroDollarsShop({
+          companyName: product.companyName,
+          supplier: product.supplier,
+        }) && (
+          <View style={styles.categoryZeroDollarsBadge}>
+            <ZeroDollarsFreeBadge compact />
+          </View>
+        )}
+      </View>
+
+      <View style={styles.productInfo}>
+        <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
+
+        <View style={styles.productPriceRow}>
+          <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
+          {product.originalPrice > product.price && (
+            <Text style={styles.oldPriceSmall}>{formatPrice(product.originalPrice)}</Text>
+          )}
+        </View>
+
+        <View style={styles.productMeta}>
+          {product.hasFreeShipping && (
+            <View style={styles.miniBadge}>
+              <Ionicons name="airplane" size={8} color="#00B050" />
+              <Text style={[styles.miniBadgeText, { color: '#00B050' }]}>Gratuit</Text>
+            </View>
+          )}
+          <Text style={styles.productMetaText}>Min: {product.minOrder}</Text>
+          <Text style={styles.productMetaText}>⭐ {product.rating || '5.0'}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  ), [formatPrice, handleSelectProduct, selectedProductId]);
+
+  const listHeader = useMemo(() => (
+    <View>
+      {renderProductPreview()}
+      <View style={styles.productsSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Articles similaires</Text>
+        </View>
+      </View>
+    </View>
+  ), [renderProductPreview]);
+
+  const listFooter = useMemo(() => (
+    loadingMore ? (
+      <View style={styles.listFooter}>
+        <ActivityIndicator size="small" color="#FF6A00" />
+      </View>
+    ) : <View style={styles.listFooterSpacing} />
+  ), [loadingMore]);
 
   if (loading) {
     return (
@@ -263,73 +432,23 @@ const handleSelectProduct = (product: any) => {
       </View>
 
       <View style={styles.contentWrapper}>
-        <ScrollView 
+        <FlatList
+          data={relatedProducts}
+          keyExtractor={(item) => item.id}
+          renderItem={renderProductCard}
+          numColumns={2}
+          columnWrapperStyle={styles.productsGrid}
+          ListHeaderComponent={listHeader}
+          ListFooterComponent={listFooter}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: BUTTON_HEIGHT + 100 }]}
           showsVerticalScrollIndicator={false}
-        >
-          {renderProductPreview()}
-
-          {products.length > 0 && (
-            <View style={styles.productsSection}>
-<View style={styles.sectionHeader}>
-  <Text style={styles.sectionTitle}>Articles similaires</Text>
-</View>
-
-              <View style={styles.productsGrid}>
-                {products
-  .filter(p => p.id !== selectedProductId)
-  .map((product) => (
-    <TouchableOpacity 
-      key={product.id}
-      style={[
-        styles.productCard, 
-        selectedProductId === product.id && styles.productCardSelected
-      ]}
-      onPress={() => handleSelectProduct(product)}
-      activeOpacity={0.8}
-    >
-      {/* Image du produit avec Badge Promo si prix réduit */}
-      <View style={styles.imageWrapper}>
-        <Image 
-          source={{ uri: product.image }} 
-          style={styles.productImage} 
-          contentFit="cover"
+          onEndReached={loadMoreProducts}
+          onEndReachedThreshold={0.4}
+          initialNumToRender={8}
+          maxToRenderPerBatch={10}
+          windowSize={8}
+          removeClippedSubviews={Platform.OS === 'android'}
         />
-        {product.originalPrice > product.price && (
-          <View style={styles.promoBadge}>
-            <Text style={styles.promoText}>PROMO</Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.productInfo}>
-        <Text style={styles.productName} numberOfLines={2}>{product.name}</Text>
-        
-        <View style={styles.productPriceRow}>
-          <Text style={styles.productPrice}>{formatPrice(product.price)}</Text>
-          {product.originalPrice > product.price && (
-            <Text style={styles.oldPriceSmall}>{formatPrice(product.originalPrice)}</Text>
-          )}
-        </View>
-
-        {/* Badges Dynamiques (Livraison / B2B) */}
-        <View style={styles.productMeta}>
-          {product.hasFreeShipping && (
-            <View style={styles.miniBadge}>
-              <Ionicons name="airplane" size={8} color="#00B050" />
-              <Text style={[styles.miniBadgeText, { color: '#00B050' }]}>Gratuit</Text>
-            </View>
-          )}
-          <Text style={styles.productMetaText}>Min: {product.minOrder}</Text>
-          <Text style={styles.productMetaText}>⭐ {product.rating || '5.0'}</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  ))}
-              </View>
-            </View>
-          )}
-        </ScrollView>
 
         {selectedProduct && (
           <View style={[styles.floatingAction, { bottom: BOTTOM_PADDING, left: 16, right: 16 }]}>
@@ -366,7 +485,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 20, fontWeight: '800', color: '#1a1a1a' },
   productCount: { fontSize: 13, color: '#666' },
   contentWrapper: { flex: 1 },
-  scrollContent: { flexGrow: 1 },
+  scrollContent: { paddingBottom: 24 },
   previewContainer: { 
     backgroundColor: '#fff', 
     margin: 16, 
@@ -382,7 +501,16 @@ const styles = StyleSheet.create({
   viewDetailButton: { flexDirection: 'row', alignItems: 'center' },
   viewDetailText: { color: '#FF6A00', fontSize: 12, marginRight: 4, fontWeight: '600' },
   productPreview: { flexDirection: 'row' },
-  previewImageContainer: { width: 80, height: 80, borderRadius: 8, marginRight: 12, backgroundColor: '#f0f0f0' },
+  previewImageContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 12,
+    backgroundColor: '#f0f0f0',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  previewZeroDollarsBadge: { position: 'absolute', bottom: 2, left: 2, zIndex: 2 },
   previewImage: { width: '100%', height: '100%', borderRadius: 8 },
   previewInfo: { flex: 1, justifyContent: 'center' },
   previewName: { fontSize: 14, fontWeight: '700', marginBottom: 4 },
@@ -394,26 +522,51 @@ const styles = StyleSheet.create({
   productsSection: { backgroundColor: '#fff', paddingTop: 20, marginTop: 8 },
   sectionHeader: { paddingHorizontal: 16, marginBottom: 12 },
   sectionTitle: { fontSize: 18, fontWeight: '700' },
-  productsGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8 },
+  productsGrid: { justifyContent: 'space-between', paddingHorizontal: 8 },
   productCard: { 
-    width: '47%', 
+    width: '48%',
     backgroundColor: '#fff', 
     borderRadius: 12, 
-    margin: '1.5%', 
+    marginBottom: 12,
     padding: 8, 
     elevation: 2, 
     borderWidth: 1, 
     borderColor: '#f0f0f0' 
   },
   productCardSelected: { borderColor: '#FF6A00', backgroundColor: '#FFF9F5' },
-  productImage: { width: '100%', height: 120, borderRadius: 8, marginBottom: 8, backgroundColor: '#f5f5f5' },
+  imageWrapper: { position: 'relative', width: '100%', marginBottom: 8 },
+  productImage: { width: '100%', height: 120, borderRadius: 8, backgroundColor: '#f5f5f5' },
+  promoBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: '#FF4444',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    zIndex: 2,
+  },
+  promoText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  categoryZeroDollarsBadge: { position: 'absolute', bottom: 4, left: 4, zIndex: 3 },
+  oldPriceSmall: { fontSize: 11, color: '#999', textDecorationLine: 'line-through', marginLeft: 6 },
+  miniBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    backgroundColor: '#E8F8EE',
+  },
+  miniBadgeText: { fontSize: 9, fontWeight: '600' },
   productInfo: { flex: 1 },
   productName: { fontSize: 12, fontWeight: '600', marginBottom: 4, height: 32 },
   productPriceRow: { marginBottom: 4 },
   productPrice: { fontSize: 14, fontWeight: '800', color: '#FF6A00' },
   productMeta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   productMetaText: { fontSize: 10, color: '#666' },
-  selectedBadge: { position: 'absolute', top: 5, right: 5, backgroundColor: '#FF6A00', borderRadius: 12, padding: 2 },
+  listFooter: { paddingVertical: 12 },
+  listFooterSpacing: { height: 8 },
   floatingAction: { position: 'absolute', zIndex: 100 },
   actionButton: { backgroundColor: '#FF6A00', borderRadius: 12, height: 56, justifyContent: 'center', elevation: 4 },
   actionButtonContent: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 },

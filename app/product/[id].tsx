@@ -10,23 +10,28 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
-  Image,
   FlatList,
   TextInput
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, collection, query, where, limit, startAfter, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../../src/config/firebase';
 
 // Imports des composants
-import ShippingCalculator from '../../src/components/ShippingCalculator';
 import ActionFooter from '../../src/components/ActionFooter';
 import WholesaleQuoteForm from '../../src/components/WholesaleQuoteForm';
 import ProductGallery from '../../src/components/ProductGallery';
 import TrustBadges from '../../src/components/TrustBadges';
 import { useCart } from '../../src/contexts/CartContext';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
+import { isZeroDollarsShop, isZeroDollarsProduct } from '../../src/utils/zeroDollarsShop';
+import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
+import {
+  getPublicApiProduct,
+  getPublicApiProductsByCategory,
+} from '../../src/services/visualSearchApi';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 32 - 12) / 2;
@@ -55,7 +60,7 @@ interface FirebaseProduct {
   inStock: boolean;
   stockQuantity: number;
   hasVariants: boolean;
-  variantAttributes?: Array<{
+  attributes?: Array<{
     name: string;
     values: string[];
   }>;
@@ -103,6 +108,7 @@ interface FirebaseProduct {
   logo?: string;
   companyLogo?: string;
   imageUrl?: string;
+  hasFreeShipping?: boolean;
 }
 
 interface OrderMatrixItem {
@@ -116,20 +122,96 @@ interface OrderMatrixItem {
   sku: string;
 }
 
+type BootstrapProduct = FirebaseProduct & {
+  sourceType?: 'firebase' | 'api';
+};
+
+function normalizeBootstrapProduct(rawValue: unknown, fallbackId?: string): BootstrapProduct | null {
+  if (!rawValue || typeof rawValue !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue) as Partial<BootstrapProduct>;
+    const id = String(parsed?.id || fallbackId || '').trim();
+    if (!id) {
+      return null;
+    }
+
+    const images = Array.isArray(parsed?.images)
+      ? parsed.images.filter(Boolean).map((item) => String(item))
+      : [parsed?.mainImage].filter(Boolean).map((item) => String(item));
+
+    return {
+      id,
+      name: String(parsed?.name || 'Produit'),
+      description: String(parsed?.description || ''),
+      images,
+      mainImage: String(parsed?.mainImage || parsed?.imageUrl || images[0] || ''),
+      price: Number(parsed?.price) || 0,
+      originalPrice: parsed?.originalPrice ? Number(parsed.originalPrice) : undefined,
+      minOrder: Number(parsed?.minOrder) || 1,
+      currency: String(parsed?.currency || 'XOF'),
+      inStock: parsed?.inStock ?? true,
+      stockQuantity: Number(parsed?.stockQuantity) || 0,
+      hasVariants: Boolean(parsed?.hasVariants),
+      attributes: parsed?.attributes || [],
+      variants: parsed?.variants || [],
+      specifications: parsed?.specifications || {},
+      deliveryTime: String(parsed?.deliveryTime || 'N/A'),
+      shippingCost: Number(parsed?.shippingCost) || 0,
+      companyName: String(parsed?.companyName || parsed?.supplier || ''),
+      supplier: String(parsed?.supplier || parsed?.companyName || 'Fournisseur'),
+      rating: Number(parsed?.rating) || 0,
+      reviewCount: Number(parsed?.reviewCount) || 0,
+      soldCount: Number(parsed?.soldCount) || 0,
+      categoryName: String(parsed?.categoryName || ''),
+      status: String(parsed?.status || 'published'),
+      featured: Boolean(parsed?.featured),
+      trending: Boolean(parsed?.trending),
+      newArrival: Boolean(parsed?.newArrival),
+      specialOffer: Boolean(parsed?.specialOffer),
+      categoryId: parsed?.categoryId,
+      companyId: parsed?.companyId,
+      isActive: parsed?.isActive ?? true,
+      isVerified: Boolean(parsed?.isVerified),
+      industrial: Boolean(parsed?.industrial),
+      premiumSupplier: Boolean(parsed?.premiumSupplier),
+      wholesalePrice: parsed?.wholesalePrice ? Number(parsed.wholesalePrice) : undefined,
+      uid: parsed?.uid,
+      logo: parsed?.logo,
+      companyLogo: parsed?.companyLogo,
+      imageUrl: parsed?.imageUrl,
+      hasFreeShipping: Boolean(parsed?.hasFreeShipping),
+      sourceType: parsed?.sourceType,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function ProductDetailScreen() {
   const params = useLocalSearchParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const initialProductData = Array.isArray(params.initialProductData)
+    ? params.initialProductData[0]
+    : params.initialProductData;
 
   const router = useRouter();
   const { addToCart } = useCart();
   const { currency } = useCurrency();
+  const bootstrapProduct = useMemo(
+    () => normalizeBootstrapProduct(initialProductData, id),
+    [id, initialProductData]
+  );
 
   // --- ÉTATS ---
-  const [product, setProduct] = useState<FirebaseProduct | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [product, setProduct] = useState<FirebaseProduct | null>(bootstrapProduct);
+  const [loading, setLoading] = useState(!bootstrapProduct);
   const [error, setError] = useState<string | null>(null);
   const [company, setCompany] = useState<any>(null);
   const [loadingCompany, setLoadingCompany] = useState(false);
+  const [productSource, setProductSource] = useState<'firebase' | 'api'>(bootstrapProduct?.sourceType === 'api' ? 'api' : 'firebase');
   
   const [isQuoteVisible, setIsQuoteVisible] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
@@ -151,15 +233,27 @@ const [hasMoreSimilar, setHasMoreSimilar] = useState(true);
 const [loadingMoreSimilar, setLoadingMoreSimilar] = useState(false);
 
   // --- VARIABLES CALCULÉES ---
+  const productWeight = useMemo(() => {
+  return product?.specifications?.weight || 0;
+}, [product]);
   const selectedVariant = useMemo(() => {
     if (!product?.variants || !selectedCarouselColor) return null;
     return product.variants.find(v => v.color === selectedCarouselColor);
   }, [product, selectedCarouselColor]);
 
-  const effectiveUnitPrice = 
-    selectedVariant?.price ?? 
-    product?.price ?? 
-    0;
+  const effectiveUnitPrice = useMemo(() => {
+    if (!product) return 0;
+    const base = selectedVariant?.price ?? product.price ?? 0;
+    const isZero = isZeroDollarsProduct({
+      price: base,
+      basePrice: (product as any).basePrice,
+      companyName: product.companyName,
+      supplier: product.supplier,
+      seller: (product as any).seller,
+      name: product.name,
+    });
+    return isZero ? 0 : base;
+  }, [product, selectedVariant]);
 
   const currentStock = useMemo(() => {
     if (!product) return 0;
@@ -185,6 +279,17 @@ const [loadingMoreSimilar, setLoadingMoreSimilar] = useState(false);
     if (!product) return [];
     return product.images?.length ? product.images : [product.mainImage].filter(Boolean);
   }, [product]);
+
+  useEffect(() => {
+    if (!bootstrapProduct) {
+      return;
+    }
+
+    setProduct(bootstrapProduct);
+    setLoading(false);
+    setError(null);
+    setProductSource(bootstrapProduct.sourceType === 'api' ? 'api' : 'firebase');
+  }, [bootstrapProduct]);
 
   // --- FONCTION DE RÉCUPÉRATION DE L'ENTREPRISE ---
   const fetchCompany = async (companyId: string) => {
@@ -267,149 +372,117 @@ const fetchSimilarProducts = async (categoryId, companyId, currentProductId) => 
   }
 };
 
-  // --- RÉCUPÉRATION DES COULEURS DISPONIBLES POUR LE CARROUSEL ---
-  const availableColors = useMemo(() => {
-    if (!product?.variantAttributes) return [];
-    
-    const colorAttr = product.variantAttributes.find(
-      attr => attr.name.toLowerCase().includes('couleur') || 
-              attr.name.toLowerCase().includes('color')
-    );
-    
-    return colorAttr?.values || [];
-  }, [product]);
+const fetchApiSimilarProducts = async (categoryId: string, currentProductId: string) => {
+  if (!categoryId) return;
 
-  // --- RÉCUPÉRATION DES TAILLES DISPONIBLES ---
-  const availableSizes = useMemo(() => {
-    if (!product?.variantAttributes) return [];
-    
-    const sizeAttr = product.variantAttributes.find(
-      attr => attr.name.toLowerCase().includes('taille') || 
-              attr.name.toLowerCase().includes('size')
-    );
-    
-    return sizeAttr?.values || [];
-  }, [product]);
+  setLoadingSimilar(true);
+  try {
+    const products = await getPublicApiProductsByCategory(categoryId, 20);
+    setSimilarProducts(products.filter((item) => item.id !== currentProductId) as FirebaseProduct[]);
+    setHasMoreSimilar(false);
+    setLastSimilarDoc(null);
+  } catch (error) {
+    console.error("Erreur similaires API:", error);
+  } finally {
+    setLoadingSimilar(false);
+  }
+};
 
-  // --- INITIALISATION DE LA MATRICE DE COMMANDE ---
-  useEffect(() => {
-    if (!product) return;
+// --- RÉCUPÉRATION DES COULEURS DISPONIBLES ---
+const availableColors = useMemo(() => {
+  // On cherche dans 'attributes' (nom réel dans Firestore)
+  const attrs = product?.attributes || [];
+  
+  const colorAttr = attrs.find(
+    attr => attr.name.toLowerCase().includes('couleur') || 
+            attr.name.toLowerCase().includes('color')
+  );
+  
+  return colorAttr?.values || [];
+}, [product]);
 
-    if (product.hasVariants && product.variantAttributes) {
-      const colorAttr = product.variantAttributes.find(
-        attr => attr.name.toLowerCase().includes('couleur') || 
-                attr.name.toLowerCase().includes('color')
-      );
-      
-      const sizeAttr = product.variantAttributes.find(
-        attr => attr.name.toLowerCase().includes('taille') || 
-                attr.name.toLowerCase().includes('size')
-      );
+// --- RÉCUPÉRATION DES TAILLES DISPONIBLES ---
+const availableSizes = useMemo(() => {
+  const attrs = product?.attributes || [];
+  
+  const sizeAttr = attrs.find(
+    attr => attr.name.toLowerCase().includes('taille') || 
+            attr.name.toLowerCase().includes('size')
+  );
+  
+  return sizeAttr?.values || [];
+}, [product]);
 
-      const newMatrix: Record<string, OrderMatrixItem> = {};
+// --- INITIALISATION DE LA MATRICE DE COMMANDE ---
+// --- INITIALISATION DE LA MATRICE DE COMMANDE ---
+useEffect(() => {
+  if (!product) return;
 
-      if (colorAttr?.values && sizeAttr?.values) {
-        // Créer un Map pour un accès rapide aux variantes existantes
-        const variantMap = new Map();
-        product.variants?.forEach(variant => {
-          const key = `${variant.color}-${variant.size}`;
-          variantMap.set(key, variant);
-        });
+  const newMatrix: Record<string, OrderMatrixItem> = {};
 
-        // Générer toutes les combinaisons
-        colorAttr.values.forEach(color => {
-          sizeAttr.values.forEach(size => {
-            const variantKey = `${color}-${size}`;
-            const existingVariant = variantMap.get(variantKey);
-            const matrixKey = `${color}_${size}`;
-            
-            newMatrix[matrixKey] = {
-              variantId: existingVariant?.id || `generated-${color}-${size}`,
-              color: color,
-              size: size,
-              quantity: 0,
-              price: existingVariant?.price || product.price,
-              stock: existingVariant?.stock || 0,
-              image: existingVariant?.image || product.mainImage,
-              sku: existingVariant?.sku || `${product.id}-${color}-${size}`
-            };
-          });
-        });
+  if (product.hasVariants && product.attributes && product.attributes.length > 0) {
+    // 1. On récupère tous les noms d'attributs présents (ex: ["Couleur", "Taille", "Tiges"])
+    const attrNames = product.attributes.map(a => a.name);
 
-        setOrderMatrix(newMatrix);
+    // 2. Fonction pour générer toutes les combinaisons possibles (récursif)
+    const generateCombinations = (attrIndex, currentComb) => {
+      if (attrIndex === product.attributes.length) {
+        // On a une combinaison complète, on crée la clé unique
+        const matrixKey = Object.values(currentComb).join('_');
         
-        // Initialiser la première couleur sélectionnée
-        if (colorAttr.values.length > 0 && !selectedCarouselColor) {
-          setSelectedCarouselColor(colorAttr.values[0]);
-        }
-      } 
-      else if (colorAttr?.values) {
-        colorAttr.values.forEach(color => {
-          const existingVariant = product.variants?.find(v => v.color === color);
-          newMatrix[color] = {
-            variantId: existingVariant?.id || `generated-${color}`,
-            color: color,
-            size: '',
-            quantity: 0,
-            price: existingVariant?.price || product.price,
-            stock: existingVariant?.stock || 0,
-            image: existingVariant?.image || product.mainImage,
-            sku: existingVariant?.sku || `${product.id}-${color}`
-          };
+        // RECHERCHE DYNAMIQUE : On vérifie que TOUS les attributs correspondent
+        const existingVariant = product.variants?.find(v => {
+          return attrNames.every(name => 
+            String(v.combination?.[name]).trim().toLowerCase() === String(currentComb[name]).trim().toLowerCase()
+          );
         });
-        setOrderMatrix(newMatrix);
-        
-        if (colorAttr.values.length > 0 && !selectedCarouselColor) {
-          setSelectedCarouselColor(colorAttr.values[0]);
-        }
+
+        // On remplit la matrice
+        newMatrix[matrixKey] = {
+          variantId: existingVariant?.id || `gen-${matrixKey}`,
+          color: currentComb["Couleur"] || currentComb["Color"] || "", 
+          // On affiche les autres attributs dans le champ 'size' pour la lisibilité
+          size: Object.entries(currentComb)
+            .filter(([k]) => !/couleur|color/i.test(k))
+            .map(([_, v]) => v)
+            .join(' - '),
+          quantity: 0,
+          price: existingVariant?.price || product.price,
+          stock: existingVariant?.stock || 0,
+          image: existingVariant?.image || product.mainImage,
+          sku: existingVariant?.sku || `${product.id}-${matrixKey}`
+        };
+        return;
       }
-      else if (sizeAttr?.values) {
-        sizeAttr.values.forEach(size => {
-          const existingVariant = product.variants?.find(v => v.size === size);
-          newMatrix[size] = {
-            variantId: existingVariant?.id || `generated-${size}`,
-            color: '',
-            size: size,
-            quantity: 0,
-            price: existingVariant?.price || product.price,
-            stock: existingVariant?.stock || 0,
-            image: existingVariant?.image || product.mainImage,
-            sku: existingVariant?.sku || `${product.id}-${size}`
-          };
-        });
-        setOrderMatrix(newMatrix);
-      }
-      else {
-        product.variants?.forEach(variant => {
-          const matrixKey = variant.color && variant.size ? `${variant.color}_${variant.size}` : variant.id;
-          newMatrix[matrixKey] = {
-            variantId: variant.id || matrixKey,
-            color: variant.color || '',
-            size: variant.size || '',
-            quantity: 0,
-            price: variant.price,
-            stock: variant.stock,
-            image: variant.image,
-            sku: variant.sku
-          };
-        });
-        setOrderMatrix(newMatrix);
-      }
-    } else if (product && !product.hasVariants) {
-      setOrderMatrix({
-        default: {
-          variantId: 'default',
-          color: '',
-          size: '',
-          quantity: product.minOrder || 1,
-          price: product.price,
-          stock: product.stockQuantity || 0,
-          image: product.mainImage,
-          sku: product.id
-        }
+
+      // Parcourir les valeurs de l'attribut actuel
+      const currentAttr = product.attributes[attrIndex];
+      currentAttr.values.forEach(val => {
+        generateCombinations(attrIndex + 1, { ...currentComb, [currentAttr.name]: val });
       });
+    };
+
+    generateCombinations(0, {});
+    setOrderMatrix(newMatrix);
+
+    // Initialisation de la couleur par défaut pour le carrousel
+    const colorAttr = product.attributes.find(a => /couleur|color/i.test(a.name));
+    if (colorAttr && colorAttr.values.length > 0 && !selectedCarouselColor) {
+      setSelectedCarouselColor(String(colorAttr.values[0]));
     }
-  }, [product]);
+
+  } else if (product) {
+    // Cas produit simple...
+    newMatrix['default'] = {
+      variantId: 'default', color: '', size: '',
+      quantity: product.minOrder || 1,
+      price: product.price,
+      stock: product.stockQuantity || 0,
+      image: product.mainImage, sku: product.id
+    };
+    setOrderMatrix(newMatrix);
+  }
+}, [product]);
   
   // Dédoublonnage automatique des produits similaires
 const uniqueSimilarProducts = useMemo(() => {
@@ -494,6 +567,7 @@ const loadMoreSimilar = async () => {
   useEffect(() => {
     const fetchProduct = async () => {
       const normalizedId = Array.isArray(id) ? id[0] : id;
+      const hasBootstrap = Boolean(bootstrapProduct);
 
       if (!normalizedId) {
         setError("ID produit manquant");
@@ -502,16 +576,22 @@ const loadMoreSimilar = async () => {
       }
 
       try {
-        setLoading(true);
+        if (!hasBootstrap) {
+          setLoading(true);
+        }
         setError(null);
         
         const productRef = doc(db, 'products', normalizedId);
         const productSnap = await getDoc(productRef);
         
         if (!productSnap.exists()) {
-          console.warn(`⚠️ Document ${normalizedId} introuvable`);
-          setError("Produit non trouvé");
-          setProduct(null);
+          const apiProduct = await getPublicApiProduct(normalizedId);
+          setProduct(apiProduct as FirebaseProduct);
+          setProductSource('api');
+          setError(null);
+          if (apiProduct.categoryId) {
+            await fetchApiSimilarProducts(String(apiProduct.categoryId), apiProduct.id);
+          }
         } else {
           const productData = productSnap.data();
           
@@ -530,10 +610,14 @@ const loadMoreSimilar = async () => {
             inStock: productData.inStock ?? (Number(productData.stockQuantity) > 0)
           } as FirebaseProduct;
           
-          setProduct(productWithId);
+          setProduct((prev) => ({
+            ...(prev || {}),
+            ...productWithId,
+          }));
+          setProductSource('firebase');
           
           if (productWithId.categoryId) {
-            fetchSimilarProducts(
+            await fetchSimilarProducts(
               productWithId.categoryId, 
               productWithId.companyId || '', 
               productWithId.id
@@ -549,11 +633,33 @@ const loadMoreSimilar = async () => {
     };
 
     fetchProduct();
-  }, [id]);
+  }, [bootstrapProduct, id]);
+
+  useEffect(() => {
+    const imageUris = [
+      ...galleryImages,
+      ...similarProducts.slice(0, 10).map((item) => item.mainImage || item.images?.[0] || item.imageUrl),
+      company?.logo,
+    ]
+      .filter(Boolean)
+      .map((item) => String(item));
+
+    if (!imageUris.length) {
+      return;
+    }
+
+    Image.prefetch(imageUris, 'memory-disk').catch(() => {});
+  }, [company?.logo, galleryImages, similarProducts]);
 
   // --- RÉCUPÉRATION DES DONNÉES DE L'ENTREPRISE ---
   useEffect(() => {
     const fetchCompanyData = async () => {
+      if (productSource === 'api') {
+        setCompany(null);
+        setLoadingCompany(false);
+        return;
+      }
+
       if (product?.companyId) {
         setLoadingCompany(true);
         const companyData = await fetchCompany(product.companyId);
@@ -563,19 +669,19 @@ const loadMoreSimilar = async () => {
     };
 
     fetchCompanyData();
-  }, [product?.companyId]);
+  }, [product?.companyId, productSource]);
 
   // --- CALCUL DU TOTAL DES QUANTITÉS ---
   const totalQuantity = useMemo(() => {
     return Object.values(orderMatrix).reduce((sum, item) => sum + item.quantity, 0);
   }, [orderMatrix]);
 
-  // --- CALCUL DU PRIX TOTAL ---
-  const totalPrice = useMemo(() => {
-    return Object.values(orderMatrix).reduce((sum, item) => {
-      return sum + (item.price * item.quantity);
-    }, 0);
-  }, [orderMatrix]);
+  // --- CALCUL DU POIDS TOTAL ---
+  const totalWeight = useMemo(() => {
+    const weightStr = product?.specifications?.weight || "0";
+    const weightNum = parseFloat(weightStr.replace(',', '.'));
+    return (weightNum * totalQuantity).toFixed(2);
+  }, [product, totalQuantity]);
 
   // --- VÉRIFICATION SI LE MOQ EST ATTEINT ---
   const isMOQReached = useMemo(() => {
@@ -588,6 +694,15 @@ const loadMoreSimilar = async () => {
   // --- PRIX UNITAIRE EFFECTIF POUR CHAQUE LIGNE ---
   const getEffectiveUnitPrice = (item: OrderMatrixItem) => {
     if (!product) return item.price;
+    const isZero = isZeroDollarsProduct({
+      price: item.price,
+      basePrice: product.basePrice as any,
+      companyName: product.companyName,
+      supplier: product.supplier,
+      seller: (product as any).seller,
+      name: product.name,
+    });
+    if (isZero) return 0;
     
     if (isWholesale) {
       const existingVariant = product.variants?.find(
@@ -603,6 +718,13 @@ const loadMoreSimilar = async () => {
     
     return item.price;
   };
+
+  // --- CALCUL DU PRIX TOTAL ---
+  const totalPrice = useMemo(() => {
+    return Object.values(orderMatrix).reduce((sum, item) => {
+      return sum + getEffectiveUnitPrice(item) * item.quantity;
+    }, 0);
+  }, [orderMatrix, product, isWholesale]);
 
   // --- GESTIONNAIRE DE QUANTITÉ ---
   const handleQuantityChange = (matrixKey: string, newQuantity: number) => {
@@ -644,16 +766,11 @@ const handleAddToCart = () => {
     return false;
   }
 
-  const itemsToAdd = Object.values(orderMatrix).filter(
-    (item) => item.quantity > 0
-  );
+  const itemsToAdd = Object.values(orderMatrix).filter((item) => item.quantity > 0);
 
   if (itemsToAdd.length === 0) {
-    Alert.alert(
-      "Sélection requise",
-      "Veuillez sélectionner au moins une variante à commander."
-    );
-    return false; // ❗ empêche la navigation
+    Alert.alert("Sélection requise", "Veuillez sélectionner au moins une variante.");
+    return false;
   }
 
   setAddingToCart(true);
@@ -676,20 +793,22 @@ const handleAddToCart = () => {
         inStock: product.inStock ?? true,
         originalCurrency: product.currency || "XOF",
         hasFreeShipping: product.hasFreeShipping || false,
+        
+        // --- AJOUT CORRECT ICI ---
+        specifications: {
+          weight: product.specifications?.weight || "0",
+          volume: product.specifications?.volume || "0",
+        },
       };
 
       addToCart(productForCart);
     });
 
     Alert.alert("Succès", "Produit ajouté au panier");
-
-    return true; // ❗ succès
-
+    return true;
   } catch (error) {
     console.error("Erreur ajout panier:", error);
-    Alert.alert("Erreur", "Impossible d'ajouter au panier");
     return false;
-
   } finally {
     setAddingToCart(false);
   }
@@ -701,22 +820,16 @@ const handleBuyNow = async () => {
     return;
   }
 
-  const itemsToOrder = Object.values(orderMatrix).filter(
-    (item) => item.quantity > 0
-  );
+  const itemsToOrder = Object.values(orderMatrix).filter((item) => item.quantity > 0);
 
   if (itemsToOrder.length === 0) {
-    Alert.alert(
-      "Sélection requise",
-      "Veuillez sélectionner au moins une variante avant de commander."
-    );
+    Alert.alert("Sélection requise", "Veuillez sélectionner au moins une variante.");
     return;
   }
 
   setAddingToCart(true);
 
   try {
-    // 1. On prépare les données des produits (exactement comme ton panier)
     const formattedItems = itemsToOrder.map((item) => {
       const unitPrice = getEffectiveUnitPrice(item);
       return {
@@ -731,29 +844,33 @@ const handleBuyNow = async () => {
         seller: product.companyName || product.supplier || "Vendeur",
         minOrder: product.minOrder || 1,
         hasFreeShipping: product.hasFreeShipping || false,
+        
+        // --- TRANSFÉRER LE POIDS POUR LE CHECKOUT ---
+        specifications: {
+          weight: product.specifications?.weight || "0",
+          volume: product.specifications?.volume || "0",
+        },
       };
     });
 
-    // 2. Optionnel : On les ajoute quand même au panier pour que l'utilisateur les retrouve s'il quitte
+    // Optionnel : mise en panier
     formattedItems.forEach(item => addToCart(item));
 
-    // 3. On prépare l'objet global pour le checkout
     const orderData = {
       items: formattedItems,
       summary: {
-        subtotal: totalPrice, // Assure-toi que totalPrice est calculé dans ton composant
+        subtotal: totalPrice,
         shipping: 0,
         total: totalPrice
       }
     };
 
-    // 4. Redirection immédiate
-router.push({
-  pathname: "/checkout",
-  params: {
-    orderData: encodeURIComponent(JSON.stringify(orderData))
-  }
-});
+    router.push({
+      pathname: "/checkout",
+      params: {
+        orderData: encodeURIComponent(JSON.stringify(orderData))
+      }
+    });
 
   } catch (error) {
     console.error("Erreur Buy Now:", error);
@@ -786,9 +903,18 @@ const handleChat = () => {
     product.imageUrl ||
     "";
 
-  const formattedPrice = `${product.price?.toLocaleString()} ${
-    product.currency || "FCFA"
-  }`;
+  const chatPriceValue = isZeroDollarsProduct({
+    price: product.price,
+    basePrice: product.basePrice as any,
+    companyName: product.companyName,
+    supplier: product.supplier,
+    seller: (product as any).seller,
+    name: product.name,
+  })
+    ? 0
+    : product.price;
+
+  const formattedPrice = `${chatPriceValue?.toLocaleString()} ${product.currency || "FCFA"}`;
 
   console.log("🧭 Navigation vers conversation avec UID vendeur:", sellerId);
 
@@ -853,6 +979,9 @@ const handleChat = () => {
                 <Image 
                   source={{ uri: imageSource || 'https://via.placeholder.com/60' }}
                   style={styles.colorCarouselImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={120}
                 />
                 <View style={styles.colorCarouselInfo}>
                   <Text style={styles.colorCarouselColorName}>{color}</Text>
@@ -945,8 +1074,18 @@ const handleChat = () => {
           <Image 
             source={{ uri: product.mainImage || (product.images?.[0]) || 'https://via.placeholder.com/300' }}
             style={styles.similarProductImage}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
           />
+          {isZeroDollarsShop({
+            companyName: product.companyName,
+            supplier: product.supplier,
+          }) && (
+            <View style={styles.similarZeroDollarsBadge}>
+              <ZeroDollarsFreeBadge compact />
+            </View>
+          )}
           {product.premiumSupplier && (
             <View style={styles.premiumBadgeSmall}>
               <Ionicons name="star" size={10} color="#FFF" />
@@ -1023,7 +1162,7 @@ const handleChat = () => {
   };
 
   // --- ÉCRAN DE CHARGEMENT ---
-  if (loading) {
+  if (loading && !product) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
@@ -1081,6 +1220,8 @@ const handleChat = () => {
         {/* GALERIE D'IMAGES */}
         <ProductGallery 
           images={product.images?.length ? product.images : [product.mainImage]}
+          productName={product.name}
+          hasFreeShipping={product.hasFreeShipping}
         />
 
 {/* SECTION PRINCIPALE - NOM ET PRIX */}
@@ -1103,6 +1244,10 @@ const handleChat = () => {
                 <Text style={styles.badgeText}>Tendance</Text>
               </View>
             )}
+            {isZeroDollarsShop({
+              companyName: product.companyName,
+              supplier: product.supplier,
+            }) && <ZeroDollarsFreeBadge />}
           </View>
 
           {/* 2. Nom du produit (Affiché une seule fois) */}
@@ -1165,7 +1310,13 @@ const handleChat = () => {
                 <View style={styles.companyHeader}>
                   <View style={styles.companyLogoContainer}>
                     {company.logo && typeof company.logo === 'string' && company.logo.startsWith('http') ? (
-                      <Image source={{ uri: company.logo }} style={styles.companyLogo} />
+                      <Image
+                        source={{ uri: company.logo }}
+                        style={styles.companyLogo}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={120}
+                      />
                     ) : (
                       <View style={styles.companyLogoPlaceholder}>
                         <Ionicons name="business" size={24} color={COLORS.primary} />
@@ -1265,6 +1416,15 @@ const handleChat = () => {
               <Text style={styles.infoValue}>{product.specifications.modelNumber}</Text>
             </View>
           ) : null}
+          
+          {/* Poids */}
+          {product.specifications?.weight && (
+            <View style={styles.infoRow}>
+              <Ionicons name="scale-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Poids total:</Text>
+              <Text style={styles.infoValue}>{totalWeight} kg</Text>
+            </View>
+          )}
         </View>
 
         {/* STATISTIQUES */}
@@ -1310,17 +1470,6 @@ const handleChat = () => {
             </View>
           </View>
         ) : null}
-
-        {/* CALCULATEUR DE LIVRAISON */}
-        <ShippingCalculator 
-          productId={product.id}
-          quantity={totalQuantity || product.minOrder}
-          weight={product.specifications?.weight}
-          shippingCost={product.shippingCost}
-          onOptionsPress={() => {
-            console.log("Options de livraison détaillées demandées");
-          }}
-        />
 
         {/* BOUTON DEVIS GROSSISTE */}
         <TouchableOpacity 
@@ -1380,8 +1529,8 @@ const handleChat = () => {
     price: effectiveUnitPrice,
   }}
   onChat={handleChat}
-  onAddToCart={handleAddToCart} // Bouton "Panier" (icône)
-  onBuyNow={handleBuyNow}       // Bouton "Commander" (orange) ✅
+  onAddToCart={handleAddToCart}
+  onBuyNow={handleBuyNow}
   addingToCart={addingToCart}
 />
 
@@ -2036,6 +2185,12 @@ const styles = StyleSheet.create({
   similarProductImage: {
     width: '100%',
     height: '100%',
+  },
+  similarZeroDollarsBadge: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    zIndex: 2,
   },
   premiumBadgeSmall: {
     position: 'absolute',

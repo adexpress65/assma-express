@@ -8,16 +8,18 @@ import {
   ScrollView,
   Platform 
 } from 'react-native';
+// ✅ Utilisation de expo-image confirmée
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
+// Blurhash optimisé pour un rendu de chargement professionnel
 const blurhash = '|rF?hV%2WCj[ayj[a|j[az_NaeWBj@ayfRayfQfQM{M|azj[azf6fQfQfQIpWXofj[ayj[j[fQayWCoeoeaya}j[ayfQa{olj[ayj[j[fQayayayayayayayaya{j[ayj[ayj[ayayayayayayayayoJ';
 
 interface ProductGalleryProps {
   images: string[];
   productName: string;
-  hasFreeShipping?: boolean; // Ajout de la propriété livraison gratuite
+  hasFreeShipping?: boolean; 
 }
 
 const cleanFirebaseUrl = (url: string): string => {
@@ -38,11 +40,15 @@ export default function ProductGallery({ images = [], productName, hasFreeShippi
   const onScroll = useCallback((event: any) => {
     const slideSize = event.nativeEvent.layoutMeasurement.width;
     const index = event.nativeEvent.contentOffset.x / slideSize;
-    setSelectedImage(Math.round(index));
-  }, []);
+    // Utilisation de Math.round pour éviter les sauts d'index pendant le scroll
+    const roundIndex = Math.round(index);
+    if (roundIndex !== selectedImage) {
+        setSelectedImage(roundIndex);
+    }
+  }, [selectedImage]);
 
   const scrollToImage = (index: number) => {
-    scrollViewRef.current?.scrollTo({ x: index * width, animated: true });
+    scrollViewRef.current?.scrollTo({ x: index * (width - 24), animated: true });
     setSelectedImage(index);
   };
 
@@ -57,16 +63,19 @@ export default function ProductGallery({ images = [], productName, hasFreeShippi
           showsHorizontalScrollIndicator={false}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          decelerationRate="fast"
+          snapToInterval={width - 24} // Assure que le slide s'arrête pile au milieu
         >
           {processedImages.map((imageUri, index) => (
             <View key={index.toString()} style={styles.imageSlide}>
               <Image
-                source={{ uri: imageUri }}
+                source={imageUri} // Directement l'URI avec expo-image
                 style={styles.mainImage}
                 contentFit="contain"
                 transition={300}
                 placeholder={blurhash}
-                cachePolicy="memory-disk"
+                // ✅ Cache agressif pour éviter de recharger en swipant
+                cachePolicy="memory-disk" 
               />
             </View>
           ))}
@@ -146,10 +155,11 @@ export default function ProductGallery({ images = [], productName, hasFreeShippi
               activeOpacity={0.8}
             >
               <Image
-                source={{ uri: image }}
+                source={image}
                 style={styles.thumbnailImage}
                 contentFit="cover"
                 transition={200}
+                cachePolicy="memory-disk"
               />
               {selectedImage === index && (
                 <View style={styles.thumbnailOverlay} />
@@ -350,7 +360,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
-  // STYLES SPECIFIQUES POUR LIVRAISON GRATUITE
   freeShippingBadge: {
     borderColor: '#E8F5E9',
     backgroundColor: '#E8F5E9',

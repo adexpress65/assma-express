@@ -21,12 +21,16 @@ import {
   query,
   where,
   getDocs,
+  getCountFromServer,
   orderBy,
   limit,
   doc,
   getDoc,
 } from 'firebase/firestore';
 import { db } from "@/config/firebase";
+
+/** Stats vendeur : limite stricte pour accélérer le premier rendu. */
+const ORDERS_STATS_LIMIT = 100;
 
 interface Address {
   city: string;
@@ -138,164 +142,182 @@ export default function SellerDashboard() {
   });
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [recentMessages, setRecentMessages] = useState<RecentMessage[]>([]);
+  /** Bloque l’écran uniquement le temps de charger le profil entreprise (léger). */
   const [loading, setLoading] = useState(true);
+  /** Stats / listes : chargées après, sans bloquer tout l’écran. */
+  const [statsLoading, setStatsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Charger toutes les données en parallèle pour optimiser la performance
   useEffect(() => {
     if (user?.uid) {
-      loadDashboardData();
+      loadDashboardData(false);
     }
   }, [user]);
 
-  const loadDashboardData = async () => {
+  const orderCreatedMs = (data: any): number => {
+    const c = data?.createdAt;
+    if (c && typeof c.toDate === "function") return c.toDate().getTime();
+    return 0;
+  };
+
+  const loadDashboardData = async (fromPullRefresh = false) => {
     if (!user?.uid) return;
 
     try {
-      setLoading(true);
+      if (!fromPullRefresh) {
+        setLoading(true);
+        setStatsLoading(true);
+      }
 
-      // Charger toutes les données en parallèle avec Promise.all
-      const [companySnap, productsSnap, ordersSnap, conversationsSnap] = await Promise.all([
-        getDoc(doc(db, 'companies', user.uid)),
-        getDocs(query(collection(db, 'products'), where('sellerId', '==', user.uid))),
-        getDocs(query(collection(db, 'orders'), where('sellerId', '==', user.uid))),
-        getDocs(query(
-          collection(db, 'conversations'),
-          where('participants', 'array-contains', user.uid),
-          orderBy('lastMessageTimestamp', 'desc'),
-          limit(5)
-        )),
-      ]);
+      const companySnap = await getDoc(doc(db, "companies", user.uid));
 
-      // Traitement des données entreprise
       if (companySnap.exists()) {
         const data = companySnap.data();
-        
-        // Construction de l'objet company avec tous les champs disponibles
         const companyData: CompanyData = {
-          // Informations de base
-          name: data.name || 'Mon Entreprise',
+          name: data.name || "Mon Entreprise",
           nameLower: data.nameLower,
           name_lower: data.name_lower,
           uid: data.uid || user.uid,
-          
-          // Médias
           logo: data.logo,
           coverImage: data.coverImage,
-          
-          // Adresse (gestion des différentes structures possibles)
           address: data.address,
           city: data.city,
           country: data.country,
           street: data.street,
           fullAddress: data.fullAddress,
           location: data.location,
-          
-          // Informations entreprise
-          type: data.type || 'B2B',
+          type: data.type || "B2B",
           businessType: data.businessType,
-          description: data.description || 'Aucune description disponible',
+          description: data.description || "Aucune description disponible",
           email: data.email,
           phone: data.phone,
           yearEstablished: data.yearEstablished,
           employees: data.employees,
           employeeCount: data.employeeCount,
           annualRevenue: data.annualRevenue,
-          
-          // Produits et catégories
-          mainProducts: data.mainProducts || 'Aucun produit spécifié',
+          mainProducts: data.mainProducts || "Aucun produit spécifié",
           categories: data.categories || [],
           mainCategory: data.mainCategory,
-          
-          // Badges et statuts
           verified: data.verified || false,
           goldSupplier: data.goldSupplier || false,
           isActive: data.isActive || false,
-          status: data.status || 'active',
-          
-          // Statistiques
+          status: data.status || "active",
           stats: data.stats || { productCount: 0 },
           rating: data.rating || 0,
           responseRate: data.responseRate || 0,
           productCount: data.stats?.productCount || 0,
-          
-          // Certifications
           certifications: data.certifications || [],
-          
-          // Dates
           updatedAt: data.updatedAt,
         };
-        
         setCompany(companyData);
       } else {
-        // Créer un objet par défaut si aucun document n'existe
         setCompany({
-          name: 'Ma Boutique',
-          type: 'B2B',
-          description: 'Bienvenue sur ma boutique',
+          name: "Ma Boutique",
+          type: "B2B",
+          description: "Bienvenue sur ma boutique",
           verified: false,
           goldSupplier: false,
           isActive: true,
-          status: 'active',
+          status: "active",
           stats: { productCount: 0 },
           rating: 0,
           responseRate: 0,
           productCount: 0,
-          mainProducts: 'Aucun produit spécifié',
+          mainProducts: "Aucun produit spécifié",
           categories: [],
           certifications: [],
           uid: user.uid,
         });
       }
+    } catch (error) {
+      console.error("Erreur chargement entreprise:", error);
+      Alert.alert("Erreur", "Impossible de charger le profil entreprise");
+    } finally {
+      setLoading(false);
+    }
 
-      // Calcul des statistiques
-      const totalProducts = productsSnap.size;
-      
+    try {
+      const ordersRef = collection(db, "orders");
+      const ordersQSellerId = query(
+        ordersRef,
+        where("sellerId", "==", user.uid),
+        orderBy("createdAt", "desc"),
+        limit(ORDERS_STATS_LIMIT)
+      );
+      const ordersQSellerIds = query(
+        ordersRef,
+        where("sellerIds", "array-contains", user.uid),
+        orderBy("createdAt", "desc"),
+        limit(ORDERS_STATS_LIMIT)
+      );
+      const productsCountQuery = query(collection(db, "products"), where("sellerId", "==", user.uid));
+
+      const [productsCountSnap, ordersSnapA, ordersSnapB, conversationsSnap] = await Promise.all([
+        getCountFromServer(productsCountQuery),
+        getDocs(ordersQSellerId),
+        getDocs(ordersQSellerIds),
+        getDocs(
+          query(
+            collection(db, "conversations"),
+            where("participants", "array-contains", user.uid),
+            orderBy("lastMessageTimestamp", "desc"),
+            limit(5)
+          )
+        ),
+      ]);
+
+      const totalProducts = productsCountSnap.data().count;
       let pendingOrders = 0;
       let totalRevenue = 0;
       let totalOrders = 0;
 
-      ordersSnap.forEach((doc) => {
-        const order = doc.data();
+      const ordersDocs = new Map<string, any>();
+      ordersSnapA.forEach((d) => ordersDocs.set(d.id, d.data()));
+      ordersSnapB.forEach((d) => ordersDocs.set(d.id, d.data()));
+
+      const mergedEntries = Array.from(ordersDocs.entries()).sort(
+        (a, b) => orderCreatedMs(b[1]) - orderCreatedMs(a[1])
+      );
+
+      mergedEntries.forEach(([, order]) => {
         totalOrders++;
-        
-        if (order.status === 'pending') {
-          pendingOrders++;
-        }
-        
-        // Calcul du revenu (uniquement pour les commandes livrées ou expédiées)
-        if (order.status === 'delivered' || order.status === 'shipped') {
-          totalRevenue += order.totalAmount || 0;
+        const st = String(order.status || "").toLowerCase();
+        if (st === "pending" || st === "pending_payment") pendingOrders++;
+        if (st === "delivered" || st === "shipped") {
+          totalRevenue += Number(order.totalAmount || order.total || 0);
         }
       });
 
-      // Traitement des conversations
+      const recentSlice = mergedEntries.slice(0, 5).map(([id, data]) => ({
+        id,
+        customerName: data.userName || "Client",
+        total: Number(data.totalAmount || data.total || 0),
+        status: (data.status || "pending") as RecentOrder["status"],
+        createdAt: data.createdAt,
+        items: data.items || [],
+      }));
+
       let unreadMessages = 0;
       const messages: RecentMessage[] = [];
-      
-      conversationsSnap.forEach((doc) => {
-        const conv = doc.data();
-        const otherParticipant = conv.participantDetails?.find(
-          (p: any) => p.id !== user.uid
-        );
-        
+      conversationsSnap.forEach((d) => {
+        const conv = d.data();
+        const otherParticipant = conv.participantDetails?.find((p: any) => p.id !== user.uid);
         messages.push({
-          id: doc.id,
-          senderName: otherParticipant?.name || 'Client',
-          senderId: otherParticipant?.id || '',
-          lastMessage: conv.lastMessage || 'Nouveau message',
+          id: d.id,
+          senderName: otherParticipant?.name || "Client",
+          senderId: otherParticipant?.id || "",
+          lastMessage: conv.lastMessage || "Nouveau message",
           timestamp: conv.lastMessageTimestamp,
           unread: conv.unreadCount?.[user.uid] > 0 || false,
-          conversationId: doc.id,
+          conversationId: d.id,
         });
-        
         if (conv.unreadCount?.[user.uid] > 0) {
           unreadMessages += conv.unreadCount[user.uid];
         }
       });
 
       setRecentMessages(messages);
-
+      setRecentOrders(recentSlice);
       setStats({
         totalProducts,
         pendingOrders,
@@ -304,41 +326,20 @@ export default function SellerDashboard() {
         totalMessages: conversationsSnap.size,
         unreadMessages,
       });
-
-      // Charger les 5 commandes les plus récentes
-      const recentOrdersQuery = query(
-        collection(db, 'orders'),
-        where('sellerId', '==', user.uid),
-        orderBy('createdAt', 'desc'),
-        limit(5)
-      );
-      
-      const recentSnap = await getDocs(recentOrdersQuery);
-      const orders = recentSnap.docs.map((doc) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          customerName: data.userName || 'Client',
-          total: data.totalAmount || 0,
-          status: data.status || 'pending',
-          createdAt: data.createdAt,
-          items: data.items || [],
-        };
-      });
-      
-      setRecentOrders(orders);
     } catch (error) {
-      console.error('Erreur chargement dashboard:', error);
-      Alert.alert('Erreur', 'Impossible de charger les données du dashboard');
+      console.error("Erreur chargement stats dashboard:", error);
+      if (!fromPullRefresh) {
+        Alert.alert("Erreur", "Certaines statistiques n’ont pas pu être chargées");
+      }
     } finally {
-      setLoading(false);
+      setStatsLoading(false);
       setRefreshing(false);
     }
   };
 
   const handleRefresh = () => {
     setRefreshing(true);
-    loadDashboardData();
+    loadDashboardData(true);
   };
 
   const formatPrice = (price: number) => {
@@ -580,7 +581,7 @@ export default function SellerDashboard() {
               <Ionicons name="cube" size={24} color="#3B82F6" />
             </View>
             <Text style={styles.statValue}>
-              {stats.totalProducts || company?.productCount || 0}
+              {statsLoading ? "—" : stats.totalProducts || company?.productCount || 0}
             </Text>
             <Text style={styles.statLabel}>Produits</Text>
           </View>
@@ -598,7 +599,7 @@ export default function SellerDashboard() {
                 </View>
               )}
             </View>
-            <Text style={styles.statValue}>{stats.pendingOrders}</Text>
+            <Text style={styles.statValue}>{statsLoading ? "—" : stats.pendingOrders}</Text>
             <Text style={styles.statLabel}>En attente</Text>
           </TouchableOpacity>
 
@@ -607,7 +608,9 @@ export default function SellerDashboard() {
             <View style={[styles.statIcon, { backgroundColor: '#D1FAE5' }]}>
               <Ionicons name="cash" size={24} color="#10B981" />
             </View>
-            <Text style={styles.statValue}>{formatPrice(stats.totalRevenue)}</Text>
+            <Text style={styles.statValue}>
+              {statsLoading ? "—" : formatPrice(stats.totalRevenue)}
+            </Text>
             <Text style={styles.statLabel}>Revenu total</Text>
           </View>
         </View>
@@ -666,7 +669,12 @@ export default function SellerDashboard() {
             </View>
           </TouchableOpacity>
 
-          {recentMessages.length === 0 ? (
+          {statsLoading && recentMessages.length === 0 ? (
+            <View style={styles.inlineLoader}>
+              <ActivityIndicator color="#3B82F6" />
+              <Text style={styles.inlineLoaderText}>Chargement des messages…</Text>
+            </View>
+          ) : recentMessages.length === 0 ? (
             <TouchableOpacity 
               style={styles.emptyState}
               onPress={() => router.push('/supplier/messages')}
@@ -720,7 +728,12 @@ export default function SellerDashboard() {
             </View>
           </TouchableOpacity>
 
-          {recentOrders.length === 0 ? (
+          {statsLoading && recentOrders.length === 0 ? (
+            <View style={styles.inlineLoader}>
+              <ActivityIndicator color="#3B82F6" />
+              <Text style={styles.inlineLoaderText}>Chargement des commandes…</Text>
+            </View>
+          ) : recentOrders.length === 0 ? (
             <TouchableOpacity 
               style={styles.emptyState}
               onPress={() => router.push('/seller/add-product')}
@@ -854,6 +867,16 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: 16,
+    color: '#6B7280',
+  },
+  inlineLoader: {
+    paddingVertical: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  inlineLoaderText: {
+    fontSize: 13,
     color: '#6B7280',
   },
   coverImage: {

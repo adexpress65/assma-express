@@ -37,7 +37,19 @@
     "title": "A2Express",
     "subtitle": "BETA",
     "languageChangeError": "Failed to change language:",
-    "searchError": "Search error:"
+    "searchError": "Search error:",
+    "imageSearchTitle": "Search by image",
+    "imageSearchMessage": "Pick a photo — we'll analyze it to search for similar products.",
+    "imageSearchGallery": "Photo library",
+    "imageSearchCamera": "Camera",
+    "imageSearchCancel": "Cancel",
+    "imageSearchAnalyzing": "Analyzing image…",
+    "imageSearchPermissionPhotos": "Allow photo library access to search by image.",
+    "imageSearchPermissionCamera": "Allow camera access to take a photo.",
+    "imageSearchOpenSettings": "Settings",
+    "imageSearchError": "Could not analyze the image. Try another photo.",
+    "imageSearchNoApiKey": "Image search: add EXPO_PUBLIC_GEMINI_API_KEY to your .env file and restart the app.",
+    "imageSearchAccessibility": "Search by image"
   },
   "common": {
     "search": "Search products, suppliers...",

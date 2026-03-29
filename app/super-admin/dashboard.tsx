@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
-  SafeAreaView
+  SafeAreaView,
+  InteractionManager,
 } from "react-native";
 import { Ionicons, MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -19,6 +20,9 @@ import {
   query, 
   where, 
   getDocs,
+  getCountFromServer,
+  getAggregateFromServer,
+  sum,
   orderBy,
   limit,
   doc,
@@ -85,6 +89,8 @@ export default function SuperAdminDashboard() {
   const [pendingCompanies, setPendingCompanies] = useState<PendingCompany[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Affiche le shell du dashboard tout de suite ; le gros ScrollView se monte après la navigation. */
+  const [screenHydrated, setScreenHydrated] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus>({
     firebase: 'checking',
@@ -294,70 +300,86 @@ const handleRejectCompany = async (companyId: string) => {
     }
   };
 
-  // Charger les statistiques DYNAMIQUEMENT depuis Firebase
+  /** Plafond de lectures pour le CA si l’agrégat Firestore échoue (évite de parcourir toute la collection). */
+  const REVENUE_SAMPLE_LIMIT = 5000;
+
+  // Charger les statistiques depuis Firebase (comptages agrégés — plus de getDocs sur collections entières)
   const loadStats = async () => {
     try {
       console.log('📊 Chargement des statistiques depuis Firebase...');
-      
-      // Récupérer toutes les données en parallèle
-      const [
-        companiesSnapshot,
-        pendingSnapshot,
-        productsSnapshot,
-        ordersSnapshot,
-        usersSnapshot,
-        supportSnapshot
-      ] = await Promise.all([
-        getDocs(collection(db, 'companies')),
-        getDocs(query(collection(db, 'companies'), where('verification.status', '==', 'pending'))),
-        getDocs(collection(db, 'products')),
-        getDocs(collection(db, 'orders')).catch(() => ({ size: 0, forEach: () => {} })),
-        getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'supportTickets'), where('status', 'in', ['open', 'pending']))).catch(() => ({ size: 0 }))
-      ]);
 
-      // Calculer les utilisateurs actifs aujourd'hui
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const activeToday = usersSnapshot.docs.filter(doc => {
-        const userData = doc.data();
-        if (userData.lastLogin) {
-          try {
-            const lastLogin = userData.lastLogin.toDate ? userData.lastLogin.toDate() : new Date(userData.lastLogin);
-            return lastLogin >= today;
-          } catch {
-            return false;
-          }
-        }
-        return false;
-      }).length;
+      const todayTs = Timestamp.fromDate(today);
 
-      // Calculer le revenue total
+      const companiesCol = collection(db, 'companies');
+      const pendingQ = query(companiesCol, where('verification.status', '==', 'pending'));
+      const productsCol = collection(db, 'products');
+      const ordersCol = collection(db, 'orders');
+      const usersCol = collection(db, 'users');
+      const supportQ = query(collection(db, 'supportTickets'), where('status', 'in', ['open', 'pending']));
+      const activeQ = query(usersCol, where('lastLogin', '>=', todayTs));
+
+      const [
+        companiesCountSnap,
+        pendingCountSnap,
+        productsCountSnap,
+        ordersCountSnap,
+        usersCountSnap,
+        supportCountSnap,
+        activeTodaySnap,
+      ] = await Promise.all([
+        getCountFromServer(companiesCol),
+        getCountFromServer(pendingQ),
+        getCountFromServer(productsCol),
+        getCountFromServer(ordersCol),
+        getCountFromServer(usersCol),
+        getCountFromServer(supportQ).catch(() => ({ data: () => ({ count: 0 }) })),
+        getCountFromServer(activeQ).catch(() => ({ data: () => ({ count: 0 }) })),
+      ]);
+
+      const activeToday = activeTodaySnap.data().count;
+
       let totalRevenue = 0;
-      if (ordersSnapshot.size > 0) {
-        ordersSnapshot.forEach(doc => {
-          const data = doc.data();
-          totalRevenue += data.totalAmount || data.amount || 0;
+      try {
+        const aggAmount = await getAggregateFromServer(ordersCol, {
+          revenue: sum('totalAmount'),
         });
+        totalRevenue = Number(aggAmount.data().revenue) || 0;
+        if (totalRevenue === 0) {
+          const aggTotal = await getAggregateFromServer(ordersCol, {
+            revenue: sum('total'),
+          });
+          totalRevenue = Number(aggTotal.data().revenue) || 0;
+        }
+      } catch (aggErr) {
+        console.log('Agrégat CA indisponible, échantillon:', aggErr);
+        const revSnap = await getDocs(
+          query(ordersCol, orderBy('createdAt', 'desc'), limit(REVENUE_SAMPLE_LIMIT))
+        ).catch(() => null);
+        if (revSnap) {
+          revSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            totalRevenue += Number(data.totalAmount || data.amount || data.total || 0);
+          });
+        }
       }
 
       const statsData: AdminStats = {
-        totalCompanies: companiesSnapshot.size,
-        pendingVerifications: pendingSnapshot.size,
-        totalProducts: productsSnapshot.size,
-        totalOrders: ordersSnapshot.size,
-        totalUsers: usersSnapshot.size,
+        totalCompanies: companiesCountSnap.data().count,
+        pendingVerifications: pendingCountSnap.data().count,
+        totalProducts: productsCountSnap.data().count,
+        totalOrders: ordersCountSnap.data().count,
+        totalUsers: usersCountSnap.data().count,
         activeToday,
         revenue: totalRevenue,
-        issues: supportSnapshot.size
+        issues: supportCountSnap.data().count,
       };
 
       setStats(statsData);
       console.log('✅ Statistiques chargées:', statsData);
 
-      // Sauvegarder dans le cache
       await AsyncStorage.setItem('superAdminStats', JSON.stringify(statsData));
-      
     } catch (error) {
       console.error('❌ Erreur chargement stats:', error);
       throw error;
@@ -518,13 +540,13 @@ label: "Entreprises",
       count: stats.totalProducts,
       color: "#2196F3"
     },
-    { 
-      label: "Commandes", 
-      icon: "cart", 
-      href: "/super-admin/orders",
-      count: stats.totalOrders,
-      color: "#9C27B0"
-    },
+{ 
+  label: "Commandes", 
+  icon: "cart", 
+  href: "/super-admin/orders", // Pointe vers app/super-admin/orders/index.tsx
+  count: stats.totalOrders,
+  color: "#9C27B0"
+},
     { 
       label: "Ajouter Produit", 
       icon: "add-circle", 
@@ -568,10 +590,19 @@ label: "Entreprises",
   ];
 
   useEffect(() => {
-    if (user) {
+    if (!user) return;
+    const task = InteractionManager.runAfterInteractions(() => {
       loadAdminData();
-    }
+    });
+    return () => task.cancel();
   }, [user]);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setScreenHydrated(true)));
+    });
+    return () => task.cancel();
+  }, []);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -660,6 +691,15 @@ label: "Entreprises",
       <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FF6B00" />
         <Text style={styles.loadingText}>Chargement du dashboard Super Admin...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!screenHydrated) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#FF6B00" />
+        <Text style={styles.loadingText}>Préparation de l’interface…</Text>
       </SafeAreaView>
     );
   }

@@ -80,6 +80,8 @@ export default {
     extra: {
       API_BASE_URL: "https://ngenius-backend.onrender.com",
       REALTIME_URL: "https://ngenius-backend.onrender.com",
+      /** Optionnel : recherche par image (PremiumHeader). Sinon utiliser EXPO_PUBLIC_GEMINI_API_KEY */
+      geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY || "",
       eas: { projectId: "bb3399ba-97b7-4707-80eb-b524775df88a" }
     }
   }

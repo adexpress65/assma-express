@@ -18,6 +18,7 @@ import { useCart, CartItem as CartItemType } from '@/contexts/CartContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { saneQty } from '@/utils/quantity';
+import { isZeroDollarsProduct } from '@/utils/zeroDollarsShop';
 
 const { width } = Dimensions.get('window');
 
@@ -254,12 +255,21 @@ export default function CartScreen() {
     [cartItems, selected]
   );
 
-  const subtotalXOF = useMemo(() => 
-    selectedItems.reduce((sum, item) => {
-      const qty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 0;
-      const price = Number(item.price) || 0;
-      return sum + (price * qty);
-    }, 0),
+  const subtotalXOF = useMemo(
+    () =>
+      selectedItems.reduce((sum, item) => {
+        const qty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 0;
+        const rawPrice = Number(item.price) || 0;
+        const isZero = isZeroDollarsProduct({
+          price: rawPrice,
+          companyName: item.seller || undefined,
+          supplier: (item as any).supplier,
+          seller: item.seller || undefined,
+          name: item.name,
+        });
+        const price = isZero ? 0 : rawPrice;
+        return sum + price * qty;
+      }, 0),
     [selectedItems, quantities]
   );
 
@@ -344,11 +354,12 @@ export default function CartScreen() {
     ]);
   }, [selectedItems, removeFromCart]);
 
-  const handleCheckout = async () => {
+const handleCheckout = async () => {
     if (selectedItems.length === 0) return;
     setIsCheckingOut(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 800));
+      
       const orderData = {
         items: selectedItems.map(item => ({
           id: item.cartId,
@@ -358,6 +369,15 @@ export default function CartScreen() {
           quantity: quantities[item.cartId] ?? item.quantity,
           imageUrl: item.image || item.imageUrl,
           companyName: item.seller || "Kissgroup88",
+          
+          // --- AJOUTS CRUCIAUX POUR LE SHIPPING ---
+          specifications: {
+            // On récupère le poids depuis l'item du panier
+            weight: item.specifications?.weight || (item as any).weight || 0,
+            volume: item.specifications?.volume || (item as any).volume || 0,
+          },
+          hasFreeShipping: item.hasFreeShipping || false,
+          // ----------------------------------------
         })),
         summary: {
           subtotal: Number(subtotalXOF),
@@ -365,13 +385,16 @@ export default function CartScreen() {
           total: Number(subtotalXOF)
         }
       };
+
       router.push({
         pathname: '/checkout', 
         params: { orderData: JSON.stringify(orderData) }
       });
     } catch (error) {
       console.error(error);
-    } finally { setIsCheckingOut(false); }
+    } finally { 
+      setIsCheckingOut(false); 
+    }
   };
 
   const renderCartItem = useCallback(({ item }: { item: CartItemType }) => (

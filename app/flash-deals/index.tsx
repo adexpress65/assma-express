@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db } from '../../src/config/firebase';
+import { isZeroDollarsShop } from '../../src/utils/zeroDollarsShop';
+import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -32,6 +34,7 @@ interface FlashDeal {
   stock: number;
   progress: number;
   companyName: string;
+  supplier?: string;
   isSuperPrice: boolean;
 }
 
@@ -85,7 +88,8 @@ export default function FlashDealsScreen() {
           discount: discount > 0 ? discount : 5, 
           soldCount: data.soldCount || 0,
           stock: data.stockQuantity || 100,
-          companyName: data.companyName || "Boutique",
+          companyName: data.companyName || data.supplier || "Boutique",
+          supplier: data.supplier || data.companyName || "",
           progress: Math.min(Math.round(((data.soldCount || 5) / (data.stockQuantity || 100)) * 100), 98),
           isSuperPrice: currentPrice < 500
         };
@@ -136,7 +140,17 @@ export default function FlashDealsScreen() {
         </Animated.View>
       )}
       
-      <Image source={{ uri: item.imageUrl }} style={styles.image} resizeMode="cover" />
+      <View style={styles.imageWrap}>
+        <Image source={{ uri: item.imageUrl }} style={styles.image} resizeMode="cover" />
+        {isZeroDollarsShop({
+          companyName: item.companyName,
+          supplier: item.supplier,
+        }) && (
+          <View style={styles.flashZeroDollarsBadge}>
+            <ZeroDollarsFreeBadge compact />
+          </View>
+        )}
+      </View>
       
       <View style={styles.cardBody}>
         <Text style={styles.companyName} numberOfLines={1}>{item.companyName}</Text>
@@ -216,7 +230,9 @@ const styles = StyleSheet.create({
   discountText: { color: '#FFF', fontWeight: 'bold', fontSize: 11 },
   superPriceBadge: { position: 'absolute', top: 8, right: 8, zIndex: 10, backgroundColor: COLORS.gold, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1, borderColor: '#FFF' },
   superPriceText: { color: '#000', fontWeight: '900', fontSize: 8, marginLeft: 3 },
+  imageWrap: { position: 'relative', width: '100%' },
   image: { width: '100%', height: 150 },
+  flashZeroDollarsBadge: { position: 'absolute', bottom: 6, left: 6, zIndex: 12 },
   cardBody: { padding: 10 },
   companyName: { fontSize: 10, color: COLORS.textLight, textTransform: 'uppercase' },
   productName: { fontSize: 13, fontWeight: '600', color: COLORS.text, height: 36, marginVertical: 4 },

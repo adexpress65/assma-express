@@ -190,7 +190,7 @@ export default function AnimatedQuickActions() {
               onPress={() => handleActionPress(action)}
             >
               <LinearGradient colors={action.color} style={styles.actionGradient}>
-                <Ionicons name={action.icon as any} size={22} color="#fff" />
+                <Ionicons name={action.icon as any} size={18} color="#fff" />
                 {action.badge && (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>
@@ -213,30 +213,29 @@ export default function AnimatedQuickActions() {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
-    marginTop: 30,
-    marginBottom: 15,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    backgroundColor: 'transparent',
+    marginTop: -12,
+    marginBottom: 0,
+    paddingVertical: 0,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     flexGrow: 1,
   },
   actionWrapper: {
     position: 'relative',
     alignItems: 'center',
-    marginRight: 20,
-    minWidth: 60,
+    marginRight: 28,
+    minWidth: 44,
   },
   lastActionWrapper: {
     marginRight: 0,
   },
   rightSpacer: {
-    width: 16,
-    height: 1,
+    width: 0,
+    height: 0,
   },
   sparkle: {
     position: 'absolute',
@@ -244,21 +243,18 @@ const styles = StyleSheet.create({
   },
   actionItem: {
     alignItems: 'center',
-    width: 60,
+    width: 44,
     zIndex: 2,
   },
   actionGradient: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
+    shadowColor: 'transparent',
     elevation: 5,
   },
   badge: {
@@ -282,6 +278,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 1,
   },
 });

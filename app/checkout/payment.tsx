@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -41,6 +41,7 @@ export default function PaymentScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderData, setOrderData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const hasSubmittedRef = useRef(false);
 
   const API_URL = 'https://ngenius-backend.onrender.com';
 
@@ -52,12 +53,9 @@ export default function PaymentScreen() {
       }
       const parsed = JSON.parse(params.orderData as string);
       
-      // ✅ SÉCURITÉ : On s'assure que tout est traité comme des nombres
       const subtotal = parseFloat(parsed.summary.subtotal || 0);
       const shipping = parseFloat(parsed.summary.shipping || 0);
       
-      // On recalcule systématiquement le total pour éviter les erreurs de virgule
-      // ou les totaux à zéro qui font échouer PayDunya/FedaPay
       parsed.summary.total = subtotal + shipping;
       
       setOrderData(parsed);
@@ -71,27 +69,36 @@ export default function PaymentScreen() {
 
   const handlePayment = async () => {
     if (!orderData || isProcessing || !user) return;
+    if (hasSubmittedRef.current) return;
+    hasSubmittedRef.current = true;
 
     const finalAmount = Math.round(parseFloat(orderData.summary.total));
     
-    // 1. Log de l'envoi (Ce que ton app prépare)
-const payload = {
-  orderId: `ORD-${Date.now()}`,
-  userId: user.uid,
-  amount: finalAmount,
-  currencyCode: "XOF",
+    // ✅ CORRECTION : On s'assure que le poids voyage bien vers le backend
+    const itemsWithSpecs = orderData.items.map((item: any) => ({
+      ...item,
+      specifications: {
+        weight: item.specifications?.weight || "0",
+        volume: item.specifications?.volume || "0",
+      }
+    }));
 
-  email: user.email || `${user.uid}@a2-expres.com`,
-  firstname: user.displayName?.split(' ')[0] || 'Client',
-  lastname: user.displayName?.split(' ')[1] || 'A2Express',
-
-  method: selectedMethod,
-
-  // IMPORTANT
-  items: orderData.items,
-  summary: orderData.summary,
-  shippingAddress: orderData.shippingAddress
-};
+    const payload = {
+      orderId: `ORD-${Date.now()}`,
+      userId: user.uid,
+      amount: finalAmount,
+      currencyCode: "XOF",
+      email: user.email || `${user.uid}@a2-expres.com`,
+      firstname: user.displayName?.split(' ')[0] || 'Client',
+      lastname: user.displayName?.split(' ')[1] || 'A2Express',
+      method: selectedMethod,
+      items: itemsWithSpecs, // Utilise les items avec specs
+      summary: {
+        ...orderData.summary,
+        total: finalAmount
+      },
+      shippingAddress: orderData.shippingAddress
+    };
 
     console.log("🚀 [A2Express] Envoi au Backend :", JSON.stringify(payload, null, 2));
 
@@ -113,7 +120,6 @@ const payload = {
 
       const result = await response.json();
 
-      // 2. Log de la réponse (Ce que Render/PayDunya renvoie)
       console.log("📥 [A2Express] Réponse du Serveur :", JSON.stringify(result, null, 2));
 
       if (!response.ok) {
@@ -130,14 +136,20 @@ const payload = {
             orderData: JSON.stringify(orderData),
           },
         });
+      } else {
+        // Backend OK, mais pas d'URL => autoriser à réessayer
+        hasSubmittedRef.current = false;
+        Alert.alert("Paiement indisponible", result?.error || "URL de paiement introuvable.");
       }
     } catch (error: any) {
       console.error("❌ [A2Express] Erreur Paiement :", error.message);
       Alert.alert("Paiement indisponible", error.message);
+      hasSubmittedRef.current = false;
     } finally {
       setIsProcessing(false);
     }
   };
+
   const renderMethodCard = (id: PaymentMethodType, title: string, subtitle: string, icon: any, color: string) => (
     <TouchableOpacity 
       style={[

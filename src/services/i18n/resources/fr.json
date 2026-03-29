@@ -1,4 +1,4 @@
-﻿{
+{
   "homeScreen": {
     "defaultProductName": "Produit Assma Express",
     "defaultSupplier": "Assma Express",
@@ -37,7 +37,19 @@
     "title": "A2Express",
     "subtitle": "BETA",
     "languageChangeError": "Échec du changement de langue:",
-    "searchError": "Erreur recherche:"
+    "searchError": "Erreur recherche:",
+    "imageSearchTitle": "Recherche par image",
+    "imageSearchMessage": "Choisissez une photo : nous analyserons l'image pour lancer une recherche produits.",
+    "imageSearchGallery": "Galerie",
+    "imageSearchCamera": "Appareil photo",
+    "imageSearchCancel": "Annuler",
+    "imageSearchAnalyzing": "Analyse de l'image…",
+    "imageSearchPermissionPhotos": "Autorisez l'accès à la galerie pour rechercher par image.",
+    "imageSearchPermissionCamera": "Autorisez l'accès à la caméra pour prendre une photo.",
+    "imageSearchOpenSettings": "Paramètres",
+    "imageSearchError": "Impossible d'analyser l'image. Réessayez avec une autre photo.",
+    "imageSearchNoApiKey": "Recherche par image : ajoutez EXPO_PUBLIC_GEMINI_API_KEY dans votre fichier .env puis redémarrez l'app.",
+    "imageSearchAccessibility": "Recherche par image"
   },
   "common": {
     "search": "Rechercher des produits, fournisseurs...",

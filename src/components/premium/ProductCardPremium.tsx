@@ -7,15 +7,15 @@ import {
   Animated,
   Dimensions,
   Platform,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
 import { useRouter } from 'expo-router';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { isZeroDollarsShop } from '@/utils/zeroDollarsShop';
+import ZeroDollarsFreeBadge from '@/components/ZeroDollarsFreeBadge';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = (SCREEN_WIDTH - 24) / 2;
@@ -30,6 +30,7 @@ interface Product {
   images?: string[];
   rating: number;
   supplier: string;
+  companyName?: string;
   minOrder: number;
   deliveryTime: string;
   isVerified: boolean;
@@ -56,7 +57,13 @@ interface Props {
 
 const PRESS_SCALE = 0.98;
 
-export default function ProductCardPremium({
+// Configuration du cache pour les images
+const IMAGE_CACHE_POLICY = {
+  cachePolicy: 'memory-disk',
+  transition: 200,
+};
+
+function ProductCardPremiumComponent({
   product,
   style,
   onPress,
@@ -71,42 +78,41 @@ export default function ProductCardPremium({
 
   const [isFavorite, setIsFavorite] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [loading, setLoading] = useState(false);
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const heartScale = useRef(new Animated.Value(1)).current;
 
-const allImages = useMemo(() => {
-  let list = [];
-  if (product.images && product.images.length > 0) {
-    list = [...product.images];
-  } else {
-    list = [product.mainImage || product.imageUrl || ""];
-  }
+  // Mémoïsation des images avec cache optimisé
+  const allImages = useMemo(() => {
+    let list = [];
+    if (product.images && product.images.length > 0) {
+      list = [...product.images];
+    } else {
+      list = [product.mainImage || product.imageUrl || ""];
+    }
 
-  return list
-    .filter(Boolean)
-    .map(url => {
-      // 🔧 NETTOYAGE : Trim l'URL
-      if (!url || typeof url !== 'string') return null;
-      url = url.trim();
-      
-      if (!url) return null;
-      
-      if (url.includes("firebasestorage.googleapis.com") && !url.includes("alt=media")) {
-        return url.includes("?") ? `${url}&alt=media` : `${url}?alt=media`;
-      }
-      return url;
-    })
-    .filter(Boolean); // Enlever les nulls
-}, [product.images, product.mainImage, product.imageUrl]);
+    return list
+      .filter(Boolean)
+      .map(url => {
+        if (!url || typeof url !== 'string') return null;
+        url = url.trim();
+        
+        if (!url) return null;
+        
+        // Optimisation des URLs Firebase Storage
+        if (url.includes("firebasestorage.googleapis.com") && !url.includes("alt=media")) {
+          return url.includes("?") ? `${url}&alt=media` : `${url}?alt=media`;
+        }
+        return url;
+      })
+      .filter(Boolean);
+  }, [product.images, product.mainImage, product.imageUrl]);
 
-// 🔧 PROTECTION : S'assurer qu'il y a toujours au moins une image
-const safeImages = allImages.length > 0 ? allImages : [''];
-const currentImageUrl = safeImages[currentImageIndex] || '';
+  const safeImages = useMemo(() => allImages.length > 0 ? allImages : [''], [allImages]);
+  const currentImageUrl = useMemo(() => safeImages[currentImageIndex] || '', [safeImages, currentImageIndex]);
 
+  // Intervalle de rotation des images optimisé
   useEffect(() => {
     if (allImages.length <= 1) return;
 
@@ -117,9 +123,9 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
     return () => clearInterval(interval);
   }, [allImages.length]);
 
-  const stockValue = product.stockQuantity ?? product.stock ?? 0;
-  const isOutOfStock = stockValue === 0;
+  const stockValue = useMemo(() => product.stockQuantity ?? product.stock ?? 0, [product]);
 
+  // Animations optimisées avec useCallback
   const handlePressIn = useCallback(() => {
     if (!disableInternalPress) {
       Animated.spring(scaleAnim, {
@@ -129,7 +135,7 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
         friction: 20,
       }).start();
     }
-  }, [disableInternalPress]);
+  }, [disableInternalPress, scaleAnim]);
 
   const handlePressOut = useCallback(() => {
     if (!disableInternalPress) {
@@ -140,11 +146,10 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
         friction: 20,
       }).start();
     }
-  }, [disableInternalPress]);
+  }, [disableInternalPress, scaleAnim]);
 
-  // NAVIGATION EN 2 ÉTAPES CORRIGÉE
-  const handleProductPress = useCallback(async () => {
-    // BUG 2 CORRIGÉ : Vérification stricte du disableInternalPress
+  // NAVIGATION INSTANTANÉE - Plus de getDoc Firebase
+  const handleProductPress = useCallback(() => {
     if (disableInternalPress) {
       console.log('🚫 Navigation interne désactivée');
       return;
@@ -155,59 +160,47 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
       return;
     }
 
-    console.log('🔄 Navigation en 2 étapes vers produit:', product.id);
-    setLoading(true);
+    console.log('⚡ Navigation instantanée vers produit:', product.id);
 
-    try {
-      // Vérifier si c'est un lien externe
-      if (product.originalLink) {
-        console.log('🔗 Lien externe détecté');
-        router.push({
-          pathname: "/webview",
-          params: { url: product.originalLink, title: product.name },
-        });
-        return;
-      }
+    // Vérifier si c'est un lien externe
+    if (product.originalLink) {
+      console.log('🔗 Lien externe détecté');
+      router.push({
+        pathname: "/webview",
+        params: { url: product.originalLink, title: product.name },
+      });
+      return;
+    }
 
-      // ÉTAPE 1: Charger le produit complet depuis Firestore
-      console.log('📦 Étape 1 - Chargement Firestore pour:', product.id);
-      const productRef = doc(db, 'products', product.id);
-      const productSnap = await getDoc(productRef);
-      
-      if (productSnap.exists()) {
-        const fullProduct = {
-          id: productSnap.id,
-          ...productSnap.data()
-        };
-        console.log('✅ Produit chargé avec succès');
-        
-        // ÉTAPE 2: Navigation avec les données complètes
-        console.log('➡️ Étape 2 - Navigation vers fiche produit');
-        
-        // Utiliser le bon chemin selon le contexte
-        if (isCategoryPage || isProductDetail) {
-          router.push(`/product/${product.id}`);
-        } else {
-          router.push({
-            pathname: `/product/${product.id}`,
-            params: { 
-              productData: JSON.stringify(fullProduct),
-              fromList: 'true',
-              categoryId: product.categoryId || 'all'
-            }
-          });
-        }
-      } else {
-        console.warn('⚠️ Produit non trouvé dans Firestore');
-        // Fallback: navigation simple
-        router.push(`/product/${product.id}`);
-      }
-    } catch (error) {
-      console.error('❌ Erreur navigation produit:', error);
-      // Fallback en cas d'erreur
+    // NAVIGATION INSTANTANÉE : On passe l'objet produit complet via params
+    const navigationParams = {
+      productId: product.id,
+      fromList: 'true',
+      categoryId: product.categoryId || 'all',
+      // On passe les données essentielles pour l'affichage immédiat
+      initialProductData: JSON.stringify({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        originalPrice: product.originalPrice,
+        mainImage: product.mainImage,
+        images: product.images,
+        supplier: product.supplier,
+        minOrder: product.minOrder,
+        deliveryTime: product.deliveryTime,
+        isVerified: product.isVerified,
+        hasFreeShipping: product.hasFreeShipping,
+      }),
+    };
+
+    // Utiliser le bon chemin selon le contexte
+    if (isCategoryPage || isProductDetail) {
       router.push(`/product/${product.id}`);
-    } finally {
-      setLoading(false);
+    } else {
+      router.push({
+        pathname: `/product/${product.id}`,
+        params: navigationParams
+      });
     }
   }, [onPress, disableInternalPress, product, router, isCategoryPage, isProductDetail]);
 
@@ -231,11 +224,15 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
     setIsFavorite((v) => !v);
   }, [heartScale]);
 
-  const discount = product.originalPrice && product.originalPrice > product.price
-    ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
-    : 0;
+  // Mémoïsation des valeurs calculées
+  const discount = useMemo(() => 
+    product.originalPrice && product.originalPrice > product.price
+      ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
+      : 0,
+    [product.originalPrice, product.price]
+  );
 
-  const formatPrice = (priceInXOF: number) => {
+  const formatPrice = useCallback((priceInXOF: number) => {
     const converted = priceInXOF * currency.rate;
     if (currency.code === 'XOF') {
       return Math.round(converted).toLocaleString('fr-FR');
@@ -244,9 +241,21 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-  };
+  }, [currency]);
 
-  const moq = product.minOrderQuantity || product.minOrder || product.moq || 1;
+  const moq = useMemo(() => 
+    product.minOrderQuantity || product.minOrder || product.moq || 1,
+    [product]
+  );
+
+  const showZeroDollarsFree = useMemo(
+    () =>
+      isZeroDollarsShop({
+        supplier: product.supplier,
+        companyName: product.companyName,
+      }),
+    [product.supplier, product.companyName]
+  );
 
   const ContainerComponent = disableInternalPress ? View : TouchableOpacity;
   const containerProps = disableInternalPress
@@ -256,43 +265,24 @@ const currentImageUrl = safeImages[currentImageIndex] || '';
         onPress: handleProductPress,
         onPressIn: handlePressIn,
         onPressOut: handlePressOut,
-        disabled: loading,
       };
 
-return (
+  return (
     <View style={[styles.container, style]}>
       <Animated.View style={{ transform: [{ scale: disableInternalPress ? 1 : scaleAnim }] }}>
         <ContainerComponent {...containerProps}>
           <View style={styles.imageContainer}>
-            {loading && (
-              <View style={styles.loadingOverlay}>
-                <Ionicons name="sync" size={24} color="#ff6a00" />
-              </View>
-            )}
-            
-            {/* Gestion des états de chargement et d'erreur */}
-            {imageLoading && !imageError ? (
-              <View style={styles.imageFallback}>
-                <Ionicons name="sync" size={32} color="#ff6a00" />
-              </View>
-            ) : imageError ? (
-              <View style={styles.imageFallback}>
-                <Ionicons name="image-outline" size={32} color="#ccc" />
-              </View>
-            ) : currentImageUrl ? (
+            {/* Image avec expo-image et cache memory-disk */}
+            {currentImageUrl && !imageError ? (
               <Image
                 source={{ uri: currentImageUrl }}
                 style={styles.productImage}
-                resizeMode="cover"
-                onLoadStart={() => setImageLoading(true)}
-                onLoadEnd={() => {
-                  setImageLoading(false);
-                  setImageError(false);
-                }}
-                onError={() => {
-                  setImageError(true);
-                  setImageLoading(false);
-                }}
+                contentFit="cover"
+                transition={200}
+                cachePolicy="memory-disk"
+                priority={currentImageIndex === 0 ? "high" : "normal"}
+                recyclingKey={`${product.id}-${currentImageIndex}`}
+                onError={() => setImageError(true)}
               />
             ) : (
               <View style={styles.imageFallback}>
@@ -306,11 +296,21 @@ return (
               </View>
             )}
 
+            {showZeroDollarsFree && (
+              <View
+                style={[
+                  styles.zeroDollarsBadgeWrap,
+                  { top: discount > 0 ? 34 : 8 },
+                ]}
+              >
+                <ZeroDollarsFreeBadge onlyFreeText />
+              </View>
+            )}
+
             <TouchableOpacity
               style={styles.favoriteButton}
               onPress={toggleFavorite}
               activeOpacity={0.8}
-              disabled={loading}
             >
               <Animated.View style={{ transform: [{ scale: heartScale }] }}>
                 <Ionicons
@@ -321,7 +321,7 @@ return (
               </Animated.View>
             </TouchableOpacity>
 
-            {allImages.length > 1 && !loading && !imageLoading && (
+            {allImages.length > 1 && (
               <View style={styles.pagination}>
                 {allImages.map((_, i) => (
                   <View
@@ -388,7 +388,15 @@ return (
       </Animated.View>
     </View>
   );
-};
+}
+
+// Définir displayName pour le débogage
+ProductCardPremiumComponent.displayName = 'ProductCardPremium';
+
+// Export avec React.memo correct
+const ProductCardPremium = React.memo(ProductCardPremiumComponent);
+
+export default ProductCardPremium;
 
 const styles = StyleSheet.create({
   container: {
@@ -444,6 +452,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.3,
   },
+  zeroDollarsBadgeWrap: {
+    position: 'absolute',
+    left: 8,
+    zIndex: 2,
+  },
   favoriteButton: {
     position: 'absolute',
     top: 8,
@@ -487,17 +500,6 @@ const styles = StyleSheet.create({
   paginationDotActive: {
     width: 8,
     backgroundColor: '#fff',
-  },
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 10,
   },
   infoContainer: {
     padding: 14,

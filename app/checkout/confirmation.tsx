@@ -111,6 +111,10 @@ export default function ConfirmationScreen() {
   }, []);
 
   const handleReturnHome = () => {
+    if (isSuccess) {
+      router.replace('/orders');
+      return;
+    }
     router.replace('/(tabs)');
   };
 
@@ -165,9 +169,13 @@ export default function ConfirmationScreen() {
           style={[styles.button, !isSuccess && { backgroundColor: COLORS.text }]} 
           onPress={handleReturnHome}
         >
-          <Ionicons name={isSuccess ? "home" : "refresh"} size={22} color={COLORS.white} />
+          <Ionicons
+            name={isSuccess ? "receipt-outline" : "refresh"}
+            size={22}
+            color={COLORS.white}
+          />
           <Text style={styles.buttonText}>
-            {isSuccess ? "Retour à l'accueil" : "Réessayer"}
+            {isSuccess ? "Voir mes commandes" : "Réessayer"}
           </Text>
         </TouchableOpacity>
 

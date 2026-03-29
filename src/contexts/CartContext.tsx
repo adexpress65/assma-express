@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { doc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../config/firebase";
+import { isZeroDollarsProduct } from "../utils/zeroDollarsShop";
 
 export interface CartItem {
   id: string;
@@ -16,6 +17,7 @@ export interface CartItem {
   selectedSize?: string | null;
   selectedColor?: string | null;
   seller?: string | null;
+  sellerId?: string | null;
   minOrder?: number | null;
   inStock?: boolean | null;
   hasFreeShipping?: boolean; 
@@ -95,15 +97,25 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (stored) {
         try {
           const parsed = JSON.parse(stored);
-          setCartItems(parsed.map((item: any) => ({
-            ...item,
-            cartId: item.cartId || `${item.id}-${item.selectedSize || 'NS'}-${item.selectedColor || 'NS'}`,
-            quantity: saneQty(item.quantity),
-            originalCurrency: 'XOF',
-            // ✅ Nettoyage préventif des images stockées localement
-            image: fixFirebaseUrl(item.image),
-            hasFreeShipping: !!item.hasFreeShipping, 
-          })));
+          setCartItems(parsed.map((item: any) => {
+            const cleanPrice = Number(item.price) || 0;
+            const isZero = isZeroDollarsProduct({
+              price: cleanPrice,
+              companyName: item.companyName ?? item.seller ?? item.supplier,
+              supplier: item.supplier,
+              seller: item.seller,
+              name: item.name,
+            });
+            return {
+              ...item,
+              cartId: `${item.id}-${item.selectedSize || 'NS'}-${item.selectedColor || 'NS'}`,
+              quantity: saneQty(item.quantity),
+              originalCurrency: 'XOF',
+              image: fixFirebaseUrl(item.image),
+              hasFreeShipping: !!item.hasFreeShipping,
+              price: isZero ? 0 : cleanPrice,
+            };
+          }));
         } catch (e) { console.error("Err parse local cart", e); }
       }
     });
@@ -149,13 +161,23 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setCartItems(prev => {
           const merged = [...prev];
           remoteItems.forEach((ri: any) => {
-            if (!merged.find(li => li.cartId === ri.cartId)) {
+            const normalizedRiCartId = `${ri.id}-${ri.selectedSize || 'NS'}-${ri.selectedColor || 'NS'}`;
+            if (!merged.find(li => li.cartId === normalizedRiCartId)) {
+              const cleanPrice = Number(ri.price) || 0;
+              const isZero = isZeroDollarsProduct({
+                price: cleanPrice,
+                companyName: ri.companyName ?? ri.seller ?? ri.supplier,
+                supplier: ri.supplier,
+                seller: ri.seller,
+                name: ri.name,
+              });
               merged.push({
                 ...ri,
-                // ✅ Nettoyage des images venant du cloud
+                cartId: normalizedRiCartId,
                 image: fixFirebaseUrl(ri.image),
                 originalCurrency: 'XOF',
                 hasFreeShipping: !!ri.hasFreeShipping,
+                price: isZero ? 0 : cleanPrice,
               });
             }
           });
@@ -171,9 +193,22 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const uniqueCartId = `${product.id}-${product.selectedSize || 'NS'}-${product.selectedColor || 'NS'}`;
       const existing = prev.find((i) => i.cartId === uniqueCartId);
       const qtyToAdd = saneQty(product.quantity ?? 1);
-      const finalPrice = Number(product.price) || 0;
+      const rawPrice = Number(product.price) || 0;
+      const isZero = isZeroDollarsProduct({
+        price: rawPrice,
+        basePrice: product.variantInfo?.basePrice ?? product.basePrice,
+        companyName: product.companyName ?? product.supplier ?? product.seller,
+        supplier: product.supplier,
+        seller: product.seller,
+        name: product.name,
+      });
+      const finalPrice = isZero ? 0 : rawPrice;
 
       const cleanStr = (str: any) => (typeof str === 'string' ? str.trim() : null);
+      const cleanId = (v: any) => {
+        const s = typeof v === "string" ? v.trim() : "";
+        return s.length ? s : null;
+      };
 
       const newItem: CartItem = {
         id: product.id,
@@ -187,6 +222,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         selectedSize: cleanStr(product.selectedSize),
         selectedColor: cleanStr(product.selectedColor),
         seller: cleanStr(product.seller ?? product.supplier ?? product.companyName) || "A2Express",
+        sellerId: cleanId(product.sellerId ?? product.companyId ?? product.storeId ?? product.merchantId),
         minOrder: Number(product.minOrder) || 1,
         inStock: product.inStock ?? true,
         hasFreeShipping: product.hasFreeShipping ?? false, 

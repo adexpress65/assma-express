@@ -4,8 +4,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { 
   Platform, Modal, View, Text, Animated, StyleSheet, 
-  Dimensions, TouchableOpacity, Image, Alert
+  Dimensions, TouchableOpacity, Alert
 } from "react-native";
+import { Image } from "expo-image";
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, query, where, getDocs, limit, doc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../../src/config/firebase'; // Assure-toi d'importer auth
@@ -47,12 +48,10 @@ useEffect(() => {
         console.log("TON TOKEN EXPO :", token);
         console.log("******************************************");
 
-        // Alerte simple (SANS Clipboard pour éviter l'erreur Native Module)
-        Alert.alert(
-          "Token généré",
-          token, // Le token s'affiche ici sur ton téléphone
-          [{ text: "OK" }]
-        );
+        // Démo uniquement : une Alert bloque l’UI et décourage les utilisateurs
+        if (__DEV__) {
+          Alert.alert("Token généré (dev)", token, [{ text: "OK" }]);
+        }
 
         // Sauvegarde automatique dans Firestore
         const user = auth.currentUser;
@@ -65,9 +64,6 @@ useEffect(() => {
         console.log("Erreur setup notifications:", error);
       }
     };
-
-    setupNotifications();
-    // ... la suite de ton code (prepareFlashSale, etc.)
 
     // --- 2. LOGIQUE VENTE FLASH (Ton code existant) ---
     const prepareFlashSale = async () => {
@@ -89,11 +85,14 @@ useEffect(() => {
           };
         });
 
-        const prefetchImages = items.map(item => {
-          if (item.image) return Image.prefetch(item.image);
-        });
+        const imageUris = items
+          .map((item) => item.image)
+          .filter(Boolean)
+          .map((item) => String(item));
 
-        await Promise.all(prefetchImages);
+        if (imageUris.length > 0) {
+          await Image.prefetch(imageUris, 'memory-disk');
+        }
         setProducts(items);
         
         if (items.length > 0) {
@@ -108,8 +107,8 @@ useEffect(() => {
       }
     };
 
-    setupNotifications(); // Lancement des notifications
-    prepareFlashSale(); // Lancement vente flash
+    setupNotifications();
+    prepareFlashSale();
 
     Animated.loop(
       Animated.sequence([
@@ -143,7 +142,13 @@ useEffect(() => {
               <View style={styles.productRow}>
                 {products.map((p, i) => (
                   <View key={p.id || i} style={styles.productCircle}>
-                    <Image source={{ uri: p.image }} style={styles.prodImg} />
+                    <Image
+                      source={{ uri: p.image }}
+                      style={styles.prodImg}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
+                    />
                     <View style={styles.priceBadge}>
                       <Text style={styles.priceBadgeText}>{p.price}F</Text>
                     </View>
@@ -193,7 +198,7 @@ const styles = StyleSheet.create({
   megaSubtitle: { color: '#FFD700', fontSize: 14, fontWeight: '700', marginBottom: 5 },
   productRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginVertical: 25 },
   productCircle: { width: 85, height: 85, borderRadius: 43, backgroundColor: '#FFF', borderWidth: 3, borderColor: '#FFD700', overflow: 'hidden', elevation: 5 },
-  prodImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  prodImg: { width: '100%', height: '100%' },
   priceBadge: { position: 'absolute', bottom: 2, alignSelf: 'center', backgroundColor: '#FFD700', paddingHorizontal: 6, borderRadius: 8 },
   priceBadgeText: { fontSize: 9, fontWeight: '900', color: '#000' },
   actionButton: { backgroundColor: '#FFF', paddingHorizontal: 40, paddingVertical: 14, borderRadius: 30, elevation: 8 },

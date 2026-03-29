@@ -14,10 +14,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot } from 'firebase/firestore';
+
+/** Évite de synchroniser des milliers de commandes (très lent + coûteux). Ajuster / pagination plus tard. */
+const ORDERS_PAGE_LIMIT = 150;
 import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { fr } from 'date-fns/locale/fr';
+import { format } from 'date-fns';
 
 
 type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered';
@@ -34,7 +38,7 @@ interface OrderItem {
 interface Order {
   id: string;
   userName: string;
-  totalAmount: number;
+  total: number;
   status: OrderStatus;
   createdAt: Date;
   items: OrderItem[];
@@ -82,34 +86,70 @@ export default function SupplierOrdersScreen() {
 
     setLoading(true);
     const ordersRef = collection(db, 'orders');
-    const q = query(
+    const qSellerId = query(
       ordersRef,
       where('sellerId', '==', user.uid),
-      orderBy('createdAt', 'desc')
+      orderBy('createdAt', 'desc'),
+      limit(ORDERS_PAGE_LIMIT)
+    );
+    const qSellerIds = query(
+      ordersRef,
+      where('sellerIds', 'array-contains', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(ORDERS_PAGE_LIMIT)
     );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const ordersList = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data().createdAt?.toDate() || new Date(),
-        })) as Order[];
+    let latestA: Order[] = [];
+    let latestB: Order[] = [];
+    const mergeAndSet = () => {
+      const byId = new Map<string, Order>();
+      [...latestA, ...latestB].forEach((o) => byId.set(o.id, o));
+      const merged = Array.from(byId.values()).sort(
+        (a, b) => (b.createdAt?.getTime?.() || 0) - (a.createdAt?.getTime?.() || 0)
+      );
+      setOrders(merged);
+      setLoading(false);
+      setRefreshing(false);
+    };
 
-        setOrders(ordersList);
-        setLoading(false);
-        setRefreshing(false);
+    const unsubA = onSnapshot(
+      qSellerId,
+      (snapshot) => {
+        latestA = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as any),
+          createdAt: (doc.data() as any).createdAt?.toDate?.() || new Date(),
+        })) as Order[];
+        mergeAndSet();
       },
       (error) => {
-        console.error('Erreur lors du chargement des commandes:', error);
+        console.error('Erreur lors du chargement des commandes (sellerId):', error);
         Alert.alert('Erreur', 'Impossible de charger les commandes');
         setLoading(false);
         setRefreshing(false);
       }
     );
 
-    return () => unsubscribe();
+    const unsubB = onSnapshot(
+      qSellerIds,
+      (snapshot) => {
+        latestB = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as any),
+          createdAt: (doc.data() as any).createdAt?.toDate?.() || new Date(),
+        })) as Order[];
+        mergeAndSet();
+      },
+      (error) => {
+        console.error('Erreur lors du chargement des commandes (sellerIds):', error);
+        // Pas d'alerte doublon: on garde celle du flux principal
+      }
+    );
+
+    return () => {
+      unsubA();
+      unsubB();
+    };
   }, [user]);
 
   // Filtrage des commandes selon l'onglet actif
@@ -148,10 +188,28 @@ export default function SupplierOrdersScreen() {
   const formatPrice = (price: number) => {
     return `${price.toLocaleString()} XOF`;
   };
+  
+// --- SYSTÈME DE NETTOYAGE D'IMAGE ---
+  const getCleanImage = (item: any) => {
+    if (!item) return null;
+    let uri = item.image || item.imageUrl || item.photoURL;
+    if (!uri || typeof uri !== 'string') return null;
+
+    try {
+      let clean = uri.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, '');
+      if (clean.includes('/products/') && !clean.includes('products%2F')) {
+        clean = clean.replace('/products/', '/products%2F');
+      }
+      return clean;
+    } catch (e) {
+      return uri;
+    }
+  };
 
   const renderOrderCard = ({ item }: { item: Order }) => {
-    const statusInfo = statusConfig[item.status];
-    const firstItem = item.items[0];
+    const statusInfo = statusConfig[item.status] || statusConfig.pending;
+    const firstItem = item.items && item.items[0];
+    const cleanUri = getCleanImage(firstItem);
 
     return (
       <TouchableOpacity
@@ -160,10 +218,13 @@ export default function SupplierOrdersScreen() {
         activeOpacity={0.7}
       >
         <View style={styles.cardContent}>
-          {/* Image du premier article */}
           <View style={styles.imageContainer}>
-            {firstItem?.imageUrl ? (
-              <Image source={{ uri: firstItem.imageUrl }} style={styles.image} />
+            {cleanUri ? (
+              <Image 
+                source={{ uri: cleanUri }} 
+                style={styles.image} 
+                resizeMode="cover"
+              />
             ) : (
               <View style={styles.imagePlaceholder}>
                 <Ionicons name="image-outline" size={24} color="#9CA3AF" />
@@ -171,10 +232,9 @@ export default function SupplierOrdersScreen() {
             )}
           </View>
 
-          {/* Informations de la commande */}
           <View style={styles.orderInfo}>
             <View style={styles.headerRow}>
-              <Text style={styles.orderId}>Commande #{item.id.slice(-6)}</Text>
+              <Text style={styles.orderId}>Commande #{item.id.slice(-6).toUpperCase()}</Text>
               <View style={[styles.statusBadge, { backgroundColor: statusInfo.bgColor }]}>
                 <Ionicons name={statusInfo.icon as any} size={12} color={statusInfo.color} />
                 <Text style={[styles.statusText, { color: statusInfo.color }]}>
@@ -183,12 +243,12 @@ export default function SupplierOrdersScreen() {
               </View>
             </View>
 
-            <Text style={styles.customerName}>{item.userName}</Text>
+            <Text style={styles.customerName}>{item.userName || 'Client inconnu'}</Text>
             
             <View style={styles.itemsPreview}>
               <Ionicons name="cube-outline" size={14} color="#6B7280" />
               <Text style={styles.itemsText} numberOfLines={1}>
-                {item.items.map((i) => i.name).join(', ')}
+                {item.items ? item.items.map((i) => i.name).join(', ') : 'Aucun produit'}
               </Text>
             </View>
 
@@ -197,12 +257,11 @@ export default function SupplierOrdersScreen() {
                 <Ionicons name="calendar-outline" size={14} color="#9CA3AF" />
                 <Text style={styles.dateText}>{formatDate(item.createdAt)}</Text>
               </View>
-              <Text style={styles.totalAmount}>{formatPrice(item.totalAmount)}</Text>
+              <Text style={styles.totalAmount}>{formatPrice(item.total)}</Text>
             </View>
           </View>
         </View>
 
-        {/* Indicateur de navigation */}
         <View style={styles.chevronContainer}>
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
         </View>

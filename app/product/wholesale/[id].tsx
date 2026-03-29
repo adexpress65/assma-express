@@ -20,13 +20,14 @@ import { doc, getDoc, collection, query, where, limit, getDocs } from 'firebase/
 import { db } from '../../../src/config/firebase';
 
 // Imports des composants
-import ShippingCalculator from '../../../src/components/ShippingCalculator';
 import ActionFooter from '../../../src/components/ActionFooter';
 import WholesaleQuoteForm from '../../../src/components/WholesaleQuoteForm';
 import ProductGallery from '../../../src/components/ProductGallery';
 import TrustBadges from '../../../src/components/TrustBadges';
 import { useCart } from '../../../src/contexts/CartContext';
 import { useCurrency } from '../../../src/contexts/CurrencyContext';
+import { isZeroDollarsShop, isZeroDollarsProduct } from '../../../src/utils/zeroDollarsShop';
+import ZeroDollarsFreeBadge from '../../../src/components/ZeroDollarsFreeBadge';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 32 - 12) / 2;
@@ -466,9 +467,9 @@ export default function ProductDetailScreen() {
   // --- CALCUL DU PRIX TOTAL ---
   const totalPrice = useMemo(() => {
     return Object.values(orderMatrix).reduce((sum, item) => {
-      return sum + (item.price * item.quantity);
+      return sum + (getEffectiveUnitPrice(item) * item.quantity);
     }, 0);
-  }, [orderMatrix]);
+  }, [orderMatrix, getEffectiveUnitPrice]);
 
   // --- VÉRIFICATION SI LE MOQ EST ATTEINT ---
   const isMOQReached = useMemo(() => {
@@ -481,6 +482,15 @@ export default function ProductDetailScreen() {
   // --- PRIX UNITAIRE EFFECTIF POUR CHAQUE LIGNE ---
   const getEffectiveUnitPrice = (item: OrderMatrixItem) => {
     if (!product) return item.price;
+    const isZero = isZeroDollarsProduct({
+      price: item.price,
+      basePrice: product.basePrice as any,
+      companyName: product.companyName,
+      supplier: product.supplier,
+      seller: (product as any).seller,
+      name: product.name,
+    });
+    if (isZero) return 0;
     
     if (isWholesale) {
       const existingVariant = product.variants?.find(
@@ -755,6 +765,14 @@ const handleChat = () => {
             style={styles.similarProductImage}
             resizeMode="cover"
           />
+          {isZeroDollarsShop({
+            companyName: product.companyName,
+            supplier: product.supplier,
+          }) && (
+            <View style={styles.similarZeroDollarsBadge}>
+              <ZeroDollarsFreeBadge compact />
+            </View>
+          )}
           {product.premiumSupplier && (
             <View style={styles.premiumBadgeSmall}>
               <Ionicons name="star" size={10} color="#FFF" />
@@ -932,6 +950,12 @@ const handleChat = () => {
               <View style={[styles.badge, styles.premiumBadge]}>
                 <Text style={styles.badgeText}>Premium</Text>
               </View>
+            ) : null}
+            {isZeroDollarsShop({
+              companyName: product.companyName,
+              supplier: product.supplier,
+            }) ? (
+              <ZeroDollarsFreeBadge />
             ) : null}
           </View>
           
@@ -1201,17 +1225,6 @@ const handleChat = () => {
             </View>
           </View>
         ) : null}
-
-        {/* CALCULATEUR DE LIVRAISON */}
-        <ShippingCalculator 
-          productId={product.id}
-          quantity={totalQuantity || product.minOrder}
-          weight={product.specifications?.weight}
-          shippingCost={product.shippingCost}
-          onOptionsPress={() => {
-            console.log("Options de livraison détaillées demandées");
-          }}
-        />
 
         {/* BOUTON DEVIS GROSSISTE */}
         <TouchableOpacity 
@@ -1913,6 +1926,12 @@ const styles = StyleSheet.create({
   similarProductImage: {
     width: '100%',
     height: '100%',
+  },
+  similarZeroDollarsBadge: {
+    position: 'absolute',
+    bottom: 6,
+    left: 6,
+    zIndex: 2,
   },
   premiumBadgeSmall: {
     position: 'absolute',

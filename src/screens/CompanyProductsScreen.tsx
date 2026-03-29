@@ -18,7 +18,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { getProductsByCompany, Product } from "../services/firebase/productsService";
 import { getCompanyById, Company } from "../services/firebase/companyService";
 import { Ionicons } from "@expo/vector-icons";
-import { useCart } from "../contexts/CartContext";
+import { useCart } from '../contexts/CartContext';
+import { isZeroDollarsProduct } from '../utils/zeroDollarsShop';
 
 const { width } = Dimensions.get("window");
 
@@ -178,10 +179,19 @@ export default function CompanyProductsScreen() {
     try {
       console.log('🛒 Ajout au panier:', selectedProduct.name);
       
+      const rawPrice = selectedProduct.price || 0;
+      const price = isZeroDollarsProduct({
+        price: rawPrice,
+        companyName: selectedProduct.companyName || companyName,
+        supplier: selectedProduct.supplier,
+        seller: companyName || undefined,
+        name: selectedProduct.name,
+      }) ? 0 : rawPrice;
+
       const cartProduct = {
         id: selectedProduct.id,
         name: selectedProduct.name,
-        price: selectedProduct.price || 0,
+        price,
         quantity: quantity,
         image: selectedProduct.imageUrl || '',
         seller: companyName || selectedProduct.companyName || 'Boutique',
@@ -225,10 +235,19 @@ export default function CompanyProductsScreen() {
 
     setAddToCartLoading(true);
     try {
+      const rawPrice = selectedProduct.price || 0;
+      const price = isZeroDollarsProduct({
+        price: rawPrice,
+        companyName: selectedProduct.companyName || companyName,
+        supplier: selectedProduct.supplier,
+        seller: companyName || undefined,
+        name: selectedProduct.name,
+      }) ? 0 : rawPrice;
+
       const cartProduct = {
         id: selectedProduct.id,
         name: selectedProduct.name,
-        price: selectedProduct.price || 0,
+        price,
         quantity: quantity,
         image: selectedProduct.imageUrl || '',
         seller: companyName || selectedProduct.companyName || 'Boutique',

@@ -11,7 +11,8 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { db } from "../src/config/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { useCart } from "../src/contexts/CartContext";
+import { useCart } from "@/contexts/CartContext";
+import { isZeroDollarsProduct } from "@/utils/zeroDollarsShop";
 
 export default function SearchScreen() {
   const { q } = useLocalSearchParams<{ q: string }>();
@@ -104,8 +105,18 @@ export default function SearchScreen() {
                 {item.description}
               </Text>
             )}
-            {item.price && (
-              <Text style={styles.price}>{item.price} F CFA</Text>
+            {typeof item.price !== "undefined" && (
+              <Text style={styles.price}>
+                {isZeroDollarsProduct({
+                  price: item.price,
+                  companyName: item.companyName,
+                  supplier: item.supplier,
+                  seller: item.seller,
+                  name: item.name,
+                })
+                  ? "0 F CFA"
+                  : `${item.price} F CFA`}
+              </Text>
             )}
 
             <TouchableOpacity

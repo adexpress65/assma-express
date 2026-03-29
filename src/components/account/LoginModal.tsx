@@ -64,7 +64,7 @@ type FirebaseError = {
   message: string;
 };
 
-// Constantes pour éviter les magic strings
+// Constantes pour Ã©viter les magic strings
 const USER_ROLES = {
   CLIENT: 'client',
   ADMIN: 'admin',
@@ -78,12 +78,12 @@ const ERROR_MESSAGES = {
     message: 'L\'adresse email n\'est pas valide.'
   },
   EMAIL_ALREADY_IN_USE: {
-    title: 'Email déjà utilisé',
-    message: 'Cette adresse email est déjà associée à un compte.'
+    title: 'Email dÃ©jÃ  utilisÃ©',
+    message: 'Cette adresse email est dÃ©jÃ  associÃ©e Ã  un compte.'
   },
   USER_NOT_FOUND: {
     title: 'Compte introuvable',
-    message: 'Aucun compte trouvé avec cette adresse email.'
+    message: 'Aucun compte trouvÃ© avec cette adresse email.'
   },
   WRONG_PASSWORD: {
     title: 'Mot de passe incorrect',
@@ -91,11 +91,11 @@ const ERROR_MESSAGES = {
   },
   WEAK_PASSWORD: {
     title: 'Mot de passe faible',
-    message: 'Le mot de passe doit contenir au moins 6 caractères.'
+    message: 'Le mot de passe doit contenir au moins 6 caractÃ¨res.'
   },
   DEFAULT: {
     title: 'Erreur',
-    message: 'Une erreur est survenue. Veuillez réessayer.'
+    message: 'Une erreur est survenue. Veuillez rÃ©essayer.'
   }
 } as const;
 
@@ -121,7 +121,7 @@ const createUserProfile = async (userCredential: UserCredential): Promise<void> 
   };
 
   await setDoc(userDocRef, userData);
-  console.log('? Nouveau profil créé avec rôle: client');
+  console.log('? Nouveau profil crÃ©Ã© avec rÃ´le: client');
 };
 
 const ensureUserProfile = async (userId: string): Promise<void> => {
@@ -133,11 +133,11 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
 
     if (userDoc.exists()) {
       const data = userDoc.data();
-      console.log(`?? DOCUMENT EXISTANT DÉTECTÉ`);
-      console.log(`?? Rôle Firestore: "${data.role || 'non défini'}"`);
+      console.log(`?? DOCUMENT EXISTANT DÃ‰TECTÃ‰`);
+      console.log(`?? RÃ´le Firestore: "${data.role || 'non dÃ©fini'}"`);
       return;
     } else {
-      console.log(`?? NOUVEAU UTILISATEUR - création profil`);
+      console.log(`?? NOUVEAU UTILISATEUR - crÃ©ation profil`);
       
       const currentUser = auth.currentUser;
       const userData = {
@@ -163,7 +163,7 @@ const ensureUserProfile = async (userId: string): Promise<void> => {
       }
       
       await setDoc(userDocRef, cleanData);
-      console.log(`? Nouveau profil créé avec rôle: "client"`);
+      console.log(`? Nouveau profil crÃ©Ã© avec rÃ´le: "client"`);
     }
     
   } catch (error) {
@@ -188,11 +188,11 @@ const getFirebaseErrorMessage = (error: FirebaseError): { title: string; message
     case 'auth/weak-password':
       return ERROR_MESSAGES.WEAK_PASSWORD;
     case 'auth/network-request-failed':
-      return { title: 'Erreur réseau', message: 'Vérifiez votre connexion internet.' };
+      return { title: 'Erreur rÃ©seau', message: 'VÃ©rifiez votre connexion internet.' };
     case 'auth/too-many-requests':
-      return { title: 'Trop de tentatives', message: 'Veuillez réessayer dans quelques minutes.' };
+      return { title: 'Trop de tentatives', message: 'Veuillez rÃ©essayer dans quelques minutes.' };
     default:
-      console.warn('Code d\'erreur Firebase non géré:', code, message);
+      console.warn('Code d\'erreur Firebase non gÃ©rÃ©:', code, message);
       return { title: ERROR_MESSAGES.DEFAULT.title, message: message || ERROR_MESSAGES.DEFAULT.message };
   }
 };
@@ -236,14 +236,14 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
   }, [visible, slideAnim]);
 
-  // Gestion de la réponse Google
+  // Gestion de la rÃ©ponse Google
   React.useEffect(() => {
     if (googleResponse?.type === 'success') {
       handleGoogleSignIn(googleResponse.authentication?.accessToken);
     }
   }, [googleResponse]);
 
-  // Gestion de la réponse Facebook
+  // Gestion de la rÃ©ponse Facebook
   React.useEffect(() => {
     if (facebookResponse?.type === 'success') {
       handleFacebookSignIn(facebookResponse.authentication?.accessToken);
@@ -275,12 +275,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
 
     if (password.length < 6) {
-      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caractères');
+      Alert.alert('Mot de passe trop court', 'Le mot de passe doit contenir au moins 6 caractÃ¨res');
       return false;
     }
 
     if (!isLogin && password !== confirmPassword) {
-      Alert.alert('Mots de passe différents', 'Les mots de passe ne correspondent pas');
+      Alert.alert('Mots de passe diffÃ©rents', 'Les mots de passe ne correspondent pas');
       return false;
     }
 
@@ -298,7 +298,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       handleAuthSuccess(userCredential, 'Google');
     } catch (error: any) {
       console.error('? Erreur Google Sign-In:', error);
-      Alert.alert('Erreur', 'Échec de la connexion avec Google');
+      Alert.alert('Erreur', 'Ã‰chec de la connexion avec Google');
       setSocialLoading(null);
     }
   };
@@ -314,7 +314,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       handleAuthSuccess(userCredential, 'Facebook');
     } catch (error: any) {
       console.error('? Erreur Facebook Sign-In:', error);
-      Alert.alert('Erreur', 'Échec de la connexion avec Facebook');
+      Alert.alert('Erreur', 'Ã‰chec de la connexion avec Facebook');
       setSocialLoading(null);
     }
   };
@@ -343,19 +343,19 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       }
     } catch (error: any) {
       if (error.code === 'ERR_CANCELED') {
-        // L'utilisateur a annulé la connexion
-        console.log('Connexion Apple annulée');
+        // L'utilisateur a annulÃ© la connexion
+        console.log('Connexion Apple annulÃ©e');
       } else {
         console.error('? Erreur Apple Sign-In:', error);
-        Alert.alert('Erreur', 'Échec de la connexion avec Apple');
+        Alert.alert('Erreur', 'Ã‰chec de la connexion avec Apple');
       }
       setSocialLoading(null);
     }
   };
 
   const handleAuthSuccess = (userCredential: UserCredential, provider: string) => {
-    console.log(`? Connexion réussie avec ${provider}:`, userCredential.user.email);
-    Alert.alert('?? Connexion réussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
+    console.log(`? Connexion rÃ©ussie avec ${provider}:`, userCredential.user.email);
+    Alert.alert('?? Connexion rÃ©ussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
     resetForm();
     onClose();
     onLoginSuccess?.();
@@ -454,7 +454,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* EN-TÊTE AVEC GRADIENT */}
+          {/* EN-TÃŠTE AVEC GRADIENT */}
           <View style={styles.header}>
             <View style={styles.headerBackground} />
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -469,12 +469,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </View>
               
               <Text style={styles.title}>
-                {isLogin ? 'Content de vous revoir ! ??' : 'Rejoignez ASMA Express ??'}
+                {isLogin ? 'Content de vous revoir ! ??' : 'Rejoignez A2Express ??'}
               </Text>
               <Text style={styles.subtitle}>
                 {isLogin 
-                  ? 'Connectez-vous pour accéder à votre compte' 
-                  : 'Créez votre compte en quelques secondes'
+                  ? 'Connectez-vous pour accÃ©der Ã  votre compte' 
+                  : 'CrÃ©ez votre compte en quelques secondes'
                 }
               </Text>
             </Animated.View>
@@ -532,7 +532,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               )}
             </View>
 
-            {/* Séparateur */}
+            {/* SÃ©parateur */}
             <View style={styles.separator}>
               <View style={styles.separatorLine} />
               <Text style={styles.separatorText}>ou continuez avec</Text>
@@ -587,7 +587,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </View>
               {!isLogin && (
                 <Text style={styles.passwordHint}>
-                  ?? Minimum 6 caractères
+                  ?? Minimum 6 caractÃ¨res
                 </Text>
               )}
             </View>
@@ -631,7 +631,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                     color="#FFF" 
                   />
                   <Text style={styles.authButtonText}>
-                    {isLogin ? 'Se connecter' : 'Créer mon compte'}
+                    {isLogin ? 'Se connecter' : 'CrÃ©er mon compte'}
                   </Text>
                 </View>
               )}
@@ -646,7 +646,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               <Text style={styles.switchText}>
                 {isLogin 
                   ? "?? Pas de compte ? " 
-                  : "? Déjà un compte ? "
+                  : "? DÃ©jÃ  un compte ? "
                 }
                 <Text style={styles.switchLink}>
                   {isLogin ? "S'inscrire" : "Se connecter"}
@@ -654,11 +654,11 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </Text>
             </TouchableOpacity>
 
-            {/* INFORMATIONS DE SÉCURITÉ */}
+            {/* INFORMATIONS DE SÃ‰CURITÃ‰ */}
             <View style={styles.securityInfo}>
               <Ionicons name="shield-checkmark-outline" size={16} color="#4CAF50" />
               <Text style={styles.securityText}>
-                Vos informations sont sécurisées et confidentielles
+                Vos informations sont sÃ©curisÃ©es et confidentielles
               </Text>
             </View>
           </Animated.View>

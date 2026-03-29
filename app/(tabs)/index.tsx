@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   StatusBar,
@@ -17,10 +18,9 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   FlatList,
-  Image,
-  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Image } from "expo-image";
 import {
   collection,
   getDocs,
@@ -29,34 +29,51 @@ import {
   orderBy,
   where,
   startAfter,
-  doc,
-  getDoc
 } from "firebase/firestore";
 import { db } from "../../src/config/firebase";
 import { useTranslation } from "react-i18next";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 
 // Composants Premium (supposés déjà optimisés individuellement)
-import PremiumHeader from "../../src/components/premium/PremiumHeader";
+import PremiumHeader, {
+  PremiumHeaderStats,
+  PremiumHeaderTopBar,
+  PREMIUM_HEADER_SEARCH_HEIGHT,
+  PREMIUM_HEADER_TOP_BAR_HEIGHT,
+} from "../../src/components/premium/PremiumHeader";
+import SearchOverlay from "@/components/SearchOverlay";
 import AnimatedQuickActions from "../../src/components/premium/AnimatedQuickActions";
+import FreeProductsSection from "../../src/components/premium/FreeProductsSection";
 import HeroBanner from "../../src/components/premium/HeroBanner";
 import PremiumSpecialOffers from "../../src/components/premium/PremiumSpecialOffers";
 import CategoryGridPremium from "../../src/components/premium/CategoryGridPremium";
 import ProductCardPremium from "../../src/components/premium/ProductCardPremium";
+import { isZeroDollarsShop } from "../../src/utils/zeroDollarsShop";
+import ZeroDollarsFreeBadge from "../../src/components/ZeroDollarsFreeBadge";
 import NewArrivalsPremium from "../../src/components/premium/NewArrivalsPremium";
 import PremiumAdBanner from "../../src/components/premium/PremiumAdBanner";
 import PremiumSuppliersSection from "../../src/components/premium/PremiumSuppliersSection";
 import FloatingCartButton from "../../src/components/premium/FloatingCartButton";
+import { warmVisualSearchIndex } from "../../src/services/visualSearchService";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const HEADER_HEIGHT = Platform.OS === "ios" ? 160 : 145;
+const BASE_HEADER_HEIGHT = PREMIUM_HEADER_TOP_BAR_HEIGHT + PREMIUM_HEADER_SEARCH_HEIGHT + 4;
+const QUICK_ACTIONS_HEIGHT = 48;
+const HEADER_TOP_SPACER = 10;
+const HEADER_BACKGROUND = "#ff7a00";
 const PAGE_SIZE = 20;
 const MAX_POPULAR_PRODUCTS = 200;
+const HOME_CACHE_KEY = "premium-home-cache-v3";
+const HOME_CACHE_TTL_MS = 10 * 60 * 1000;
+const FREE_CACHE_KEY = "premium-free-cache-v1";
 
 // Configuration du rafraîchissement aléatoire
 const ROTATION_INTERVAL_MIN = 4000;
 const ROTATION_INTERVAL_MAX = 6000;
+const FREE_ROTATION_INTERVAL_MIN = 8000;
+const FREE_ROTATION_INTERVAL_MAX = 12000;
 const ROTATION_SECTIONS = [
   "featured",
   "trending",
@@ -74,9 +91,12 @@ interface Product {
   originalPrice?: number;
   imageUrl?: string | null;
   mainImage?: string | null;
+  images?: string[];
+  createdAt?: number | null;
   rating: number;
   stock: number;
   supplier: string;
+  companyName?: string;
   minOrder: number;
   deliveryTime: string;
   isVerified: boolean;
@@ -86,7 +106,8 @@ interface Product {
   newArrival?: boolean;
   industrial?: boolean;
   categoryName?: string;
-  categoryId?: string
+  categoryId?: string;
+  category?: string;
   originalLink?: string;
   hasFreeShipping?: boolean;
   freeShippingBadge?: string | null;
@@ -110,6 +131,21 @@ interface HomeDataState {
     industrial: Product[];
   };
 }
+
+const DEFAULT_CATEGORIES: HomeDataState["categories"] = [
+  { id: "1", name: "category.electronics", icon: "?", color: "#ff6a00" },
+  { id: "2", name: "category.clothing", icon: "??", color: "#4CAF50" },
+  { id: "3", name: "category.machinery", icon: "??", color: "#2196F3" },
+  { id: "4", name: "category.materials", icon: "??", color: "#9C27B0" },
+];
+
+const EMPTY_POOLS: HomeDataState["pools"] = {
+  featured: [],
+  trending: [],
+  offers: [],
+  newArrivals: [],
+  industrial: [],
+};
 
 // Cache pour les produits récemment affichés
 class RotationCache {
@@ -176,10 +212,82 @@ const HorizontalProductCarousel = React.memo(
     onSeeAll?: () => void;
     loading?: boolean;
   }) => {
-    const scrollViewRef = useRef<ScrollView>(null);
+    const listRef = useRef<FlatList<Product>>(null);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const itemWidth = SCREEN_WIDTH * 0.75; // 75% de l'écran pour chaque item
+    const itemWidth = SCREEN_WIDTH * 0.75;
     const spacing = 12;
+
+    const renderCarouselItem = useCallback(
+      ({ item: product }: { item: Product }) => (
+        <TouchableOpacity
+          style={[styles.carouselItem, { width: itemWidth }]}
+          onPress={() => onProductPress(product)}
+          activeOpacity={0.9}
+        >
+          <View style={styles.carouselCard}>
+            <View style={styles.carouselImageContainer}>
+              <Image
+                source={{ uri: product.imageUrl || product.mainImage || 'https://via.placeholder.com/300' }}
+                style={styles.carouselImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={120}
+              />
+              {product.isVerified && (
+                <View style={styles.carouselVerifiedBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
+                </View>
+              )}
+              {product.originalPrice && product.originalPrice > product.price && (
+                <View style={styles.carouselDiscountBadge}>
+                  <Text style={styles.carouselDiscountText}>
+                    -{Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}%
+                  </Text>
+                </View>
+              )}
+              {isZeroDollarsShop({
+                supplier: product.supplier,
+                companyName: product.companyName,
+              }) && (
+                <View style={styles.carouselZeroBadge}>
+                  <ZeroDollarsFreeBadge compact />
+                </View>
+              )}
+            </View>
+            <View style={styles.carouselContent}>
+              <Text style={styles.carouselProductName} numberOfLines={2}>
+                {product.name}
+              </Text>
+              <View style={styles.carouselPriceRow}>
+                <Text style={styles.carouselPrice}>
+                  {product.price.toLocaleString()} CFA
+                </Text>
+                {product.originalPrice && product.originalPrice > product.price && (
+                  <Text style={styles.carouselOldPrice}>
+                    {product.originalPrice.toLocaleString()}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.carouselMetaRow}>
+                <Ionicons name="business-outline" size={12} color="#666" />
+                <Text style={styles.carouselMetaText} numberOfLines={1}>
+                  {product.supplier}
+                </Text>
+              </View>
+              {product.rating > 0 && (
+                <View style={styles.carouselRatingRow}>
+                  <Ionicons name="star" size={12} color="#ffc107" />
+                  <Text style={styles.carouselRatingText}>{product.rating.toFixed(1)}</Text>
+                  <Text style={styles.carouselDot}>•</Text>
+                  <Text style={styles.carouselDeliveryText}>{product.deliveryTime}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
+      ),
+      [itemWidth, onProductPress]
+    );
 
     if (loading) {
       return (
@@ -207,9 +315,9 @@ const HorizontalProductCarousel = React.memo(
     };
 
     const scrollToIndex = (index: number) => {
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({
-          x: index * (itemWidth + spacing),
+      if (listRef.current) {
+        listRef.current.scrollToOffset({
+          offset: index * (itemWidth + spacing),
           animated: true,
         });
       }
@@ -235,77 +343,28 @@ const HorizontalProductCarousel = React.memo(
           )}
         </View>
 
-        <ScrollView
-          ref={scrollViewRef}
+        <FlatList
+          ref={listRef}
+          data={products}
           horizontal
           showsHorizontalScrollIndicator={false}
-          pagingEnabled={false}
+          keyExtractor={(item) => item.id}
           snapToInterval={itemWidth + spacing}
           decelerationRate="fast"
           onScroll={handleScroll}
           scrollEventThrottle={16}
           contentContainerStyle={styles.carouselContent}
-        >
-         {products.map((product) => (
-  <TouchableOpacity
-    key={product.id}
-    style={[styles.carouselItem, { width: itemWidth }]}
-    onPress={() => onProductPress(product)}
-    activeOpacity={0.9}
-  >
-              <View style={styles.carouselCard}>
-                <View style={styles.carouselImageContainer}>
-                  <Image
-                    source={{ uri: product.imageUrl || product.mainImage || 'https://via.placeholder.com/300' }}
-                    style={styles.carouselImage}
-                    resizeMode="cover"
-                  />
-                  {product.isVerified && (
-                    <View style={styles.carouselVerifiedBadge}>
-                      <Ionicons name="checkmark-circle" size={20} color="#22c55e" />
-                    </View>
-                  )}
-                  {product.originalPrice && product.originalPrice > product.price && (
-                    <View style={styles.carouselDiscountBadge}>
-                      <Text style={styles.carouselDiscountText}>
-                        -{Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}%
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.carouselContent}>
-                  <Text style={styles.carouselProductName} numberOfLines={2}>
-                    {product.name}
-                  </Text>
-                  <View style={styles.carouselPriceRow}>
-                    <Text style={styles.carouselPrice}>
-                      {product.price.toLocaleString()} CFA
-                    </Text>
-                    {product.originalPrice && product.originalPrice > product.price && (
-                      <Text style={styles.carouselOldPrice}>
-                        {product.originalPrice.toLocaleString()}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.carouselMetaRow}>
-                    <Ionicons name="business-outline" size={12} color="#666" />
-                    <Text style={styles.carouselMetaText} numberOfLines={1}>
-                      {product.supplier}
-                    </Text>
-                  </View>
-                  {product.rating > 0 && (
-                    <View style={styles.carouselRatingRow}>
-                      <Ionicons name="star" size={12} color="#ffc107" />
-                      <Text style={styles.carouselRatingText}>{product.rating.toFixed(1)}</Text>
-                      <Text style={styles.carouselDot}>•</Text>
-                      <Text style={styles.carouselDeliveryText}>{product.deliveryTime}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+          renderItem={renderCarouselItem}
+          initialNumToRender={4}
+          maxToRenderPerBatch={6}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS === "android"}
+          getItemLayout={(_, index) => ({
+            length: itemWidth + spacing,
+            offset: (itemWidth + spacing) * index,
+            index,
+          })}
+        />
 
         {/* Indicateurs de pagination */}
         {products.length > 1 && (
@@ -364,13 +423,28 @@ const VerticalProductCard = React.memo(
             <Image
               source={{ uri: imageUrl }}
               style={styles.verticalCardImage}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={120}
               onError={() => setImageError(true)}
             />
           )}
           {discount > 0 && (
             <View style={styles.discountBadge}>
               <Text style={styles.discountText}>-{discount}%</Text>
+            </View>
+          )}
+          {isZeroDollarsShop({
+            supplier: product.supplier,
+            companyName: product.companyName,
+          }) && (
+            <View
+              style={[
+                styles.zeroDollarsBadgeVertical,
+                { top: discount > 0 ? 36 : 8 },
+              ]}
+            >
+              <ZeroDollarsFreeBadge compact />
             </View>
           )}
           {product.isVerified && (
@@ -535,11 +609,46 @@ PopularProductItem.displayName = "PopularProductItem";
 // Composant principal
 // ------------------------------------------------------------
 export default function PremiumHomeScreen() {
+  const insets = useSafeAreaInsets();
+  const HEADER_CONTENT_HEIGHT = BASE_HEADER_HEIGHT; // Modified: removed QUICK_ACTIONS_HEIGHT
+  const HEADER_HEIGHT = HEADER_CONTENT_HEIGHT + insets.top + HEADER_TOP_SPACER;
   const { t } = useTranslation();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [loadingSections, setLoadingSections] = useState(true);
   const scrollY = useRef(new Animated.Value(0)).current;
+  const SCROLL_DISTANCE = PREMIUM_HEADER_TOP_BAR_HEIGHT;
+  const diffClamp = useMemo(
+    () => Animated.diffClamp(scrollY, 0, SCROLL_DISTANCE),
+    [scrollY]
+  );
+  const premiumHeaderInnerTranslateY = useMemo(
+    () =>
+      diffClamp.interpolate({
+        inputRange: [0, SCROLL_DISTANCE],
+        outputRange: [0, -SCROLL_DISTANCE],
+        extrapolate: "clamp",
+      }),
+    [diffClamp]
+  );
+  const quickActionsOpacity = useMemo(
+    () =>
+      diffClamp.interpolate({
+        inputRange: [0, QUICK_ACTIONS_HEIGHT],
+        outputRange: [1, 0],
+        extrapolate: "clamp",
+      }),
+    [diffClamp]
+  );
+  const quickActionsTranslateY = useMemo(
+    () =>
+      diffClamp.interpolate({
+        inputRange: [0, QUICK_ACTIONS_HEIGHT],
+        outputRange: [0, -QUICK_ACTIONS_HEIGHT],
+        extrapolate: "clamp",
+      }),
+    [diffClamp]
+  );
 
   const [lastVisible, setLastDoc] = useState<any>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -560,20 +669,58 @@ export default function PremiumHomeScreen() {
     newArrivals: [],
     industrialMachines: [],
     suppliersWithProducts: [],
-    categories: [
-      { id: "1", name: "category.electronics", icon: "?", color: "#ff6a00" },
-      { id: "2", name: "category.clothing", icon: "??", color: "#4CAF50" },
-      { id: "3", name: "category.machinery", icon: "??", color: "#2196F3" },
-      { id: "4", name: "category.materials", icon: "??", color: "#9C27B0" },
-    ],
-    pools: {
-      featured: [],
-      trending: [],
-      offers: [],
-      newArrivals: [],
-      industrial: [],
-    },
+    categories: DEFAULT_CATEGORIES,
+    pools: EMPTY_POOLS,
   });
+  
+  // Pool "0 dollars" basé sur les produits récents, + sélection affichée qui tourne souvent
+  const [freeProductsDisplayed, setFreeProductsDisplayed] = useState<Product[]>([]);
+  const freeProductsDisplayedIdsRef = useRef<Set<string>>(new Set());
+
+  const freeProductsPool = useMemo(() => {
+    const combined: Product[] = [
+      ...(homeData.featuredProducts || []),
+      ...(homeData.trendingProducts || []),
+      ...(homeData.newArrivals || []),
+      ...(homeData.industrialMachines || []),
+      ...(homeData.popularProducts || []),
+    ];
+
+    const recent = combined.sort(
+      (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)
+    );
+
+    const filtered = recent.filter((p) => {
+      if (!p) return false;
+      const isFreePrice = Number(p.price || 0) <= 1;
+      const isZeroShop = isZeroDollarsShop({
+        supplier: p.supplier || "",
+        companyName: p.companyName || "",
+      });
+      return isFreePrice || isZeroShop;
+    });
+
+    const uniqueMap = new Map<string, Product>();
+    filtered.forEach((item) => {
+      if (item?.id) uniqueMap.set(item.id, item);
+    });
+    return Array.from(uniqueMap.values());
+  }, [
+    homeData.featuredProducts,
+    homeData.trendingProducts,
+    homeData.newArrivals,
+    homeData.industrialMachines,
+    homeData.popularProducts,
+  ]);
+
+  const translatedCategories = useMemo(
+    () =>
+      homeData.categories.map((category) => ({
+        ...category,
+        name: t(category.name),
+      })),
+    [homeData.categories, t]
+  );
 
   // Normalisation produit
   const normalizeProduct = useCallback((doc: any): Product => {
@@ -583,6 +730,11 @@ export default function PremiumHomeScreen() {
     const cleanCategory =
       rawCat === "Uncategorized" || rawCat === "uncategorized" ? "" : rawCat;
 
+    const createdAtMillis =
+      typeof data?.createdAt?.toMillis === "function"
+        ? data.createdAt.toMillis()
+        : (typeof data?.createdAt === "number" ? data.createdAt : null);
+
     return {
       id: doc.id,
       name: name.includes(".") ? t(name) : name,
@@ -590,9 +742,11 @@ export default function PremiumHomeScreen() {
       originalPrice: Number(data.originalPrice) || Number(data.price),
       imageUrl: data.mainImage || data.imageUrl || null,
       mainImage: data.mainImage || data.imageUrl || null,
+      createdAt: createdAtMillis,
       rating: data.rating || 0,
       stock: data.stockQuantity || data.stock || 0,
       supplier: data.supplier || data.companyName || "Fournisseur",
+      companyName: data.companyName || "",
       minOrder: data.minOrder || 1,
       deliveryTime: data.deliveryTime || "N/A",
       isVerified: data.isVerified || false,
@@ -602,7 +756,7 @@ export default function PremiumHomeScreen() {
       newArrival: data.newArrival || false,
       industrial: data.industrial || false,
       categoryId: data.categoryId || data.category || "",
-categoryName: cleanCategory,
+      categoryName: cleanCategory,
       originalLink: data.originalLink || "",
       hasFreeShipping: data.hasFreeShipping || false,
       freeShippingBadge: data.freeShippingBadge || null,
@@ -628,9 +782,9 @@ categoryName: cleanCategory,
       const shuffled = shuffleArray(sourcePool);
       const selected = shuffled.slice(0, Math.min(count, sourcePool.length));
       selected.forEach((p) => rotationCache.add(section, p.id));
-return selected.map((p) => ({
-  ...p,
-}));
+      return selected.map((p) => ({
+        ...p,
+      }));
     },
     [rotationCache]
   );
@@ -726,6 +880,52 @@ return selected.map((p) => ({
     };
   }, [performRotation]);
 
+  // Rotation spécifique pour la section "0 dollars" (doit changer souvent + rester récente)
+  useEffect(() => {
+    const pickNextFree = () => {
+      if (isLocked.current) return;
+      if (!freeProductsPool.length) {
+        // Ne jamais effacer l'affichage : on garde la dernière sélection
+        return;
+      }
+
+      const prevIds = freeProductsDisplayedIdsRef.current;
+      const recentWindow = freeProductsPool.slice(0, 50); // priorité aux produits récents
+      const candidates =
+        recentWindow.filter((p) => !prevIds.has(p.id)).length >= 8
+          ? recentWindow.filter((p) => !prevIds.has(p.id))
+          : recentWindow;
+
+      const next = shuffleArray(candidates).slice(0, 10);
+      setFreeProductsDisplayed(next);
+      freeProductsDisplayedIdsRef.current = new Set(next.map((p) => p.id));
+
+      // Persister pour la prochaine session
+      AsyncStorage.setItem(FREE_CACHE_KEY, JSON.stringify(next)).catch(() => {});
+    };
+
+    // initial
+    pickNextFree();
+
+    const getInterval = () =>
+      Math.floor(
+        Math.random() * (FREE_ROTATION_INTERVAL_MAX - FREE_ROTATION_INTERVAL_MIN + 1)
+      ) + FREE_ROTATION_INTERVAL_MIN;
+
+    let timer: NodeJS.Timeout | null = null;
+    const schedule = () => {
+      timer = setTimeout(() => {
+        pickNextFree();
+        schedule();
+      }, getInterval());
+    };
+    schedule();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [freeProductsPool]);
+
   // ------------------------------------------------------------
   // OPTIMISATION FIRESTORE : fetchSuppliersWithProducts refactoré
   // ------------------------------------------------------------
@@ -795,51 +995,35 @@ return selected.map((p) => ({
         const [
           featS,
           trendS,
-          specS,
           popS,
           newS,
-          indS,
           suppliersWithProducts,
         ] = await Promise.all([
           getDocs(
             query(
               collection(db, "products"),
               where("featured", "==", true),
-              limit(30) // Augmenté pour avoir plus de produits dans le carousel
+              limit(24)
             )
           ),
           getDocs(
             query(
               collection(db, "products"),
               where("trending", "==", true),
-              limit(30) // Augmenté pour avoir plus de produits dans le carousel
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, "products"),
-              where("specialOffer", "==", true),
-              limit(20)
+              limit(24)
             )
           ),
           getDocs(
             query(
               collection(db, "products"),
               orderBy("createdAt", "desc"),
-              limit(60)
+              limit(32)
             )
           ),
           getDocs(
             query(
               collection(db, "products"),
               where("newArrival", "==", true),
-              limit(30)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, "products"),
-              where("industrial", "==", true),
               limit(20)
             )
           ),
@@ -848,33 +1032,39 @@ return selected.map((p) => ({
 
         const featuredPool = featS.docs.map((doc) => normalizeProduct(doc));
         const trendingPool = trendS.docs.map((doc) => normalizeProduct(doc));
-        const offersPool = specS.docs.map((doc) => normalizeProduct(doc));
         const newArrivalsPool = newS.docs.map((doc) => normalizeProduct(doc));
-        const industrialPool = indS.docs.map((doc) => normalizeProduct(doc));
         const allPopular = popS.docs.map((doc) => normalizeProduct(doc));
 
         setLastDoc(popS.docs[popS.docs.length - 1]);
         setHasMore(popS.docs.length >= 20);
 
-        setHomeData((prev) => ({
-          ...prev,
-          // Featured Products : carousel avec beaucoup de produits
+        const nextHomeData: HomeDataState = {
           featuredProducts: shuffleArray(featuredPool).slice(0, 20),
-          // Trending Products : carousel avec beaucoup de produits
           trendingProducts: shuffleArray(trendingPool),
-          specialOffers: shuffleArray(offersPool).slice(0, 8),
+          specialOffers: [],
           popularProducts: allPopular,
           newArrivals: shuffleArray(newArrivalsPool).slice(0, 16),
-          industrialMachines: shuffleArray(industrialPool).slice(0, 15),
+          industrialMachines: [],
           suppliersWithProducts,
+          categories: DEFAULT_CATEGORIES,
           pools: {
             featured: featuredPool,
             trending: trendingPool,
-            offers: offersPool,
+            offers: [],
             newArrivals: newArrivalsPool,
-            industrial: industrialPool,
+            industrial: [],
           },
-        }));
+        };
+
+        setHomeData(nextHomeData);
+
+        void AsyncStorage.setItem(
+          HOME_CACHE_KEY,
+          JSON.stringify({
+            timestamp: Date.now(),
+            data: nextHomeData,
+          })
+        ).catch(() => {});
       } catch (error) {
         console.error("Fetch Error:", error);
       } finally {
@@ -887,8 +1077,93 @@ return selected.map((p) => ({
 
   // Chargement initial
   useEffect(() => {
-    fetchHomeData();
+    let isMounted = true;
+
+    const bootstrapHome = async () => {
+      let shouldRefreshFromNetwork = true;
+
+      try {
+        // Charger le cache des produits "0 dollars" pour affichage immédiat
+        try {
+          const freeRaw = await AsyncStorage.getItem(FREE_CACHE_KEY);
+          if (freeRaw) {
+            const parsed = JSON.parse(freeRaw) as Product[];
+            if (Array.isArray(parsed) && parsed.length > 0 && isMounted) {
+              setFreeProductsDisplayed(parsed);
+              freeProductsDisplayedIdsRef.current = new Set(parsed.map((p) => p.id));
+            }
+          }
+        } catch {}
+
+        const raw = await AsyncStorage.getItem(HOME_CACHE_KEY);
+        if (!raw) {
+          await fetchHomeData(false);
+          shouldRefreshFromNetwork = false;
+          return;
+        }
+
+        const parsed = JSON.parse(raw) as {
+          timestamp?: number;
+          data?: HomeDataState;
+        };
+
+        const isFresh =
+          typeof parsed?.timestamp === "number" &&
+          Date.now() - parsed.timestamp < HOME_CACHE_TTL_MS;
+
+        if (isMounted && isFresh && parsed?.data) {
+          setHomeData({
+            ...parsed.data,
+            categories: parsed.data.categories?.length
+              ? parsed.data.categories
+              : DEFAULT_CATEGORIES,
+            pools: parsed.data.pools || EMPTY_POOLS,
+          });
+          setLoadingSections(false);
+        }
+      } catch {
+      } finally {
+        if (shouldRefreshFromNetwork) {
+          void fetchHomeData(false);
+        }
+      }
+    };
+
+    void bootstrapHome();
+
+    return () => {
+      isMounted = false;
+    };
   }, [fetchHomeData]);
+
+  useEffect(() => {
+    void warmVisualSearchIndex();
+  }, []);
+
+  useEffect(() => {
+    const imageUris = [
+      ...homeData.featuredProducts,
+      ...homeData.trendingProducts,
+      ...homeData.newArrivals,
+      ...homeData.popularProducts.slice(0, 18),
+    ]
+      .flatMap((product) => [product.imageUrl, product.mainImage, ...(product.images || [])])
+      .filter(Boolean)
+      .filter((value, index, array) => array.indexOf(value) === index)
+      .slice(0, 24)
+      .map((item) => String(item));
+
+    if (!imageUris.length) {
+      return;
+    }
+
+    Image.prefetch(imageUris, "memory-disk").catch(() => {});
+  }, [
+    homeData.featuredProducts,
+    homeData.trendingProducts,
+    homeData.newArrivals,
+    homeData.popularProducts,
+  ]);
 
   // ------------------------------------------------------------
   // Chargement paginé (popular products)
@@ -928,35 +1203,55 @@ return selected.map((p) => ({
     }
   }, [loadingMore, hasMore, lastVisible, homeData.popularProducts.length, normalizeProduct]);
 
+  const buildCategoryPreviewPayload = useCallback(
+    (item: Product) =>
+      JSON.stringify({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        originalPrice: item.originalPrice || item.price,
+        image: item.imageUrl || item.mainImage || "",
+        rating: item.rating,
+        supplier: item.supplier,
+        companyName: item.companyName || item.supplier,
+        minOrder: item.minOrder,
+        categoryId: item.categoryId,
+        categoryName: item.categoryName,
+        hasFreeShipping: Boolean(item.hasFreeShipping),
+      }),
+    []
+  );
+
   // ------------------------------------------------------------
   // Handlers pour la navigation en 2 ÉTAPES (avec verrouillage)
   // ------------------------------------------------------------
-const handleProductPress = useCallback(
-  async (item: Product) => {
-    // 1. BLOQUER LA ROTATION IMMÉDIATEMENT
-    isLocked.current = true;
+  const handleProductPress = useCallback(
+    async (item: Product) => {
+      // 1. BLOQUER LA ROTATION IMMÉDIATEMENT
+      isLocked.current = true;
 
-    // 2. CRÉER UNE COPIE FIGÉE DES DONNÉES (Deep Copy locale)
-    // On ne se fie plus à l'objet 'item' qui peut être lié à l'état qui change
-    const targetId = String(item.id);
-    const targetCategory = String(item.categoryId || item.category || 'all');
+      // 2. CRÉER UNE COPIE FIGÉE DES DONNÉES (Deep Copy locale)
+      // On ne se fie plus à l'objet 'item' qui peut être lié à l'état qui change
+      const targetId = String(item.id);
+      const targetCategory = String(item.categoryId || item.category || 'all');
 
-    // 3. NAVIGATION AVEC LES DONNÉES FIGÉES
-    router.push({
-      pathname: `/category/${targetCategory}`,
-      params: { 
-        targetProductId: targetId 
-      },
-    });
+      // 3. NAVIGATION AVEC LES DONNÉES FIGÉES
+      router.push({
+        pathname: `/category/${targetCategory}`,
+        params: { 
+          targetProductId: targetId,
+          selectedProductData: buildCategoryPreviewPayload(item),
+        },
+      });
 
-    // 4. VERROU LONG (3 secondes)
-    // On laisse le temps à la navigation de quitter l'écran complètement
-    setTimeout(() => {
-      isLocked.current = false;
-    }, 3000);
-  },
-  [router]
-);
+      // 4. VERROU LONG (3 secondes)
+      // On laisse le temps à la navigation de quitter l'écran complètement
+      setTimeout(() => {
+        isLocked.current = false;
+      }, 3000);
+    },
+    [buildCategoryPreviewPayload, router]
+  );
 
   const handleRefresh = useCallback(() => {
     fetchHomeData(true);
@@ -1028,41 +1323,44 @@ const handleProductPress = useCallback(
   const renderHeader = useMemo(
     () => (
       <View style={styles.headerContent}>
-        <View style={{ height: HEADER_HEIGHT }} />
-
-        <AnimatedQuickActions />
+        <View style={[styles.listHeaderSpacer, { height: HEADER_HEIGHT }]} />
+        <PremiumHeaderStats />
+        <View style={{ paddingVertical: 15 }}>
+          <AnimatedQuickActions />
+        </View>
+        <FreeProductsSection products={freeProductsDisplayed} />
 
         <HeroBanner />
 
-{/* Section Produits en vedette */}
-{homeData.featuredProducts.length > 0 && (
-  <View style={{ marginTop: 30, marginBottom: 15 }}>
-    
-    {/* Header avec police ajustée et décalage */}
-    <View style={styles.trendingHeaderContainer}>
-      <View style={styles.trendingAccentBar} />
-      <Text style={styles.trendingTitleText}>Produits en vedette</Text>
-    </View>
+        {/* Section Produits en vedette */}
+        {homeData.featuredProducts.length > 0 && (
+          <View style={{ marginTop: 30, marginBottom: 15 }}>
+            
+            {/* Header avec police ajustée et décalage */}
+            <View style={styles.trendingHeaderContainer}>
+              <View style={styles.trendingAccentBar} />
+              <Text style={styles.trendingTitleText}>Produits en vedette</Text>
+            </View>
 
-    <FlatList
-      data={homeData.featuredProducts}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      keyExtractor={(item) => `featured-${item.id}`}
-      contentContainerStyle={{
-        paddingHorizontal: 20, // Ajusté pour un alignement plus doux
-      }}
-      renderItem={({ item }) => (
-        <View style={{ width: 200, marginRight: 15 }}>
-          <ProductCardPremium
-            product={item}
-            onPress={() => handleProductPress(item)}
-          />
-        </View>
-      )}
-    />
-  </View>
-)}
+            <FlatList
+              data={homeData.featuredProducts}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item) => `featured-${item.id}`}
+              contentContainerStyle={{
+                paddingHorizontal: 20, // Ajusté pour un alignement plus doux
+              }}
+              renderItem={({ item }) => (
+                <View style={{ width: 200, marginRight: 15 }}>
+                  <ProductCardPremium
+                    product={item}
+                    onPress={() => handleProductPress(item)}
+                  />
+                </View>
+              )}
+            />
+          </View>
+        )}
 
         {/* Carousel des tendances du moment */}
         {homeData.trendingProducts.length > 0 && (
@@ -1077,10 +1375,7 @@ const handleProductPress = useCallback(
         )}
 
         <CategoryGridPremium
-          categories={homeData.categories.map((c) => ({
-            ...c,
-            name: t(c.name),
-          }))}
+          categories={translatedCategories}
         />
 
         <PremiumAdBanner />
@@ -1093,36 +1388,14 @@ const handleProductPress = useCallback(
           <PremiumSuppliersSection suppliers={homeData.suppliersWithProducts} />
         )}
 
-<VerticalProductSection
-  title="Nouveautés"
-  subtitle="Les derniers arrivages"
-  products={homeData.newArrivals}
-  onProductPress={(product) => {
-    // 1. Protection contre les clics multiples ou pendant une rotation
-    if (isLocked.current) return;
-    isLocked.current = true;
-
-    // 2. Snapshot : On fige les données du produit cliqué immédiatement
-    const productSnapshot = { ...product };
-    const targetId = String(productSnapshot.id);
-    const targetCategory = String(productSnapshot.categoryId || 'all');
-
-    console.log("Navigation vers :", productSnapshot.name);
-
-    // 3. Navigation avec les données figées
-    router.push({
-      pathname: `/category/${targetCategory}`,
-      params: { targetProductId: targetId }
-    });
-
-    // 4. Verrouillage de sécurité pour laisser le temps à l'écran de changer
-    setTimeout(() => {
-      isLocked.current = false;
-    }, 2500);
-  }}
-  onSeeAll={() => router.push('/new-arrivals')}
-  loading={loadingSections}
-/>
+        <VerticalProductSection
+          title="Nouveautés"
+          subtitle="Les derniers arrivages"
+          products={homeData.newArrivals}
+          onProductPress={handleProductPress}
+          onSeeAll={() => router.push('/new-arrivals')}
+          loading={loadingSections}
+        />
 
         <View style={styles.sectionTitleContainer}>
           <Text style={styles.sectionTitle}>{t("More to Explore")}</Text>
@@ -1134,18 +1407,19 @@ const handleProductPress = useCallback(
       homeData.trendingProducts,
       homeData.newArrivals,
       homeData.industrialMachines,
-      homeData.categories,
+      translatedCategories,
       homeData.suppliersWithProducts,
+      freeProductsDisplayed,
       loadingSections,
-      t,
       handleProductPress,
       handleSeeAllTrending,
       handleSeeAllIndustrial,
       handleSeeAllOffers,
       handleSeeAllFeatured,
+      HEADER_HEIGHT,
     ]
   );
-
+  
   // Footer mémoïsé
   const renderFooter = useMemo(
     () => (
@@ -1171,10 +1445,26 @@ const handleProductPress = useCallback(
 
   return (
     <View style={styles.container}>
-      <StatusBar backgroundColor="#ff6a00" barStyle="light-content" />
+      <StatusBar backgroundColor={HEADER_BACKGROUND} barStyle="dark-content" />
 
-      <View style={[styles.stickyHeader, { height: HEADER_HEIGHT }]}>
-        <PremiumHeader onSearch={(q) => console.log(q)} />
+      <View
+        style={[
+          styles.stickyHeader,
+          { height: HEADER_HEIGHT },
+        ]}
+      >
+        <View
+          style={{
+            height: insets.top + HEADER_TOP_SPACER,
+            backgroundColor: HEADER_BACKGROUND,
+          }}
+        />
+        <View style={{ height: HEADER_CONTENT_HEIGHT, overflow: "hidden" }}>
+          <Animated.View style={{ transform: [{ translateY: premiumHeaderInnerTranslateY }] }}>
+            <PremiumHeaderTopBar />
+            <PremiumHeader onSearch={(q) => console.log(q)} />
+          </Animated.View>
+        </View>
       </View>
 
       <Animated.FlatList
@@ -1225,10 +1515,27 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 1000,
-    backgroundColor: "#ff6a00",
+    backgroundColor: HEADER_BACKGROUND,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#8f6544",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.08,
+        shadowRadius: 14,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   headerContent: {
     backgroundColor: "#fff",
+  },
+  listHeaderSpacer: {
+    width: "100%",
+    backgroundColor: HEADER_BACKGROUND,
   },
   listContent: {
     paddingBottom: 40,
@@ -1336,6 +1643,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
+  },
+  carouselZeroBadge: {
+    position: "absolute",
+    bottom: 8,
+    left: 8,
+    zIndex: 2,
   },
   carouselDiscountText: {
     color: "#fff",
@@ -1559,6 +1872,11 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 11,
     fontWeight: "700",
+  },
+  zeroDollarsBadgeVertical: {
+    position: "absolute",
+    left: 8,
+    zIndex: 2,
   },
   verifiedBadgeVertical: {
     position: "absolute",

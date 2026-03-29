@@ -35,12 +35,13 @@ interface OrderItem {
   variantAttributes?: VariantAttribute[];
 }
 
+// Modifie l'interface pour inclure le champ fullName de l'adresse
 interface Order {
   id: string;
-  userName: string;
+  userName?: string; // Optionnel au cas où
   userPhone?: string;
   userEmail?: string;
-  totalAmount: number;
+  total: number;      // Changé de totalAmount à total
   baseAmount?: number;
   priceAdjustment?: number;
   status: OrderStatus;
@@ -52,6 +53,7 @@ interface Order {
     city: string;
     postalCode: string;
     country: string;
+    fullName?: string; // Ajouté ici
   };
   notes?: string;
   sellerId: string;
@@ -98,19 +100,41 @@ export default function OrderDetailScreen() {
     fetchOrder();
   }, [id]);
 
-  const fetchOrder = async () => {
+const fetchOrder = async () => {
     if (!id) return;
 
     try {
       const orderDoc = await getDoc(doc(db, 'orders', id));
+      
       if (orderDoc.exists()) {
         const data = orderDoc.data();
-        setOrder({
+        
+        // On prépare l'objet avec les bonnes correspondances Firestore -> TypeScript
+        const formattedOrder = {
           id: orderDoc.id,
           ...data,
+          // 1. On récupère le nom là où il se trouve réellement (shippingAddress)
+          userName: data.userName || data.shippingAddress?.fullName || 'Client inconnu',
+          
+          // 2. On s'assure que le téléphone est bien récupéré pour les boutons d'action
+          userPhone: data.userPhone || data.shippingAddress?.phone || '',
+          
+          // 3. On mappe 'total' de Firestore vers 'totalAmount' (ou on garde 'total')
+          // Pour ton cas, on s'assure qu'un prix existe pour éviter le crash .toLocaleString()
+          total: data.total || data.totalAmount || 0,
+          
+          // 4. Conversion des dates Firebase
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate(),
-        } as Order);
+          
+          // 5. Correction des items (image vs imageUrl)
+          items: (data.items || []).map((item: any) => ({
+            ...item,
+            imageUrl: item.image || item.imageUrl // Supporte les deux noms de champ
+          }))
+        } as Order;
+
+        setOrder(formattedOrder);
       } else {
         Alert.alert('Erreur', 'Commande introuvable');
         router.back();
@@ -171,9 +195,11 @@ let url = '';
     });
   };
 
-  const formatPrice = (price: number) => {
-    return `${price.toLocaleString()} XOF`;
-  };
+const formatPrice = (price: number) => {
+  // On utilise 0 si price est undefined ou null
+  const safePrice = price || 0; 
+  return `${safePrice.toLocaleString('fr-FR')} XOF`;
+};
 
   const formatDate = (date: Date) => {
     return format(date, 'dd MMMM yyyy • HH:mm', { locale: fr });
@@ -199,8 +225,29 @@ let url = '';
       </View>
     );
   }
+  
+  // SYSTÈME DE NETTOYAGE D'IMAGE (À placer ici)
+  const getCleanImage = (item: any) => {
+    if (!item) return null;
+    // On cherche dans tous les champs possibles (image, imageUrl, photoURL)
+    let uri = item.image || item.imageUrl || item.photoURL;
+    if (!uri || typeof uri !== 'string') return null;
 
-  const statusInfo = statusConfig[order.status];
+    try {
+      // Nettoyage des caractères invisibles, espaces et sauts de ligne
+      let clean = uri.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, '');
+      
+      // Correction spécifique pour les dossiers Firebase Storage (slash vs %2F)
+      if (clean.includes('/products/') && !clean.includes('products%2F')) {
+        clean = clean.replace('/products/', '/products%2F');
+      }
+      return clean;
+    } catch (e) {
+      return uri;
+    }
+  };
+
+const statusInfo = statusConfig[order.status] || statusConfig.pending;
   const showNextAction = order.status === 'pending' || order.status === 'processing';
 
   return (
@@ -238,15 +285,17 @@ let url = '';
           <View style={styles.card}>
             <View style={styles.clientInfo}>
               <Ionicons name="person-outline" size={20} color="#6B7280" />
-              <Text style={styles.clientName}>{order.userName}</Text>
+              <Text style={styles.clientName}>
+                {order.shippingAddress?.fullName || order.userName || 'Client inconnu'}
+              </Text>
             </View>
-            {order.userEmail && (
+            {!!order.userEmail && (
               <View style={styles.clientDetail}>
                 <Ionicons name="mail-outline" size={16} color="#9CA3AF" />
                 <Text style={styles.clientDetailText}>{order.userEmail}</Text>
               </View>
             )}
-            {order.userPhone && (
+            {!!order.userPhone && (
               <View style={styles.clientDetail}>
                 <Ionicons name="call-outline" size={16} color="#9CA3AF" />
                 <Text style={styles.clientDetailText}>{order.userPhone}</Text>
@@ -255,44 +304,41 @@ let url = '';
           </View>
         </View>
 
-        {/* Liste des produits */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Produits commandés</Text>
-          {order.items.map((item, index) => (
-            <View key={item.id || index} style={styles.productCard}>
-              <View style={styles.productImageContainer}>
-                {item.imageUrl ? (
-                  <Image source={{ uri: item.imageUrl }} style={styles.productImage} />
-                ) : (
-                  <View style={styles.productImagePlaceholder}>
-                    <Ionicons name="image-outline" size={24} color="#9CA3AF" />
-                  </View>
-                )}
-              </View>
-              
-              <View style={styles.productInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
-                
-                {/* Variantes du produit */}
-                {item.variantAttributes && item.variantAttributes.length > 0 && (
-                  <View style={styles.variantsContainer}>
-                    {item.variantAttributes.map((attr, idx) => (
-                      <View key={idx} style={styles.variantBadge}>
-                        <Text style={styles.variantLabel}>{attr.name}:</Text>
-                        <Text style={styles.variantValue}>{attr.value}</Text>
-                      </View>
-                    ))}
-                  </View>
-                )}
-                
-                <View style={styles.productPricing}>
-                  <Text style={styles.productQuantity}>x{item.quantity}</Text>
-                  <Text style={styles.productPrice}>{formatPrice(item.price)}</Text>
-                </View>
-              </View>
+
+{/* Liste des produits */}
+<View style={styles.section}>
+  <Text style={styles.sectionTitle}>Produits commandés</Text>
+  {order.items.map((item, index) => {
+    const cleanUri = getCleanImage(item); // On calcule l'URL propre ici
+    
+    return (
+      <View key={item.id || index.toString()} style={styles.productCard}>
+        <View style={styles.productImageContainer}>
+          {cleanUri ? (
+            <Image 
+              source={{ uri: cleanUri }} 
+              style={styles.productImage}
+              contentFit="cover" // Si tu utilises expo-image
+              transition={300}
+            />
+          ) : (
+            <View style={styles.productImagePlaceholder}>
+              <Ionicons name="image-outline" size={24} color="#9CA3AF" />
             </View>
-          ))}
+          )}
         </View>
+        
+        <View style={styles.productInfo}>
+          <Text style={styles.productName}>{item.name}</Text>
+          <View style={styles.productPricing}>
+            <Text style={styles.productQuantity}>x{item.quantity}</Text>
+            <Text style={styles.productPrice}>{formatPrice(item.price)}</Text>
+          </View>
+        </View>
+      </View>
+    );
+  })}
+</View>
 
         {/* Résumé financier */}
         <View style={styles.section}>
@@ -301,7 +347,7 @@ let url = '';
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Sous-total</Text>
               <Text style={styles.priceValue}>
-                {formatPrice(order.baseAmount || order.totalAmount)}
+                {formatPrice(order.total)}
               </Text>
             </View>
             
@@ -319,7 +365,7 @@ let url = '';
             
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>{formatPrice(order.totalAmount)}</Text>
+              <Text style={styles.totalValue}>{formatPrice(order.total)}</Text>
             </View>
           </View>
         </View>
@@ -340,7 +386,7 @@ let url = '';
           </View>
         )}
 
-        {/* Notes de la commande */}
+        {/* Notes */}
         {order.notes && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Notes</Text>
@@ -350,7 +396,7 @@ let url = '';
           </View>
         )}
 
-        {/* Date de commande */}
+        {/* Infos supplémentaires */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Informations supplémentaires</Text>
           <View style={styles.card}>
@@ -370,9 +416,8 @@ let url = '';
         </View>
       </ScrollView>
 
-      {/* Actions fixes en bas */}
+      {/* Actions fixes */}
       <View style={styles.footer}>
-        {/* Boutons de contact */}
         <View style={styles.contactButtons}>
           <TouchableOpacity
             style={[styles.contactButton, styles.phoneButton]}
@@ -391,7 +436,6 @@ let url = '';
           </TouchableOpacity>
         </View>
 
-        {/* Bouton d'action principal */}
         {showNextAction && (
           <TouchableOpacity
             style={[

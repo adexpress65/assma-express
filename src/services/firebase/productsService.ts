@@ -1,5 +1,16 @@
 // src/services/firebase/productsService.ts
-import { collection, getDocs, query, where, doc, getDoc, orderBy } from 'firebase/firestore';
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  doc,
+  getDoc,
+  orderBy,
+  limit,
+  startAfter,
+  QueryDocumentSnapshot,
+} from 'firebase/firestore';
 import { db } from '../../config/firebase';
 
 export interface Product {
@@ -9,6 +20,7 @@ export interface Product {
   price: number;
   image: string;
   imageUrl: string;
+  mainImage?: string;
   categoryId: string;
   stock: number;
   createdAt: any;
@@ -202,6 +214,117 @@ export const getProductsByCategory = async (categoryId: string): Promise<Product
   } catch (error) {
     console.error('Erreur lors de la récupération des produits:', error);
     return [];
+  }
+};
+
+/**
+ * Récupère uniquement les derniers produits (pour affichage rapide).
+ * Evite de télécharger toute la collection (très lent).
+ */
+export const getLatestProducts = async (count: number): Promise<Product[]> => {
+  try {
+    const q = query(
+      collection(db, 'products'),
+      orderBy('createdAt', 'desc'),
+      limit(count)
+    );
+
+    const querySnapshot = await getDocs(q);
+    const products: Product[] = [];
+
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      products.push({
+        id: docSnap.id,
+        name: data.name,
+        description: data.description || '',
+        price: data.price,
+        image: data.image || '',
+        imageUrl: data.imageUrl || data.image || '',
+        categoryId: data.categoryId || '',
+        stock: data.stock || data.stockQuantity || 0,
+        companyId: data.companyId,
+        companyName: data.companyName,
+        sellerId: data.sellerId,
+        sellerName: data.sellerName,
+        isActive: data.isActive !== false,
+        stockQuantity: data.stockQuantity || data.stock || 0,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      });
+    });
+
+    return products;
+  } catch (error) {
+    console.error('❌ Erreur récupération derniers produits:', error);
+    return [];
+  }
+};
+
+/**
+ * Pagination simple par catégorie (ordre par createdAt desc).
+ */
+export const getProductsByCategoryPaginated = async (
+  categoryId: string,
+  pageSize: number,
+  lastDoc?: QueryDocumentSnapshot
+): Promise<{
+  products: Product[];
+  lastDoc: QueryDocumentSnapshot | null;
+  hasMore: boolean;
+}> => {
+  try {
+    const baseQuery = query(
+      collection(db, 'products'),
+      where('categoryId', '==', categoryId),
+      orderBy('createdAt', 'desc'),
+      limit(pageSize)
+    );
+
+    const q = lastDoc
+      ? query(
+          collection(db, 'products'),
+          where('categoryId', '==', categoryId),
+          orderBy('createdAt', 'desc'),
+          startAfter(lastDoc),
+          limit(pageSize)
+        )
+      : baseQuery;
+
+    const querySnapshot = await getDocs(q);
+    const products: Product[] = [];
+
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      products.push({
+        id: docSnap.id,
+        name: data.name,
+        description: data.description || '',
+        price: data.price,
+        image: data.image || '',
+        imageUrl: data.imageUrl || data.image || '',
+        categoryId: data.categoryId,
+        stock: data.stock || 0,
+        companyId: data.companyId,
+        companyName: data.companyName,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      });
+    });
+
+    const newLastDoc =
+      querySnapshot.docs.length > 0
+        ? querySnapshot.docs[querySnapshot.docs.length - 1]
+        : null;
+
+    return {
+      products,
+      lastDoc: newLastDoc,
+      hasMore: querySnapshot.docs.length === pageSize,
+    };
+  } catch (error) {
+    console.error('❌ Erreur pagination produits par catégorie:', error);
+    return { products: [], lastDoc: null, hasMore: false };
   }
 };
 

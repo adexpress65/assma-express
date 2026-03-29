@@ -2,15 +2,17 @@ import React, { useState, useRef } from 'react';
 import { 
   View, 
   FlatList, 
-  Image, 
   TouchableOpacity, 
   Dimensions, 
   StyleSheet, 
   NativeSyntheticEvent, 
   NativeScrollEvent 
 } from 'react-native';
+// 1. Importer Image de expo-image
+import { Image } from 'expo-image';
 
 const { width } = Dimensions.get('window');
+const blurhash = '|rF?hV%2WCj[ayayj[azj[j[ayayayayayayayayj[';
 
 interface ImageGalleryProps {
   images: string[];
@@ -25,7 +27,6 @@ export default function ImageGallery({ images = [], style }: ImageGalleryProps) 
     return <View style={[styles.placeholder, style]} />;
   }
 
-  // Gère le changement d'index lors du swipe
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const slideSize = event.nativeEvent.layoutMeasurement.width;
     const index = event.nativeEvent.contentOffset.x / slideSize;
@@ -35,7 +36,6 @@ export default function ImageGallery({ images = [], style }: ImageGalleryProps) 
     }
   };
 
-  // Permet de cliquer sur une miniature pour scroller l'image principale
   const scrollToImage = (index: number) => {
     setActive(index);
     flatListRef.current?.scrollToIndex({ index, animated: true });
@@ -51,17 +51,21 @@ export default function ImageGallery({ images = [], style }: ImageGalleryProps) 
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onScroll={onScroll}
+        scrollEventThrottle={16}
         keyExtractor={(_, idx) => `main-${idx}`}
         renderItem={({ item }) => (
           <Image
-            source={{ uri: item }}
+            source={item} // Pas besoin de { uri: item } avec expo-image
             style={[styles.mainImage, style]}
-            resizeMode="cover"
+            contentFit="cover"
+            placeholder={blurhash}
+            transition={300}
+            cachePolicy="memory-disk"
           />
         )}
       />
 
-      {/* INDICATEUR DE PAGINATION (BULLES) */}
+      {/* INDICATEUR DE PAGINATION */}
       <View style={styles.pagination}>
         {images.map((_, index) => (
           <View 
@@ -71,7 +75,7 @@ export default function ImageGallery({ images = [], style }: ImageGalleryProps) 
         ))}
       </View>
 
-      {/* MINIATURES (Cliquables) */}
+      {/* MINIATURES */}
       <View style={styles.thumbnailContainer}>
         <FlatList
           data={images}
@@ -87,7 +91,12 @@ export default function ImageGallery({ images = [], style }: ImageGalleryProps) 
                 { borderColor: index === active ? '#ff6a00' : 'transparent', borderWidth: 2 }
               ]}
             >
-              <Image source={{ uri: item }} style={styles.thumbnail} />
+              <Image 
+                source={item} 
+                style={styles.thumbnail}
+                contentFit="cover"
+                cachePolicy="memory-disk" // Utilise le même cache que l'image principale !
+              />
             </TouchableOpacity>
           )}
         />
@@ -97,47 +106,15 @@ export default function ImageGallery({ images = [], style }: ImageGalleryProps) 
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFF',
-  },
-  placeholder: {
-    width: width,
-    height: width,
-    backgroundColor: '#f3f3f3',
-  },
-  mainImage: {
-    width: width,
-    height: width, // Format carré AliExpress
-  },
-  pagination: {
-    flexDirection: 'row',
-    position: 'absolute',
-    bottom: 110, // Juste au dessus des miniatures
-    alignSelf: 'center',
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 4,
-  },
-  activeDot: {
-    backgroundColor: '#ff6a00',
-    width: 20, // Effet pilule pour l'actif
-  },
-  inactiveDot: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-  },
-  thumbnailContainer: {
-    padding: 10,
-  },
-  thumbWrapper: {
-    marginRight: 8,
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  thumbnail: {
-    width: 60,
-    height: 60,
-  }
+  // ... tes styles restent identiques
+  container: { backgroundColor: '#FFF' },
+  placeholder: { width: width, height: width, backgroundColor: '#f3f3f3' },
+  mainImage: { width: width, height: width },
+  pagination: { flexDirection: 'row', position: 'absolute', bottom: 110, alignSelf: 'center' },
+  dot: { width: 8, height: 8, borderRadius: 4, marginHorizontal: 4 },
+  activeDot: { backgroundColor: '#ff6a00', width: 20 },
+  inactiveDot: { backgroundColor: 'rgba(255, 255, 255, 0.8)' },
+  thumbnailContainer: { padding: 10 },
+  thumbWrapper: { marginRight: 8, borderRadius: 6, overflow: 'hidden' },
+  thumbnail: { width: 60, height: 60 }
 });

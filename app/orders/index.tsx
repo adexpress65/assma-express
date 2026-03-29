@@ -11,9 +11,10 @@ import {
   Platform,
   UIManager,
   SafeAreaView,
-  Animated
+  Animated,
+  Alert
 } from 'react-native';
-import { Image } from 'expo-image'; // ✅ Standard pro pour éviter les erreurs 400
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useOrders } from '../../src/contexts/OrderContext';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -38,54 +39,56 @@ const formatOrderDate = (dateData: any) => {
   return isNaN(d.getTime()) ? "Date invalide" : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 };
 
-// COMPOSANT : Carte de commande individuelle
-// ... (tes imports restent inchangés)
-
-// COMPOSANT : Carte de commande individuelle (Version Corrigée)
-// COMPOSANT : Carte de commande individuelle (Version Sans Erreur)
-const OrderCard = ({ order, onPress }: any) => {
+// --- COMPOSANT : Carte de commande individuelle ---
+const OrderCard = ({ order, onPress, onDelete }: any) => {
   const statusInfo = ORDER_STATUS_CONFIG[order.status as keyof typeof ORDER_STATUS_CONFIG] || ORDER_STATUS_CONFIG.pending;
   
+  // Autoriser la suppression pour les commandes terminées ou annulées
+  const canDelete = ['delivered', 'cancelled', 'failed'].includes(order.status?.toLowerCase());
+
   if (!order.items || order.items.length === 0) return null;
 
   const firstItem = order.items[0];
-
-  // 1. Définition du nom du produit (Ce qui manquait !)
   const productName = firstItem.name || firstItem.productName || firstItem.title || `Commande #${order.id.slice(-5)}`;
 
-  // 2. Récupération et réparation de l'URL
-const imageUri = useMemo(() => {
-    let uri = firstItem.image || firstItem.imageUrl || firstItem.photoURL || firstItem.photos?.[0];
+  const imageUri = useMemo(() => {
+    const item = order.items?.[0];
+    if (!item) return null;
+
+    let uri = item.image || item.imageUrl || item.photoURL || item.photos?.[0];
     if (!uri || typeof uri !== 'string') return null;
 
     try {
-      // 1. Nettoyage des espaces et décodage complet pour repartir de zéro
-      let clean = decodeURIComponent(uri.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, ''));
-
-      // 2. Extraction du nom de fichier uniquement
-      // On cherche ce qui vient après "products/"
-      if (clean.includes('/products/')) {
-        const parts = clean.split('/products/');
-        const fileNameWithParams = parts[1].split('/').pop(); // Récupère "image.jpg?alt..."
-        
-        // 3. Reconstruction STRICTE de l'URL Firebase
-        // Format requis : .../o/products%2Fnom_image.jpg?alt=media&token=...
-        const baseUrl = "https://firebasestorage.googleapis.com/v0/b/assma-expresse.firebasestorage.app/o";
-        clean = `${baseUrl}/products%2F${fileNameWithParams}`;
+      let clean = uri.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, '');
+      if (clean.includes('/products/') && !clean.includes('products%2F')) {
+        clean = clean.replace('/products/', '/products%2F');
       }
-
       return clean;
     } catch (e) {
       return uri;
     }
-  }, [firstItem]);
+  }, [order.items]);
 
   return (
     <Animated.View style={{ marginBottom: 16 }}>
       <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={styles.orderCard}>
         <LinearGradient colors={COLORS.primaryGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.cardHeader}>
           <Text style={styles.orderId}>{order.orderId || `ORD-${order.id.slice(-6).toUpperCase()}`}</Text>
-          <Text style={styles.orderDate}>{formatOrderDate(order.createdAt)}</Text>
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <Text style={styles.orderDate}>{formatOrderDate(order.createdAt)}</Text>
+            {canDelete && (
+              <TouchableOpacity 
+                onPress={(e) => {
+                  e.stopPropagation(); // Évite d'ouvrir les détails de la commande
+                  onDelete(order.id);
+                }}
+                style={styles.deleteMiniBtn}
+              >
+                <Ionicons name="trash-outline" size={16} color={COLORS.white} />
+              </TouchableOpacity>
+            )}
+          </View>
         </LinearGradient>
 
         <View style={styles.orderContent}>
@@ -100,9 +103,6 @@ const imageUri = useMemo(() => {
                     cachePolicy="disk"
                     transition={300}
                     backgroundColor="#F0F0F0"
-                    onError={(error) => {
-                      console.log('❌ Erreur Glide (400) toujours présente pour:', order.id);
-                    }}
                   />
                 ) : (
                   <View style={styles.placeholderIcon}>
@@ -128,12 +128,10 @@ const imageUri = useMemo(() => {
   );
 };
 
-// ... (Le reste du fichier OrdersScreen reste identique)
-
-// COMPOSANT PRINCIPAL : Liste des commandes
+// --- COMPOSANT PRINCIPAL : Liste des commandes ---
 export default function OrdersScreen() {
   const router = useRouter();
-  const { orders, loading, refreshOrders } = useOrders() as any;
+  const { orders, loading, refreshOrders, deleteOrder } = useOrders() as any;
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -148,6 +146,25 @@ export default function OrdersScreen() {
     setRefreshing(true);
     if (refreshOrders) await refreshOrders();
     setRefreshing(false);
+  };
+
+  const handleDelete = (orderId: string) => {
+    Alert.alert(
+      "Supprimer",
+      "Voulez-vous supprimer cette commande de votre historique ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { 
+          text: "Supprimer", 
+          style: "destructive",
+          onPress: async () => {
+            if (deleteOrder) {
+              await deleteOrder(orderId);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const stats = useMemo(() => {
@@ -211,9 +228,13 @@ export default function OrdersScreen() {
         data={filteredOrders}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
-        removeClippedSubviews={false} // ✅ Important pour expo-image dans les listes
+        removeClippedSubviews={false}
         renderItem={({ item }) => (
-          <OrderCard order={item} onPress={() => router.push(`/orders/${item.id}`)} />
+          <OrderCard 
+            order={item} 
+            onPress={() => router.push(`/orders/${item.id}`)} 
+            onDelete={handleDelete}
+          />
         )}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
@@ -229,7 +250,7 @@ export default function OrdersScreen() {
   );
 }
 
-// Sous-composants
+// --- SOUS-COMPOSANTS ---
 const StatItem = ({ label, value, icon, isSmall }: any) => (
   <View style={styles.statCard}>
     <Ionicons name={icon} size={18} color="rgba(255,255,255,0.7)" />
@@ -247,6 +268,7 @@ const FilterChip = ({ active, label, count, onPress }: any) => (
   </TouchableOpacity>
 );
 
+// --- STYLES ---
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
@@ -272,6 +294,7 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
   orderId: { color: COLORS.white, fontWeight: '800', fontSize: 13 },
   orderDate: { color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: '600' },
+  deleteMiniBtn: { backgroundColor: 'rgba(255,255,255,0.25)', padding: 5, borderRadius: 8 },
   orderContent: { padding: 16 },
   statusBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, marginBottom: 8, gap: 6 },
   statusText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },

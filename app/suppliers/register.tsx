@@ -553,7 +553,7 @@ const pickImage = async (type: 'logo' | 'cover') => {
       }} />
       
       <Text style={styles.title}>
-        {isEditMode ? 'Modifier votre profil' : 'Devenir Fournisseur ASMA Express'}
+        {isEditMode ? 'Modifier votre profil' : 'Devenir Fournisseur A2Express'}
       </Text>
       <Text style={styles.subtitle}>
         {isEditMode 

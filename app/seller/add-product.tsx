@@ -852,6 +852,18 @@ export default function AddProductScreen() {
           updatedBy: user.uid
         });
 
+        try {
+          await fetch('https://ngenius-backend.onrender.com/notify-new-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productId: docRef.id,
+              name: productData.name,
+              imageUrl: productData.imageUrl,
+            }),
+          });
+        } catch (e) {}
+
         clearInterval(progressInterval);
         
         Alert.alert(
