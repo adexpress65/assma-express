@@ -1,5 +1,15 @@
 {
-  "name": "assma",
+  "name": "assma-root",
   "private": true,
-  "workspaces": ["apps/*"]
+  "scripts": {
+    "firestore:backfill-companies": "node scripts/firestore-backfill-company-links.mjs",
+    "firestore:backfill-companies:dry": "node scripts/firestore-backfill-company-links.mjs --dry-run",
+    "firestore:deploy-indexes": "firebase deploy --only firestore:indexes",
+    "firestore:delete-test-orders": "node scripts/delete-test-orders.mjs"
+  },
+  "dependencies": {
+    "expo": "^55.0.8",
+    "firebase-admin": "^13.6.1",
+    "firebase-functions": "^7.0.5"
+  }
 }

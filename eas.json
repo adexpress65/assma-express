@@ -1,0 +1,62 @@
+{
+  "cli": {
+    "version": ">= 3.13.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "resourceClass": "default",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug -PnewArchEnabled=true"
+      },
+      "env": {
+        "EXPO_NEW_ARCH_ENABLED": "true",
+        "REACT_NATIVE_FABRIC_ENABLED": "true",
+        "REACT_NATIVE_TURBO_MODULE_ENABLED": "true",
+        "EAS_SKIP_AUTO_FINGERPRINT": "1",
+        "NODE_ENV": "development"
+      }
+    },
+
+    "preview": {
+      "distribution": "internal",
+      "resourceClass": "default",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug -PnewArchEnabled=true"
+      },
+      "env": {
+        "EXPO_NEW_ARCH_ENABLED": "true",
+        "REACT_NATIVE_FABRIC_ENABLED": "true",
+        "REACT_NATIVE_TURBO_MODULE_ENABLED": "true",
+        "NODE_ENV": "staging"
+      }
+    },
+
+    "production": {
+      "distribution": "store",
+      "resourceClass": "default",
+      "android": {
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:assembleRelease -PnewArchEnabled=true"
+      },
+      "env": {
+        "EXPO_NEW_ARCH_ENABLED": "true",
+        "REACT_NATIVE_FABRIC_ENABLED": "true",
+        "REACT_NATIVE_TURBO_MODULE_ENABLED": "true",
+        "NODE_ENV": "production"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./service-account.json",
+        "track": "production"
+      }
+    }
+  }
+}

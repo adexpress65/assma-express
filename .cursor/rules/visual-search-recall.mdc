@@ -1,0 +1,30 @@
+---
+description: Verrou pipeline recherche visuelle (rappel ~50 + SKU exact en tête)
+globs:
+  - apps/mobile/src/services/visualSearchApi.ts
+  - apps/mobile/src/hooks/useVisualSearch.ts
+  - apps/mobile/src/config/visualSearchRecallLock.ts
+  - functions/src/visualImageSearch.ts
+  - functions/src/services/visualRanking.ts
+  - functions/src/services/visualSearchRecallLock.ts
+alwaysApply: false
+---
+
+# Recherche visuelle — ne pas régresser
+
+Étape validée : **produit exact possible en #1**, grille proche de **50** résultats.
+
+## Ne pas faire sans QA manuelle (photo + SKU catalogue)
+
+- **Mobile** : ne pas repasser l’upload vectoriel en `multipart` fichier `file://` sur Android (régression `jpegOutUri` / FormData). Garder **JSON `imageBase64`** vers `visualImageSearch`.
+- **Functions** : en chemin complet, ne pas baisser **`vectorFetchLimit`** sous le plafond Pinecone (**96** / `MAX_VECTOR_CANDIDATES`) pour « perf » sans mesure.
+- **Functions** : ne pas remettre **`protectTopK: 0`** dans `diversifyResults` sans retester la grille (perte massive de lignes).
+- **Functions** : ne pas **resserrer** `VECTOR_HEAD_CATEGORY_EXEMPT` ni le seuil intention (`INTENT_CATEGORY_TERM_MIN`) sans retester le SKU exact.
+- **Mobile** : ne pas **resserrer** le repli catalogue dans `applyClipVectorPostFilters` (ratio / `minStrict`) ni baisser **`MIN_VECTOR_HITS_TARGET_UI`** / **`GRID_TARGET_RESULTS`** sans session de test.
+
+## Où sont les chiffres
+
+- Mobile : `apps/mobile/src/config/visualSearchRecallLock.ts`
+- Functions : `functions/src/services/visualSearchRecallLock.ts`
+
+Toute modification de ces constantes : **noter la raison** dans le message de commit et faire un test visuel sur 2–3 produits connus du catalogue.

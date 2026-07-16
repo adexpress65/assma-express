@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "251188713496",
+    "project_id": "assma-expresse",
+    "storage_bucket": "assma-expresse.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251188713496:android:442a1d19fdee784edc0b6d",
+        "android_client_info": {
+          "package_name": "com.askia1.assmaexpress"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "251188713496-uqulsfo1ke4bf72gjkh8n5ljhtfr8898.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyByhn_aG9OP_5XCUNr_XP-hYSboR5b9T3A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "251188713496-uqulsfo1ke4bf72gjkh8n5ljhtfr8898.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

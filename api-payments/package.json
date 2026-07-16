@@ -1,0 +1,13 @@
+{
+  "main": "index.js",
+  "name": "api-payments-assma",
+  "version": "1.0.0",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "firebase-admin": "^13.6.0",
+    "node-fetch": "^2.7.0"
+  },
+  "scripts": {
+    "start": "vercel dev"
+  }
+}

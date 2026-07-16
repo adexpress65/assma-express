@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Paiement réussi</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #e8f5e9;
+      color: #2e7d32;
+      text-align: center;
+      padding: 60px;
+    }
+    h1 { font-size: 2.5em; }
+    p  { font-size: 1.2em; }
+    .ref {
+      background: #fff;
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 6px;
+      margin-top: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>✅ Paiement réussi</h1>
+  <p>Merci pour votre commande.</p>
+  <div class="ref">Référence : <span id="ref"></span></div>
+
+  <script>
+    // Récupère ?ref=XXXX depuis l'URL
+    const params = new URLSearchParams(window.location.search);
+    document.getElementById('ref').textContent = params.get('ref') || 'inconnue';
+  </script>
+</body>
+</html>

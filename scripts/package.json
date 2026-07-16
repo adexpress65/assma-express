@@ -1,0 +1,17 @@
+{
+  "name": "scripts",
+  "version": "1.0.0",
+  "main": "migrate-to-lowercase.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "backfill:image-hashes": "node backfillImageHashes.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "algoliasearch": "^5.50.0",
+    "firebase-admin": "^13.7.0"
+  }
+}
