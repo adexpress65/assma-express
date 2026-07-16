@@ -4,11 +4,15 @@
   "main": "expo-router/entry",
   "private": true,
   "scripts": {
+    "postinstall": "patch-package && node ./scripts/download-ninja.js",
+    "ninja:download": "node ./scripts/download-ninja.js",
     "start": "expo start",
-    "android": "expo run:android",
+    "android": "node ./scripts/run-expo-android.js",
+    "android:raw": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "prebuild": "expo prebuild"
+    "prebuild": "expo prebuild",
+    "migrate:products-company-seller": "node ./scripts/migrate-products-company-seller.mjs"
   },
   "dependencies": {
     "@babel/runtime": "^7.26.0",
@@ -24,6 +28,8 @@
     "@react-navigation/native-stack": "^7.3.16",
     "@react-navigation/stack": "^7.6.4",
     "@reduxjs/toolkit": "^2.9.0",
+    "@sentry/react-native": "~7.2.0",
+    "@shopify/flash-list": "^2.3.1",
     "algoliasearch": "^4.17.2",
     "axios": "^1.13.2",
     "cors": "^2.8.5",
@@ -94,6 +100,7 @@
     "@types/react": "~19.1.10",
     "babel-plugin-module-resolver": "^5.0.2",
     "nodemon": "^3.1.11",
+    "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   }
 }

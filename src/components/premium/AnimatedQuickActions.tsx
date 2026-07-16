@@ -6,16 +6,14 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Dimensions,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../../contexts/AuthContext'; 
-
-const { width } = Dimensions.get('window');
+import { useAuth } from '../../contexts/AuthContext';
 
 // --- COMPOSANT EFFET ÉTOILES (SPARKLE) ---
 const SparkleEffect = ({ isActive }: { isActive: boolean }) => {
@@ -61,7 +59,7 @@ const SparkleEffect = ({ isActive }: { isActive: boolean }) => {
         }
       ]}
     >
-      <Ionicons name="star" size={8} color="#FFD700" />
+      <Ionicons name="star" size={10} color="#FFD700" />
     </Animated.View>
   );
 };
@@ -114,8 +112,13 @@ const QUICK_ACTIONS = [
 export default function AnimatedQuickActions() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { userData } = useAuth(); 
+  const { width: windowWidth } = useWindowDimensions();
+  const { userData } = useAuth();
   const [activeButton, setActiveButton] = useState<string | null>(null);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+
+  const contentMinWidth =
+    measuredWidth && measuredWidth > 0 ? measuredWidth : windowWidth;
 
   // ✅ FILTRAGE CORRIGÉ : super-admin, admin, vendeur ou Company
   const filteredActions = useMemo(() => {
@@ -172,40 +175,49 @@ export default function AnimatedQuickActions() {
   };
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={(e) => {
+        const w = Math.round(e.nativeEvent.layout.width);
+        if (w > 0) {
+          setMeasuredWidth((prev) => (prev === w ? prev : w));
+        }
+      }}
+    >
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { minWidth: contentMinWidth },
+        ]}
       >
-        {filteredActions.map((action, index) => (
-          <View key={action.id} style={[
-            styles.actionWrapper,
-            index === filteredActions.length - 1 && styles.lastActionWrapper
-          ]}>
-            <SparkleEffect isActive={activeButton === action.id} />
-            <TouchableOpacity
-              style={styles.actionItem}
-              activeOpacity={0.7}
-              onPress={() => handleActionPress(action)}
-            >
-              <LinearGradient colors={action.color} style={styles.actionGradient}>
-                <Ionicons name={action.icon as any} size={18} color="#fff" />
-                {action.badge && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
+        <View style={styles.actionsRow}>
+          {filteredActions.map((action) => (
+            <View key={action.id} style={styles.actionWrapper}>
+              <SparkleEffect isActive={activeButton === action.id} />
+              <TouchableOpacity
+                style={styles.actionItem}
+                activeOpacity={0.7}
+                onPress={() => handleActionPress(action)}
+              >
+                <LinearGradient colors={action.color} style={styles.actionGradient}>
+                  <Ionicons name={action.icon as any} size={24} color="#fff" />
+                  {action.badge && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
                         {action.isAdminOnly ? action.badge : t(action.badge)}
-                    </Text>
-                  </View>
-                )}
-              </LinearGradient>
-              <Text style={styles.actionLabel} numberOfLines={1}>
-                {action.isAdminOnly ? action.label : t(action.label)}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-        <View style={styles.rightSpacer} />
+                      </Text>
+                    </View>
+                  )}
+                </LinearGradient>
+                <Text style={styles.actionLabel} numberOfLines={2}>
+                  {action.isAdminOnly ? action.label : t(action.label)}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -217,25 +229,26 @@ const styles = StyleSheet.create({
     marginTop: -12,
     marginBottom: 0,
     paddingVertical: 0,
+    width: '100%',
+    alignSelf: 'stretch',
   },
   scrollContent: {
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
     flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 20,
   },
   actionWrapper: {
     position: 'relative',
     alignItems: 'center',
-    marginRight: 28,
-    minWidth: 44,
-  },
-  lastActionWrapper: {
-    marginRight: 0,
-  },
-  rightSpacer: {
-    width: 0,
-    height: 0,
+    minWidth: 72,
   },
   sparkle: {
     position: 'absolute',
@@ -243,41 +256,44 @@ const styles = StyleSheet.create({
   },
   actionItem: {
     alignItems: 'center',
-    width: 44,
+    minWidth: 72,
+    maxWidth: 88,
     zIndex: 2,
   },
   actionGradient: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
     position: 'relative',
     shadowColor: 'transparent',
     elevation: 5,
   },
   badge: {
     position: 'absolute',
-    top: -4,
-    right: -4,
+    top: -5,
+    right: -5,
     backgroundColor: '#ff4444',
-    borderRadius: 8,
-    paddingHorizontal: 4,
+    borderRadius: 9,
+    paddingHorizontal: 5,
     paddingVertical: 2,
     borderWidth: 1,
     borderColor: '#fff',
   },
   badgeText: {
     color: '#fff',
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '700',
   },
   actionLabel: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '600',
     color: '#333',
     textAlign: 'center',
-    marginTop: 1,
+    marginTop: 2,
+    lineHeight: 15,
+    width: '100%',
   },
 });

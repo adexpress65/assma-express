@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../../src/utils/productLocale';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { db } from '../../src/config/firebase';
 import { 
@@ -40,6 +42,7 @@ interface FavoriteItem {
 
 export default function FavoritesScreen() {
   const router = useRouter();
+  const { i18n } = useTranslation();
   const { user } = useAuth();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -240,7 +243,7 @@ export default function FavoritesScreen() {
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Mes Favoris</Text>
-        <TouchableOpacity onPress={() => router.push('/search')}>
+        <TouchableOpacity onPress={() => router.push('/(tabs)/')}>
           <Ionicons name="search" size={24} color="#333" />
         </TouchableOpacity>
       </View>
@@ -278,6 +281,12 @@ export default function FavoritesScreen() {
           favorites.map((item) => {
             const discount = calculateDiscount(item.price, item.originalPrice);
             const isLoading = item.loading;
+            const displayName = getLocalizedProductText(
+              item.name,
+              'name',
+              item as unknown as Record<string, unknown>,
+              i18n.language,
+            );
 
             return (
               <TouchableOpacity 
@@ -317,7 +326,7 @@ export default function FavoritesScreen() {
                         style={styles.favoriteButton}
                         onPress={(e) => {
                           e.stopPropagation();
-                          removeFromFavorites(item.id, item.name);
+                          removeFromFavorites(item.id, displayName);
                         }}
                       >
                         <Ionicons name="heart" size={20} color="#FF4444" />
@@ -367,7 +376,7 @@ export default function FavoritesScreen() {
                       disabled={!item.inStock}
                       onPress={(e) => {
                         e.stopPropagation();
-                        Alert.alert('Ajouter au panier', `${item.name} a été ajouté`);
+                        Alert.alert('Ajouter au panier', `${displayName} a été ajouté`);
                       }}
                     >
                       <Ionicons name="cart-outline" size={18} color="#FFF" />

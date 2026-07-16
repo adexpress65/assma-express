@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   View, Text, TouchableOpacity, StyleSheet, ScrollView, 
   TextInput, Alert, StatusBar 
@@ -7,6 +7,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCheckout } from '../../src/contexts/CheckoutContext';
+import type { OrderData, ShippingAddress } from '../../src/types/order';
+import type { CartItem } from '../../src/types/cart';
 
 const COLORS = {
   primary: '#FF6A00',
@@ -25,94 +28,131 @@ export default function CheckoutAddress() {
   const params = useLocalSearchParams();
   const { formatPrice } = useCurrency();
   const insets = useSafeAreaInsets();
+  const { orderData: ctxOrder, initOrder, setShippingAddress: ctxSetAddress, setSummary } = useCheckout();
 
-  // Récupération sécurisée des données du panier
-  const initialOrderData = useMemo(() => {
+  /** Parse pur (sans setState) — évite initOrder() pendant le rendu. */
+  const orderFromParams = useMemo((): OrderData | null => {
+    const raw = params.orderData;
+    if (!raw || typeof raw !== "string") return null;
     try {
-      return params.orderData ? JSON.parse(decodeURIComponent(params.orderData as string)) : null;
-    } catch (e) {
-      console.error("Erreur de parsing orderData", e);
-      return null;
+      return JSON.parse(decodeURIComponent(raw)) as OrderData;
+    } catch {
+      try {
+        return JSON.parse(raw) as OrderData;
+      } catch (e) {
+        console.error("Erreur de parsing orderData", e);
+        return null;
+      }
     }
   }, [params.orderData]);
 
-  const selectedItems = initialOrderData?.items || [];
-
-  const [address, setAddress] = useState({
-    fullName: '',
-    street: '',
-    city: '',
-    postalCode: '0000',
-    country: '',
-    phone: ''
-  });
-
-  // Logique du prix de gros
-  const getWholesalePrice = (price: number, quantity: number) => {
-    if (quantity >= 100) return price * 0.70;
-    if (quantity >= 50) return price * 0.75;
-    if (quantity >= 20) return price * 0.80;
-    if (quantity >= 10) return price * 0.85;
-    return price;
+  const getOrderFingerprint = (order: OrderData | null): string => {
+    if (!order) return '';
+    const itemsFingerprint = (order.items || [])
+      .map((item) => `${item.id}:${Number(item.price)}:${Number(item.quantity)}`)
+      .join('|');
+    const subtotal = Number(order.summary?.subtotal) || 0;
+    const shipping = Number(order.summary?.shipping) || 0;
+    const total = Number(order.summary?.total) || 0;
+    return `${itemsFingerprint}::${subtotal}:${shipping}:${total}`;
   };
 
-  const { isWholesaleOrder, subtotal, savings } = useMemo(() => {
-    let totalOriginal = 0;
-    let totalWholesale = 0;
-    let wholesaleActive = false;
+  const paramsFingerprint = useMemo(
+    () => getOrderFingerprint(orderFromParams),
+    [orderFromParams],
+  );
+  const contextFingerprint = useMemo(
+    () => getOrderFingerprint(ctxOrder),
+    [ctxOrder],
+  );
 
-    selectedItems.forEach((item: any) => {
-      const price = Number(item.price);
-      const qty = Number(item.quantity);
-      totalOriginal += price * qty;
-      
-      const wPrice = getWholesalePrice(price, qty);
-      totalWholesale += wPrice * qty;
-      
-      if (qty >= 10) wholesaleActive = true;
+  /**
+   * Hydrate/synchronise le CheckoutProvider avec les params:
+   * - évite les données obsolètes (ancienne commande encore en contexte)
+   * - garantit la cohérence des quantités entre écran produit et checkout
+   */
+  useEffect(() => {
+    if (orderFromParams?.items?.length && paramsFingerprint !== contextFingerprint) {
+      initOrder(orderFromParams);
+    }
+  }, [orderFromParams, initOrder, paramsFingerprint, contextFingerprint]);
+
+  // Priorité aux params quand présents (commande la plus récente).
+  const resolvedOrder: OrderData | null = orderFromParams ?? ctxOrder;
+  const selectedItems: CartItem[] = resolvedOrder?.items ?? [];
+
+  const [address, setAddress] = useState<ShippingAddress>({
+    fullName: '',
+    phone: '',
+    city: '',
+    country: '',
+    street: '',
+    postalCode: '',
+    apartment: '',
+    building: '',
+    floor: '',
+    deliveryNote: '',
+  });
+
+  // Le checkout doit conserver le prix unitaire déjà validé sur la fiche produit.
+  // Aucune remise "gros" automatique ne doit être recalculée ici.
+  const subtotal = useMemo(
+    () =>
+      selectedItems.reduce(
+        (sum, item) => sum + Number(item.price) * Number(item.quantity),
+        0,
+      ),
+    [selectedItems],
+  );
+
+  // VÉRIFICATION DES CHAMPS (SÉCURITÉ)
+  const isFormValid = useMemo(() => {
+    return (
+      address.fullName.trim() !== '' &&
+      address.phone.trim() !== '' &&
+      address.street.trim() !== '' &&
+      address.city.trim() !== '' &&
+      address.country.trim() !== ''
+    );
+  }, [address]);
+
+  const handleContinue = () => {
+    // Sécurité supplémentaire avant la navigation
+    if (!isFormValid) {
+      Alert.alert(
+        "Informations manquantes",
+        "Veuillez remplir tous les champs obligatoires (*) pour continuer.",
+        [{ text: "Compris" }]
+      );
+      return;
+    }
+
+    const updatedItems = selectedItems.map((item) => ({ ...item }));
+
+    const newSummary = { subtotal, shipping: 0, discount: 0, total: subtotal };
+
+    const addressPayload: ShippingAddress = {
+      ...address,
+      postalCode: address.postalCode?.trim() || undefined,
+      apartment: address.apartment?.trim() || undefined,
+      building: address.building?.trim() || undefined,
+      floor: address.floor?.trim() || undefined,
+      deliveryNote: address.deliveryNote?.trim() || undefined,
+    };
+
+    ctxSetAddress(addressPayload);
+    setSummary(newSummary);
+    // Mise à jour des items avec prix de gros dans le contexte
+    initOrder({
+      items: updatedItems,
+      summary: newSummary,
+      shippingAddress: addressPayload,
     });
 
-    return {
-      isWholesaleOrder: wholesaleActive,
-      subtotal: totalWholesale,
-      savings: totalOriginal - totalWholesale
-    };
-  }, [selectedItems]);
-
-const handleContinue = () => {
-
-  const orderDataToSend = {
-    ...initialOrderData,
-
-    items: selectedItems.map((item: any) => ({
-      ...item,
-      price: getWholesalePrice(Number(item.price), Number(item.quantity))
-    })),
-
-    summary: {
-      subtotal: subtotal,
-      shipping: 0,
-      discount: savings,
-      total: subtotal
-    },
-
-    shippingAddress: {
-      fullName: address.fullName,
-      phone: address.phone,
-      street: address.street,
-      city: address.city,
-      postalCode: address.postalCode,
-      country: address.country
-    }
+    router.push({ pathname: '/checkout/shipping' });
   };
 
-  router.push({
-    pathname: '/checkout/shipping',
-    params: { orderData: JSON.stringify(orderDataToSend) }
-  });
-
-};
-  if (!initialOrderData || selectedItems.length === 0) {
+  if (!resolvedOrder || selectedItems.length === 0) {
     return (
       <View style={styles.emptyContainer}>
         <Ionicons name="cart-outline" size={64} color={COLORS.textLight} />
@@ -142,7 +182,7 @@ const handleContinue = () => {
           <View style={styles.progressLine} />
           <View style={styles.progressStep}>
             <View style={styles.stepIndicator}><Text style={styles.stepNumber}>2</Text></View>
-            <Text style={styles.stepText}>Livraison</Text>
+            <Text style={styles.stepText}>À confirmer</Text>
           </View>
           <View style={styles.progressLine} />
           <View style={styles.progressStep}>
@@ -156,71 +196,138 @@ const handleContinue = () => {
         {/* RÉCAPITULATIF */}
         <View style={styles.summarySection}>
           <Text style={styles.sectionTitle}>Résumé de la sélection</Text>
-          {isWholesaleOrder && (
-            <View style={styles.wholesaleBadge}>
-              <Text style={styles.wholesaleBadgeText}>
-                🚀 Économie de gros appliquée : -{formatPrice(savings)}
-              </Text>
-            </View>
-          )}
-          {selectedItems.map((item: any, index: number) => (
+          {selectedItems.map((item, index) => (
              <View key={index} style={styles.miniItem}>
                <Text style={styles.productName} numberOfLines={1}>{item.name} x{item.quantity}</Text>
                <Text style={styles.wholesalePrice}>
-                 {formatPrice(getWholesalePrice(Number(item.price), Number(item.quantity)) * item.quantity)}
+                 {formatPrice(Number(item.price) * Number(item.quantity))}
                </Text>
              </View>
           ))}
         </View>
 
-        {/* FORMULAIRE */}
+        {/* FORMULAIRE — ordre : identité → contact → localisation → rue → optionnels */}
         <View style={styles.form}>
-          <Text style={styles.formTitle}>Où devons-nous livrer ?</Text>
+          <Text style={styles.formTitle}>Adresse de livraison</Text>
+          <Text style={styles.formHint}>
+            Champs obligatoires (*). Compléments (appartement, étage…) facultatifs.
+          </Text>
+
+          <Text style={styles.fieldLabel}>Nom complet *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Nom complet *"
+            placeholder="Nom et prénom du destinataire"
             placeholderTextColor="#A0AEC0"
             value={address.fullName}
-            onChangeText={(text) => setAddress({...address, fullName: text})}
+            onChangeText={(text) => setAddress({ ...address, fullName: text })}
           />
+
+          <Text style={styles.fieldLabel}>Numéro de téléphone *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Téléphone (WhatsApp) *"
+            placeholder="Téléphone (appel / WhatsApp)"
             placeholderTextColor="#A0AEC0"
             keyboardType="phone-pad"
             value={address.phone}
-            onChangeText={(text) => setAddress({...address, phone: text})}
+            onChangeText={(text) => setAddress({ ...address, phone: text })}
           />
+
+          <View style={styles.row}>
+            <View style={styles.halfField}>
+              <Text style={styles.fieldLabel}>Ville *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ville"
+                placeholderTextColor="#A0AEC0"
+                value={address.city}
+                onChangeText={(text) => setAddress({ ...address, city: text })}
+              />
+            </View>
+            <View style={styles.halfField}>
+              <Text style={styles.fieldLabel}>Pays *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Pays"
+                placeholderTextColor="#A0AEC0"
+                value={address.country}
+                onChangeText={(text) => setAddress({ ...address, country: text })}
+              />
+            </View>
+          </View>
+
+          <Text style={styles.fieldLabel}>Rue, numéro, voie *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Quartier, Rue, Porte *"
+            placeholder="Adresse — rue, numéro, quartier…"
             placeholderTextColor="#A0AEC0"
             value={address.street}
-            onChangeText={(text) => setAddress({...address, street: text})}
+            onChangeText={(text) => setAddress({ ...address, street: text })}
           />
+
+          <Text style={styles.fieldLabel}>Code postal (facultatif)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Code postal"
+            placeholderTextColor="#A0AEC0"
+            value={address.postalCode ?? ''}
+            onChangeText={(text) => setAddress({ ...address, postalCode: text })}
+          />
+
+          <Text style={styles.optionalSection}>Complément d’adresse (facultatif)</Text>
+
           <View style={styles.row}>
-            <TextInput
-              style={[styles.input, styles.halfInput]}
-              placeholder="Ville *"
-              value={address.city}
-              onChangeText={(text) => setAddress({...address, city: text})}
-            />
-<TextInput
-  style={[styles.input, styles.halfInput]} // J'ai enlevé le fond gris
-  placeholder="Pays *"
-  placeholderTextColor="#A0AEC0"
-  value={address.country}
-  editable={true} // Remets-le à true ou supprime simplement la ligne
-  onChangeText={(text) => setAddress({...address, country: text})} // Ajoute ça !
-/>
+            <View style={styles.halfField}>
+              <Text style={styles.fieldLabelSub}>Appartement</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex. A12"
+                placeholderTextColor="#A0AEC0"
+                value={address.apartment ?? ''}
+                onChangeText={(text) => setAddress({ ...address, apartment: text })}
+              />
+            </View>
+            <View style={styles.halfField}>
+              <Text style={styles.fieldLabelSub}>Bâtiment</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Ex. Tour B"
+                placeholderTextColor="#A0AEC0"
+                value={address.building ?? ''}
+                onChangeText={(text) => setAddress({ ...address, building: text })}
+              />
+            </View>
           </View>
+
+          <Text style={styles.fieldLabelSub}>Étage</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Ex. 3e étage"
+            placeholderTextColor="#A0AEC0"
+            value={address.floor ?? ''}
+            onChangeText={(text) => setAddress({ ...address, floor: text })}
+          />
+
+          <Text style={styles.fieldLabelSub}>Note pour le livreur (facultatif)</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Digicode, horaires, point de retrait…"
+            placeholderTextColor="#A0AEC0"
+            value={address.deliveryNote ?? ''}
+            onChangeText={(text) => setAddress({ ...address, deliveryNote: text })}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+          />
         </View>
       </ScrollView>
 
-      {/* FOOTER FIXE ET AFFINÉ */}
+      {/* FOOTER FIXE */}
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 15) }]}>
         <TouchableOpacity 
-          style={styles.continueButton} 
+          style={[
+            styles.continueButton, 
+            !isFormValid && { opacity: 0.6 } // Le bouton devient plus clair si le formulaire est vide
+          ]} 
           onPress={handleContinue}
           activeOpacity={0.8}
         >
@@ -251,13 +358,19 @@ const styles = StyleSheet.create({
   productName: { flex: 1, fontSize: 13, color: COLORS.textLight, marginRight: 10 },
   wholesalePrice: { fontWeight: '700', color: COLORS.text, fontSize: 13 },
   form: { backgroundColor: COLORS.white, padding: 20, borderRadius: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3 },
-  formTitle: { fontSize: 16, fontWeight: '700', marginBottom: 15, color: COLORS.text },
+  formTitle: { fontSize: 16, fontWeight: '700', marginBottom: 8, color: COLORS.text },
+  formHint: { fontSize: 12, color: COLORS.textLight, marginBottom: 14, lineHeight: 18 },
+  fieldLabel: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 6 },
+  fieldLabelSub: { fontSize: 12, fontWeight: '600', color: '#64748B', marginBottom: 6 },
+  optionalSection: { fontSize: 14, fontWeight: '700', color: COLORS.primary, marginTop: 8, marginBottom: 10 },
   input: { borderWidth: 1, borderColor: COLORS.border, padding: 12, borderRadius: 12, marginBottom: 12, backgroundColor: '#FAFAFA', color: COLORS.text },
-  row: { flexDirection: 'row', gap: 10 },
+  row: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  halfField: { flex: 1 },
   halfInput: { flex: 1 },
+  textArea: { minHeight: 88, paddingTop: 12 },
   footer: {
     backgroundColor: COLORS.white,
-    paddingHorizontal: 50, // Resserre le bouton vers le centre
+    paddingHorizontal: 50,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,

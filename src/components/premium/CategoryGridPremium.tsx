@@ -9,16 +9,18 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { collection, getDocs, query, limit } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { useTranslation } from 'react-i18next';
 
 const { width } = Dimensions.get('window');
 
 export default function CategoryGridPremium() {
-  const router = useRouter();
+  const { t } = useTranslation();
   const [realCategories, setRealCategories] = useState<any[]>([]);
   const shimmerAnim = useRef(new Animated.Value(-1)).current;
 
@@ -43,7 +45,7 @@ export default function CategoryGridPremium() {
         const snapshot = await getDocs(q);
         const firestoreCategories = snapshot.docs.map(doc => ({
           id: doc.id,
-          name: doc.data().name || 'Catégorie',
+          name: doc.data().name || t('app.premium.categoryDefaultName'),
           // On passe le nom à la fonction d'image
           image: getCategoryImage(doc.data().name)
         }));
@@ -53,7 +55,7 @@ export default function CategoryGridPremium() {
       }
     };
     loadRealCategories();
-  }, []);
+  }, [t]);
 
   // LOGIQUE D'IMAGES CIBLÉES
   const getCategoryImage = (name: string) => {
@@ -72,15 +74,28 @@ export default function CategoryGridPremium() {
     return 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600'; // Défaut (Gadget premium)
   };
 
-  const navigateToCategory = (cat: any) => {
-    console.log("👉 Navigation vers:", cat.name, "ID:", cat.id);
-    router.push({
-      pathname: "/category/[id]",
-      params: { 
-        id: cat.id, 
-        name: cat.name // Le nom pour l'affichage dans l'en-tête de la page suivante
-      }
-    });
+  const categoryHref = (cat: { id: string; name: string }) => ({
+    pathname: "/category/[id]" as const,
+    params: {
+      id: cat.id,
+      categoryName: cat.name,
+    },
+  });
+
+  const prefetchCategory = (cat: { id: string; name: string; image?: string }) => {
+    try {
+      router.prefetch(categoryHref(cat));
+    } catch {
+      /* prefetch optionnel selon version navigateur */
+    }
+    const uri = cat.image?.trim();
+    if (uri) {
+      ExpoImage.prefetch(uri, { cachePolicy: "memory-disk" }).catch(() => {});
+    }
+  };
+
+  const navigateToCategory = (cat: { id: string; name: string }) => {
+    router.push(categoryHref(cat));
   };
 
   const ShimmerOverlay = () => (
@@ -107,11 +122,11 @@ export default function CategoryGridPremium() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-            <Text style={styles.title}>Univers A2Express</Text>
-            <Text style={styles.subtitle}>Sélectionnés pour votre business</Text>
+            <Text style={styles.title}>{t('app.premium.categoryHubTitle')}</Text>
+            <Text style={styles.subtitle}>{t('app.premium.categoryHubSubtitle')}</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/categories')} style={styles.btnAll}>
-          <Text style={styles.seeAll}>Tout voir</Text>
+          <Text style={styles.seeAll}>{t('app.premium.categorySeeAll')}</Text>
           <MaterialIcons name="grid-view" size={16} color="#FF6A00" />
         </TouchableOpacity>
       </View>
@@ -121,12 +136,13 @@ export default function CategoryGridPremium() {
         {realCategories[0] && (
           <TouchableOpacity 
             style={[styles.card, styles.largeCard]} 
+            onPressIn={() => prefetchCategory(realCategories[0])}
             onPress={() => navigateToCategory(realCategories[0])}
             activeOpacity={0.8}
           >
             <ImageBackground source={{ uri: realCategories[0].image }} style={styles.imgBg}>
               <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gradient}>
-                <View style={styles.badge}><Text style={styles.badgeText}>À LA UNE</Text></View>
+                <View style={styles.badge}><Text style={styles.badgeText}>{t('app.premium.categorySpotlight')}</Text></View>
                 <Text style={styles.cardTitle}>{realCategories[0].name}</Text>
               </LinearGradient>
               <ShimmerOverlay />
@@ -139,6 +155,7 @@ export default function CategoryGridPremium() {
           {realCategories[1] && (
             <TouchableOpacity 
               style={[styles.card, styles.mediumCard]}
+              onPressIn={() => prefetchCategory(realCategories[1])}
               onPress={() => navigateToCategory(realCategories[1])}
               activeOpacity={0.8}
             >
@@ -155,6 +172,7 @@ export default function CategoryGridPremium() {
           {realCategories[2] && (
             <TouchableOpacity 
               style={[styles.card, styles.mediumCard]}
+              onPressIn={() => prefetchCategory(realCategories[2])}
               onPress={() => navigateToCategory(realCategories[2])}
               activeOpacity={0.8}
             >

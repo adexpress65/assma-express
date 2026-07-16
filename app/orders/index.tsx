@@ -191,7 +191,10 @@ export default function OrdersScreen() {
               <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={24} color={COLORS.white} />
               </TouchableOpacity>
-              <Text style={styles.headerTitle}>Mes Commandes</Text>
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={styles.headerTitle}>Mes commandes</Text>
+                <Text style={styles.headerSubtitle}>Achats B2B · références fournisseurs</Text>
+              </View>
               <View style={{ width: 44 }} />
             </View>
             
@@ -276,6 +279,12 @@ const styles = StyleSheet.create({
   headerGradient: { paddingBottom: 30, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
   navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: Platform.OS === 'android' ? 40 : 10 },
   headerTitle: { color: COLORS.white, fontSize: 20, fontWeight: '800' },
+  headerSubtitle: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 4,
+  },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.15)', justifyContent: 'center', alignItems: 'center' },
   statsRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 20 },
   statCard: { alignItems: 'center', flex: 1 },

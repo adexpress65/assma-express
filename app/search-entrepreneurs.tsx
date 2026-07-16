@@ -207,15 +207,10 @@ const startConversation = async (company: any) => {
     });
     
     const conversationId = await createConversation({
-      participants: [ownerId], // ✅ UID du propriétaire
+      companyId: company.id,
+      participants: [ownerId],
       type: 'entrepreneur',
       title: company.name || 'Entrepreneur',
-      participantNames: {
-        [ownerId]: company.name || 'Entrepreneur'
-      },
-      participantAvatars: {
-        [ownerId]: company.logo || company.coverImage || null
-      }
     });
     
     // ✅ Message de bienvenue immédiat

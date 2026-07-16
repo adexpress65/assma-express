@@ -18,6 +18,9 @@ android/build/
 ios/Pods/
 ios/build/
 
+# Ninja 1.12 téléchargé localement (Windows, chemins longs)
+tools/ninja.exe
+
 # Misc
 .env
 *.log

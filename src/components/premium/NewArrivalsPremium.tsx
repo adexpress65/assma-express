@@ -24,7 +24,9 @@ interface Product {
   name: string;
   price: number;
   originalPrice?: number;
-  imageUrl: string;
+  imageUrl?: string | null;
+  mainImage?: string | null;
+  images?: string[];
   rating: number;
   supplier: string;
   minOrder: number;

@@ -27,16 +27,29 @@ export const ORDER_STATUS_CONFIG = {
     bgColor: 'rgba(40, 167, 69, 0.1)'
   },
   cancelled: { 
-    label: 'Retourné', 
-    color: COLORS.danger, 
-    icon: 'refresh-circle-outline' as const,
-    bgColor: 'rgba(220, 53, 69, 0.1)'
-  }
+    label: 'Avis', 
+    color: '#7C3AED', 
+    icon: 'star-outline' as const,
+    bgColor: 'rgba(124, 58, 237, 0.12)'
+  },
+  failed: {
+    label: 'Échoué',
+    color: COLORS.danger,
+    icon: 'close-circle-outline' as const,
+    bgColor: 'rgba(220, 53, 69, 0.1)',
+  },
 };
 
 export const APP_CONFIG = {
   supportPhone: '+22370000000', // Remplace par ton vrai numéro Mali
   supportWhatsApp: '+22370000000',
+  /** Contact pour litiges / annulation côté acheteur B2B */
+  supportEmail: 'support@a2-expres.com',
   currency: 'FCFA',
   defaultShippingCost: 2000,
+  /**
+   * URL de suivi colis (optionnel). Si vide, seul le numéro est affiché (pas d’URL factice).
+   * Exemple : https://exemple-transporteur.com/track?num=
+   */
+  shippingTrackingUrlBase: '' as string,
 };

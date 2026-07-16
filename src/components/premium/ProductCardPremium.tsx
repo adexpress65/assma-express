@@ -15,6 +15,8 @@ import { useTranslation } from 'react-i18next';
 import { useRouter } from 'expo-router';
 import { useCurrency } from '../../contexts/CurrencyContext';
 import { isZeroDollarsShop } from '@/utils/zeroDollarsShop';
+import { resolveSupplierLabels } from '@/utils/companyDisplayName';
+import { getLocalizedProductText, intlLocaleForAppLanguage } from '@/utils/productLocale';
 import ZeroDollarsFreeBadge from '@/components/ZeroDollarsFreeBadge';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -25,12 +27,14 @@ interface Product {
   name: string;
   price: number;
   originalPrice?: number;
-  imageUrl?: string;
-  mainImage?: string;
+  imageUrl?: string | null;
+  mainImage?: string | null;
   images?: string[];
   rating: number;
   supplier: string;
   companyName?: string;
+  companyId?: string;
+  embeddedCompanyName?: string;
   minOrder: number;
   deliveryTime: string;
   isVerified: boolean;
@@ -55,7 +59,38 @@ interface Props {
   disableInternalPress?: boolean;
 }
 
+function areProductCardsEqual(prev: Props, next: Props): boolean {
+  const p = prev.product;
+  const n = next.product;
+
+  const sameProduct =
+    p.id === n.id &&
+    p.price === n.price &&
+    p.originalPrice === n.originalPrice &&
+    p.mainImage === n.mainImage &&
+    p.imageUrl === n.imageUrl &&
+    (p.images?.[0] || "") === (n.images?.[0] || "") &&
+    p.rating === n.rating &&
+    p.supplier === n.supplier &&
+    p.companyName === n.companyName &&
+    p.minOrder === n.minOrder &&
+    p.deliveryTime === n.deliveryTime &&
+    p.isVerified === n.isVerified &&
+    p.hasFreeShipping === n.hasFreeShipping;
+
+  return (
+    sameProduct &&
+    prev.onPress === next.onPress &&
+    prev.showCategory === next.showCategory &&
+    prev.isCategoryPage === next.isCategoryPage &&
+    prev.isProductDetail === next.isProductDetail &&
+    prev.disableInternalPress === next.disableInternalPress
+  );
+}
+
 const PRESS_SCALE = 0.98;
+const ENABLE_CARD_IMAGE_ROTATION = false;
+const IMAGE_PLACEHOLDER_BLURHASH = "L5H2EC=PM+yV0g-mq.wG9c010J}I";
 
 // Configuration du cache pour les images
 const IMAGE_CACHE_POLICY = {
@@ -72,13 +107,41 @@ function ProductCardPremiumComponent({
   isProductDetail = false,
   disableInternalPress = false,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { currency } = useCurrency();
   const router = useRouter();
 
   const [isFavorite, setIsFavorite] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+
+  const displayName = useMemo(
+    () =>
+      getLocalizedProductText(
+        product.name,
+        'name',
+        product as unknown as Record<string, unknown>,
+        i18n.language,
+      ),
+    [product, i18n.language],
+  );
+
+  const supplierResolved = useMemo(
+    () =>
+      resolveSupplierLabels({
+        supplier: product.supplier,
+        companyName: product.companyName,
+        companyId: product.companyId,
+        embeddedCompanyName: product.embeddedCompanyName,
+      }),
+    [
+      product.supplier,
+      product.companyName,
+      product.companyId,
+      product.embeddedCompanyName,
+    ]
+  );
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const heartScale = useRef(new Animated.Value(1)).current;
@@ -112,8 +175,9 @@ function ProductCardPremiumComponent({
   const safeImages = useMemo(() => allImages.length > 0 ? allImages : [''], [allImages]);
   const currentImageUrl = useMemo(() => safeImages[currentImageIndex] || '', [safeImages, currentImageIndex]);
 
-  // Intervalle de rotation des images optimisé
+  // Intervalle de rotation des images (désactivé pour éviter le flicker en réseau lent)
   useEffect(() => {
+    if (!ENABLE_CARD_IMAGE_ROTATION) return;
     if (allImages.length <= 1) return;
 
     const interval = setInterval(() => {
@@ -122,6 +186,14 @@ function ProductCardPremiumComponent({
 
     return () => clearInterval(interval);
   }, [allImages.length]);
+
+  useEffect(() => {
+    setImageError(false);
+    setImageLoaded(false);
+    if (!ENABLE_CARD_IMAGE_ROTATION) {
+      setCurrentImageIndex(0);
+    }
+  }, [currentImageUrl]);
 
   const stockValue = useMemo(() => product.stockQuantity ?? product.stock ?? 0, [product]);
 
@@ -167,7 +239,7 @@ function ProductCardPremiumComponent({
       console.log('🔗 Lien externe détecté');
       router.push({
         pathname: "/webview",
-        params: { url: product.originalLink, title: product.name },
+        params: { url: product.originalLink, title: displayName },
       });
       return;
     }
@@ -180,7 +252,7 @@ function ProductCardPremiumComponent({
       // On passe les données essentielles pour l'affichage immédiat
       initialProductData: JSON.stringify({
         id: product.id,
-        name: product.name,
+        name: displayName,
         price: product.price,
         originalPrice: product.originalPrice,
         mainImage: product.mainImage,
@@ -202,7 +274,7 @@ function ProductCardPremiumComponent({
         params: navigationParams
       });
     }
-  }, [onPress, disableInternalPress, product, router, isCategoryPage, isProductDetail]);
+  }, [onPress, disableInternalPress, product, displayName, router, isCategoryPage, isProductDetail]);
 
   const toggleFavorite = useCallback((e: any) => {
     e.stopPropagation();
@@ -232,16 +304,20 @@ function ProductCardPremiumComponent({
     [product.originalPrice, product.price]
   );
 
-  const formatPrice = useCallback((priceInXOF: number) => {
-    const converted = priceInXOF * currency.rate;
-    if (currency.code === 'XOF') {
-      return Math.round(converted).toLocaleString('fr-FR');
-    }
-    return converted.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }, [currency]);
+  const formatPrice = useCallback(
+    (priceInXOF: number) => {
+      const converted = priceInXOF * currency.rate;
+      const locale = intlLocaleForAppLanguage(i18n.language);
+      if (currency.code === 'XOF') {
+        return Math.round(converted).toLocaleString(locale);
+      }
+      return converted.toLocaleString(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+    },
+    [currency, i18n.language],
+  );
 
   const moq = useMemo(() => 
     product.minOrderQuantity || product.minOrder || product.moq || 1,
@@ -251,10 +327,10 @@ function ProductCardPremiumComponent({
   const showZeroDollarsFree = useMemo(
     () =>
       isZeroDollarsShop({
-        supplier: product.supplier,
-        companyName: product.companyName,
+        supplier: supplierResolved.supplier,
+        companyName: supplierResolved.companyName,
       }),
-    [product.supplier, product.companyName]
+    [supplierResolved.supplier, supplierResolved.companyName]
   );
 
   const ContainerComponent = disableInternalPress ? View : TouchableOpacity;
@@ -281,14 +357,22 @@ function ProductCardPremiumComponent({
                 transition={200}
                 cachePolicy="memory-disk"
                 priority={currentImageIndex === 0 ? "high" : "normal"}
+                placeholder={IMAGE_PLACEHOLDER_BLURHASH}
                 recyclingKey={`${product.id}-${currentImageIndex}`}
-                onError={() => setImageError(true)}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => {
+                  setImageError(true);
+                  setImageLoaded(true);
+                }}
               />
             ) : (
               <View style={styles.imageFallback}>
                 <Ionicons name="image-outline" size={32} color="#ccc" />
               </View>
             )}
+            {currentImageUrl && !imageError && !imageLoaded ? (
+              <View style={styles.imageLoadingOverlay} />
+            ) : null}
 
             {discount > 0 && (
               <View style={styles.discountBadge}>
@@ -303,7 +387,7 @@ function ProductCardPremiumComponent({
                   { top: discount > 0 ? 34 : 8 },
                 ]}
               >
-                <ZeroDollarsFreeBadge onlyFreeText />
+                <ZeroDollarsFreeBadge compact />
               </View>
             )}
 
@@ -338,7 +422,7 @@ function ProductCardPremiumComponent({
 
           <View style={styles.infoContainer}>
             <Text style={styles.productName} numberOfLines={2}>
-              {product.name}
+              {displayName}
             </Text>
 
             <View style={styles.priceRow}>
@@ -368,7 +452,7 @@ function ProductCardPremiumComponent({
 
             <View style={styles.supplierRow}>
               <Text style={styles.supplierText} numberOfLines={1}>
-                {product.supplier}
+                {supplierResolved.supplier}
               </Text>
               {product.isVerified && (
                 <Ionicons name="checkmark-circle" size={12} color="#22c55e" style={styles.verifiedIcon} />
@@ -393,8 +477,8 @@ function ProductCardPremiumComponent({
 // Définir displayName pour le débogage
 ProductCardPremiumComponent.displayName = 'ProductCardPremium';
 
-// Export avec React.memo correct
-const ProductCardPremium = React.memo(ProductCardPremiumComponent);
+// Export avec mémo stricte pour limiter les re-renders en grande liste.
+const ProductCardPremium = React.memo(ProductCardPremiumComponent, areProductCardsEqual);
 
 export default ProductCardPremium;
 
@@ -436,6 +520,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f5f5f5',
+  },
+  imageLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#efefef",
   },
   discountBadge: {
     position: 'absolute',

@@ -10,6 +10,7 @@ import {
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import ProductCardPremium from './ProductCardPremium';
 
 const { width } = Dimensions.get('window');
@@ -45,12 +46,14 @@ interface PremiumSpecialOffersProps {
 
 export default function PremiumSpecialOffers({ 
   products, 
-  title = "Offres Spéciales",
+  title,
   subtitle,
   showTimer = true,
   showProgress = true,
 }: PremiumSpecialOffersProps) {
+  const { t } = useTranslation();
   const router = useRouter();
+  const resolvedTitle = title ?? t('app.premium.specialOffersDefaultTitle');
 
   // Grouper les produits par 2 pour affichage sur 2 colonnes
   const groupedProducts = React.useMemo(() => {
@@ -67,7 +70,7 @@ export default function PremiumSpecialOffers({
         pathname: '/category/[id]',
         params: { 
           id: products[0].categoryId,
-          name: products[0].categoryName || products[0].category || title
+          name: products[0].categoryName || products[0].category || resolvedTitle
         }
       });
     } else {
@@ -144,7 +147,7 @@ export default function PremiumSpecialOffers({
               end={{ x: 1, y: 1 }}
             >
               <Ionicons name="flash" size={12} color="#fff" />
-              <Text style={styles.hotText}> HOT</Text>
+              <Text style={styles.hotText}>{t('app.premium.badgeHot')}</Text>
             </LinearGradient>
           )}
           
@@ -154,7 +157,7 @@ export default function PremiumSpecialOffers({
               style={styles.featuredBadge}
             >
               <Ionicons name="star" size={10} color="#fff" />
-              <Text style={styles.featuredText}> VEDETTE</Text>
+              <Text style={styles.featuredText}>{t('app.premium.badgeFeatured')}</Text>
             </LinearGradient>
           )}
         </View>
@@ -170,7 +173,7 @@ export default function PremiumSpecialOffers({
           <View style={styles.titleRow}>
             {/* ICÔNE ET TITRE */}
             <Ionicons name="flash" size={24} color="#ff6a00" />
-            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.title}>{resolvedTitle}</Text>
             
             {/* TIMER À DROITE */}
             {showTimer && (

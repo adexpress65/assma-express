@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { getLocalizedProductText } from "../utils/productLocale";
 import {
   View,
   Text,
@@ -186,7 +188,7 @@ function ProductCard({
         resizeMode="cover"
       />
       <Text numberOfLines={1} style={styles.name}>
-        {item.name}
+        {displayName}
       </Text>
       <Text style={styles.price}>
         {item.price ? `${item.price.toLocaleString()} F CFA` : "Prix sur demande"}

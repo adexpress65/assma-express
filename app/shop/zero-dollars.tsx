@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../../src/utils/productLocale';
 import { 
   View, Text, StyleSheet, FlatList, TouchableOpacity, 
   ActivityIndicator, Platform 
@@ -25,8 +27,23 @@ interface Product {
 const PAGE_SIZE = 20;
 
 // 1. CARTE PRODUIT (Optimisée avec React.memo)
-const OptimizedProductCard = React.memo(({ product }: { product: Product }) => {
+const OptimizedProductCard = React.memo(function OptimizedProductCard({
+  product,
+}: {
+  product: Product;
+}) {
   const router = useRouter();
+  const { i18n } = useTranslation();
+  const displayName = useMemo(
+    () =>
+      getLocalizedProductText(
+        product.name,
+        'name',
+        product as unknown as Record<string, unknown>,
+        i18n.language,
+      ),
+    [product, i18n.language],
+  );
   const imageUrl = product.mainImage || product.imageUrl;
 
   return (
@@ -51,7 +68,7 @@ const OptimizedProductCard = React.memo(({ product }: { product: Product }) => {
       </View>
 
       <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
+        <Text style={styles.name} numberOfLines={2}>{displayName}</Text>
         <View style={styles.priceRow}>
           <Text style={styles.price}>0 CFA</Text>
           {product.originalPrice && <Text style={styles.oldPrice}>{product.originalPrice} CFA</Text>}
@@ -170,5 +187,6 @@ const styles = StyleSheet.create({
   oldPrice: { color: '#ff4444', fontSize: 10, textDecorationLine: 'line-through' },
   meta: { flexDirection: 'row', alignItems: 'center' },
   supplier: { fontSize: 11, color: '#666', marginLeft: 4, flex: 1 },
-  centerEmpty: { flex: 1, alignItems: 'center', marginTop: 100 }
+  centerEmpty: { flex: 1, alignItems: 'center', marginTop: 100 },
+  emptyTextTitle: { marginTop: 16, fontSize: 16, color: '#666', textAlign: 'center' },
 });

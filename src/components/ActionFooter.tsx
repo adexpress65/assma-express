@@ -8,12 +8,13 @@ import { useRouter } from 'expo-router';
 interface ActionFooterProps {
   product: any;
   onChat?: () => void;
+  chatDisabled?: boolean;
   onAddToCart?: () => void;
   onBuyNow?: () => void; // ✅ Prop pour l'achat direct
   addingToCart?: boolean;
 }
 
-export default function ActionFooter({ product, onChat, onAddToCart, onBuyNow, addingToCart = false }: ActionFooterProps) {
+export default function ActionFooter({ product, onChat, chatDisabled = false, onAddToCart, onBuyNow, addingToCart = false }: ActionFooterProps) {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -39,7 +40,11 @@ export default function ActionFooter({ product, onChat, onAddToCart, onBuyNow, a
 </TouchableOpacity>
 
         {/* BOUTON DISCUTER */}
-        <TouchableOpacity style={styles.chatButton} onPress={onChat}>
+        <TouchableOpacity
+          style={[styles.chatButton, chatDisabled && styles.chatButtonDisabled]}
+          onPress={onChat}
+          disabled={chatDisabled}
+        >
           <Text style={styles.chatButtonText}>Discuter</Text>
         </TouchableOpacity>
 
@@ -102,6 +107,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  chatButtonDisabled: {
+    opacity: 0.45,
   },
   chatButtonText: {
     fontSize: 15,

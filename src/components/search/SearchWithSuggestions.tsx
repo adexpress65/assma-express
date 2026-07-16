@@ -78,11 +78,11 @@ export default function SearchWithSuggestions() {
     if (searchTerm.trim()) {
       setShowSuggestions(false);
       router.push({
-        pathname: '/search/results',
-        params: { 
+        pathname: '/search-results',
+        params: {
           query: searchTerm,
-          searchType: 'full'
-        }
+          timestamp: String(Date.now()),
+        },
       });
     }
   };

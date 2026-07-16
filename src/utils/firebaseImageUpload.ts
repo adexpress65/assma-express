@@ -15,7 +15,7 @@ interface ImagePickerOptions {
   aspect?: [number, number];
   quality?: number;
   allowsMultipleSelection?: boolean;
-  mediaTypes?: ImagePicker.MediaTypeOptions;
+  mediaTypes?: ImagePicker.MediaType | ImagePicker.MediaType[];
 }
 
 const DEFAULT_UPLOAD_OPTIONS: UploadOptions = {
@@ -28,7 +28,7 @@ const DEFAULT_PICKER_OPTIONS: ImagePickerOptions = {
   aspect: [4, 3],
   quality: 0.7,
   allowsMultipleSelection: false,
-  mediaTypes: ImagePicker.MediaTypeOptions.Images
+  mediaTypes: ['images'],
 };
 
 // ✅ DEMANDER LES PERMISSIONS

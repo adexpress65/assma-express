@@ -13,6 +13,11 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import AddAttributeModal from "@/components/AddAttributeModal"; // Changé ici : import default
 import { db, storage } from '@/config/firebase';
+import { computeImageHashes } from '@/utils/imageHash';
+import {
+  buildFirestoreProductI18nFields,
+  extractProductI18nFormFields,
+} from '@/utils/productLocale';
 
 // Types pour les attributs dynamiques
 type Attribute = {
@@ -97,6 +102,59 @@ const generateSku = (productName: string, combination: { [key: string]: string }
   return `${base}-${values}-${Date.now().toString().slice(-4)}`;
 };
 
+const normalizeWeightInput = (rawWeight: string): { raw: string; numeric: number } => {
+  const raw = rawWeight.trim();
+  if (!raw) {
+    return { raw: '', numeric: 0 };
+  }
+
+  const normalized = raw
+    .replace(/\s*kg\s*$/i, '')
+    .replace(',', '.')
+    .trim();
+  const parsed = Number.parseFloat(normalized);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { raw, numeric: 0 };
+  }
+
+  return { raw, numeric: parsed };
+};
+
+const calculateCBM = (dimensions: string): string => {
+  if (!dimensions) return '0';
+  const parts = dimensions.toLowerCase().split(/[x* ]/).filter(Boolean);
+  if (parts.length === 3) {
+    const l = Number.parseFloat(parts[0]);
+    const w = Number.parseFloat(parts[1]);
+    const h = Number.parseFloat(parts[2]);
+    if (Number.isFinite(l) && Number.isFinite(w) && Number.isFinite(h) && l >= 0 && w >= 0 && h >= 0) {
+      return ((l * w * h) / 1000000).toFixed(4);
+    }
+  }
+  return '0';
+};
+
+const normalizeVolumeInput = (rawVolume: string): { raw: string; numeric: number } => {
+  const raw = rawVolume.trim();
+  if (!raw) {
+    return { raw: '0', numeric: 0 };
+  }
+
+  const normalized = raw
+    .replace(/\s*cbm\s*$/i, '')
+    .replace(/\s*m3\s*$/i, '')
+    .replace(',', '.')
+    .trim();
+  const parsed = Number.parseFloat(normalized);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { raw, numeric: 0 };
+  }
+
+  return { raw: normalized, numeric: parsed };
+};
+
 export default function AddProductScreen() {
   const router = useRouter();
   const { user, userRole } = useAuth();
@@ -159,6 +217,10 @@ export default function AddProductScreen() {
   const [form, setForm] = useState({
     title: '',
     description: '',
+    titleEn: '',
+    titleZh: '',
+    descriptionEn: '',
+    descriptionZh: '',
     price: '',
     originalPrice: '',
     category: '',
@@ -166,6 +228,7 @@ export default function AddProductScreen() {
     sku: '',
     weight: '',
     dimensions: '',
+    volume: '0',
     isActive: true,
     deliveryTime: '3-5 jours',
     minOrder: '1',
@@ -319,16 +382,28 @@ useEffect(() => {
 
       const productData = productDoc.data();
       
+      const i18nForm = extractProductI18nFormFields(productData as Record<string, unknown>);
       setForm({
         title: productData.name || '',
         description: productData.description || '',
+        titleEn: i18nForm.titleEn,
+        titleZh: i18nForm.titleZh,
+        descriptionEn: i18nForm.descriptionEn,
+        descriptionZh: i18nForm.descriptionZh,
         price: productData.basePrice?.toString() || productData.price?.toString() || '',
         originalPrice: productData.originalPrice?.toString() || '',
         category: productData.categoryName || '',
         stock: productData.stockQuantity?.toString() || '10',
         sku: productData.specifications?.modelNumber || '',
-        weight: productData.specifications?.weight || '',
+        weight:
+          productData.specifications?.weight?.toString?.() ||
+          productData.weight?.toString?.() ||
+          '',
         dimensions: productData.specifications?.dimensions || '',
+        volume:
+          productData.specifications?.volume?.toString?.() ||
+          productData.volume?.toString?.() ||
+          calculateCBM(productData.specifications?.dimensions || ''),
         isActive: productData.isActive ?? true,
         deliveryTime: productData.deliveryTime || '3-5 jours',
         minOrder: productData.minOrder?.toString() || '1',
@@ -443,7 +518,7 @@ useEffect(() => {
         setCompanies(companiesList);
       } catch (error) {
         console.error("❌ Erreur lors de la récupération des entreprises:", error);
-        Alert.alert('Erreur', 'Impossible de charger la liste des entreprises');
+        Alert.alert('Erreur', 'Impossible de charger la liste des fournisseurs');
       }
     };
 
@@ -612,7 +687,7 @@ useEffect(() => {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
         allowsMultipleSelection: true,
@@ -660,7 +735,7 @@ useEffect(() => {
     }
 
     if (!selectedCompany) {
-      Alert.alert('Erreur', 'Veuillez sélectionner l\'entreprise propriétaire de ce produit');
+      Alert.alert('Erreur', 'Veuillez sélectionner le fournisseur propriétaire de ce produit');
       return;
     }
 
@@ -692,6 +767,7 @@ useEffect(() => {
 
       console.log(`🔥 Upload ${images.length} image(s)...`);
       const uploadedImageUrls = await uploadImagesToFirebase(images, user.uid);
+      const imageHashes = await computeImageHashes(images);
       
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -720,11 +796,17 @@ useEffect(() => {
           values: attr.values,
         }));
 
-      if (!selectedCompany?.id) {
+      const resolvedSellerUid =
+        userRole === 'admin' ? selectedCompany?.uid : user?.uid;
+
+      if (!selectedCompany?.id || !resolvedSellerUid) {
         Alert.alert("Erreur", "Impossible de déterminer le vendeur");
         return;
       }
       
+      const normalizedWeight = normalizeWeightInput(form.weight);
+      const normalizedVolume = normalizeVolumeInput(form.volume);
+
       const productData = {
         id: isEditMode ? productId : "", 
         
@@ -733,6 +815,15 @@ useEffect(() => {
         supplier: selectedCompany.name,
         supplierLower: selectedCompany.name.toLowerCase(),
         description: form.description.trim() || `Découvrez notre produit ${form.title.trim()}`,
+        ...buildFirestoreProductI18nFields({
+          name: form.title.trim(),
+          description:
+            form.description.trim() || `Découvrez notre produit ${form.title.trim()}`,
+          nameEn: form.titleEn,
+          nameZh: form.titleZh,
+          descriptionEn: form.descriptionEn,
+          descriptionZh: form.descriptionZh,
+        }),
         price: finalPrice,
         basePrice: basePrice,
         originalPrice: form.originalPrice ? Number(form.originalPrice) : null,
@@ -742,15 +833,16 @@ useEffect(() => {
         images: uploadedImageUrls,
         mainImage: uploadedImageUrls[0],
         imageUrl: uploadedImageUrls[0],
+        imageHashes,
+        mainImageHash: imageHashes[0] || null,
         
         categoryId: await getCategoryId(form.category),
         categoryName: form.category,
         
         companyId: selectedCompany.id,
         companyName: selectedCompany.name,
-        supplier: selectedCompany.name,
 
-        sellerUid: user.uid,
+        sellerUid: resolvedSellerUid,
         creatorId: user.uid,
         sellerId: selectedCompany.id,
         creatorCompanyId: selectedCompany.id,
@@ -780,6 +872,9 @@ useEffect(() => {
 
         stockQuantity: totalStock,
         minOrder: Number(form.minOrder) || 1,
+        // Compat logistique: certains écrans lisent encore le poids racine.
+        weight: normalizedWeight.numeric,
+        volume: normalizedVolume.numeric,
         shippingCost: 0,
         deliveryTime: form.deliveryTime,
         rating: 0,
@@ -788,17 +883,14 @@ useEffect(() => {
 
         slug: generateSlug(form.title.trim()),
         updatedAt: new Date(),
-
-// DANS AddProductScreen.tsx (Fonction handleSubmit)
-
-specifications: {
-  modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
-  // ANCIEN CODE : weight: form.weight.trim() || '',
-  
-  // NOUVEAU CODE (Correction) :
-  weight: form.weight ? parseFloat(form.weight.replace(',', '.')) : 0, 
-  dimensions: form.dimensions.trim() || '',
-},
+        
+        specifications: {
+          modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
+          // On conserve la saisie admin dans la fiche technique.
+          weight: normalizedWeight.raw || '',
+          dimensions: form.dimensions.trim() || '',
+          volume: normalizedVolume.raw || '0',
+        },
 
         personalization: {
           enabled: hasPersonalization,
@@ -851,14 +943,10 @@ specifications: {
         );
 
       } else {
-        const sellerUid = userRole === 'admin' 
-          ? selectedCompany.uid
-          : user.uid;
-
         const docRef = await addDoc(collection(db, 'products'), {
           ...productData,
           createdAt: new Date(),
-          sellerUid: sellerUid,
+          sellerUid: resolvedSellerUid,
           creatorId: user.uid,
           createdBy: userRole === 'admin' ? 'admin' : 'company'
         });
@@ -956,6 +1044,10 @@ specifications: {
     setForm({
       title: '',
       description: '',
+      titleEn: '',
+      titleZh: '',
+      descriptionEn: '',
+      descriptionZh: '',
       price: '',
       originalPrice: '',
       category: '',
@@ -963,6 +1055,7 @@ specifications: {
       sku: '',
       weight: '',
       dimensions: '',
+      volume: '0',
       isActive: true,
       deliveryTime: '3-5 jours',
       minOrder: '1',
@@ -1140,7 +1233,7 @@ specifications: {
         {/* SECTION ENTREPRISE */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🏢 Entreprise / Boutique</Text>
+            <Text style={styles.sectionTitle}>🏢 Fournisseur / Boutique</Text>
             <Text style={styles.requiredLabel}>(Obligatoire)</Text>
           </View>
           
@@ -1153,7 +1246,7 @@ specifications: {
             onPress={() => setShowCompanyDropdown(!showCompanyDropdown)}
           >
             <Text style={selectedCompany ? styles.pickerTextSelected : styles.pickerText}>
-              {selectedCompany ? selectedCompany.name : 'Sélectionner une entreprise'}
+              {selectedCompany ? selectedCompany.name : 'Sélectionner un fournisseur'}
             </Text>
             <Ionicons name="business" size={20} color="#FF6B00" />
           </TouchableOpacity>
@@ -1212,6 +1305,53 @@ specifications: {
               value={form.description}
               onChangeText={(text) => setForm({...form, description: text})}
             />
+          </View>
+
+          <View style={styles.i18nSection}>
+            <Text style={styles.sectionSubtitle}>Traductions (optionnel)</Text>
+            <Text style={styles.optionalDescription}>
+              Langue de référence : français. Renseignez l’anglais et/ou le chinois pour l’app multilingue.
+            </Text>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Titre (English)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Product title in English"
+                value={form.titleEn}
+                onChangeText={(text) => setForm({ ...form, titleEn: text })}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Titre (中文)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="中文标题"
+                value={form.titleZh}
+                onChangeText={(text) => setForm({ ...form, titleZh: text })}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Description (English)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="Description in English"
+                multiline
+                numberOfLines={3}
+                value={form.descriptionEn}
+                onChangeText={(text) => setForm({ ...form, descriptionEn: text })}
+              />
+            </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Description (中文)</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                placeholder="中文描述"
+                multiline
+                numberOfLines={3}
+                value={form.descriptionZh}
+                onChangeText={(text) => setForm({ ...form, descriptionZh: text })}
+              />
+            </View>
           </View>
 
           <View style={styles.row}>
@@ -1873,10 +2013,22 @@ specifications: {
                 style={styles.input}
                 placeholder="15x8x1"
                 value={form.dimensions}
-                onChangeText={(text) => setForm({...form, dimensions: text})}
+                onChangeText={(text) => {
+                  const cbm = calculateCBM(text);
+                  setForm({ ...form, dimensions: text, volume: cbm });
+                }}
               />
             </View>
           </View>
+
+          {normalizeVolumeInput(form.volume).numeric > 0 && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, marginLeft: 4 }}>
+              <Ionicons name="cube-outline" size={14} color="#FF6A00" />
+              <Text style={{ fontSize: 12, color: '#FF6A00', fontWeight: '600', marginLeft: 4 }}>
+                Volume estimé : {form.volume} CBM
+              </Text>
+            </View>
+          )}
 
           <View style={[
             styles.shippingFreeSection,
@@ -1926,7 +2078,7 @@ specifications: {
             <Text style={styles.summaryValue}>{form.title || 'Non défini'}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Entreprise:</Text>
+            <Text style={styles.summaryLabel}>Fournisseur :</Text>
             <Text style={styles.summaryValue}>{selectedCompany?.name || 'Non sélectionnée'}</Text>
           </View>
           <View style={styles.summaryRow}>
@@ -2139,6 +2291,13 @@ const styles = StyleSheet.create({
     fontSize: 14, 
     color: '#666', 
     marginBottom: 16 
+  },
+  i18nSection: {
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E0E0E0',
+    marginBottom: 4,
   },
   requiredLabel: { 
     fontSize: 12, 

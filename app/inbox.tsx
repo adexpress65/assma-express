@@ -67,29 +67,7 @@ const renderConversation = ({ item }: { item: Conversation }) => {
       style={styles.convCard}
       onPress={() => {
         if (!user?.uid) return;
-
-        // ✅ Extraction propre de l'autre participant
-        const participants = item.id.split("_");
-        const otherUserId = participants.find((p) => p !== user.uid);
-
-        if (!otherUserId) {
-          console.error("Impossible de déterminer le sellerId", {
-            chatId: item.id,
-            userId: user.uid,
-          });
-          return;
-        }
-
-        router.push({
-          pathname: "/chat",
-          params: {
-            sellerId: otherUserId,
-            productId: item.productInfo?.id,
-            productName: item.productInfo?.name,
-            productImage: item.productInfo?.image,
-            hasFreeShipping: item.productInfo?.hasFreeShipping ? "true" : "false",
-          },
-        });
+        router.push(`/conversation/${item.id}`);
       }}
     >
       {/* Avatar Vendeur + Mini Image Produit */}

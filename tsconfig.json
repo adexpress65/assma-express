@@ -14,7 +14,7 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "baseUrl": ".",
@@ -55,6 +55,8 @@
   "exclude": [
     "node_modules",
     "dist",
-    "build"
+    "build",
+    "app_BackupOld",
+    "src_backup"
   ]
 }

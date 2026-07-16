@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   View, 
   ScrollView, 
@@ -11,10 +11,17 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
-  TextInput
+  TextInput,
+  InteractionManager,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText, intlLocaleForAppLanguage } from '../../src/utils/productLocale';
+import {
+  getLocalizedAttributeName,
+  getLocalizedVariantValue,
+} from '../../src/utils/productAttributeLocale';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc, collection, query, where, limit, startAfter, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../../src/config/firebase';
@@ -26,13 +33,9 @@ import ProductGallery from '../../src/components/ProductGallery';
 import TrustBadges from '../../src/components/TrustBadges';
 import { useCart } from '../../src/contexts/CartContext';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
+import { useAuth } from '../../src/contexts/AuthContext';
 import { isZeroDollarsShop, isZeroDollarsProduct } from '../../src/utils/zeroDollarsShop';
 import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
-import {
-  getPublicApiProduct,
-  getPublicApiProductsByCategory,
-} from '../../src/services/visualSearchApi';
-
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 32 - 12) / 2;
 
@@ -61,23 +64,34 @@ interface FirebaseProduct {
   stockQuantity: number;
   hasVariants: boolean;
   attributes?: Array<{
+    id?: string;
     name: string;
     values: string[];
   }>;
+  /** Traductions optionnelles des noms/valeurs d’attributs (voir `productAttributeLocale.ts`). */
+  attributesLocalized?: Array<{
+    id?: string;
+    names?: Record<string, string>;
+    values?: Record<string, Record<string, string>>;
+  }>;
   variants?: Array<{
     id: string;
-    color: string;
-    size: string;
+    color?: string;
+    size?: string;
+    combination?: Record<string, string>;
     price: number;
     stock: number;
     sku: string;
     image?: string;
     wholesalePrice?: number;
+    weight?: number;
+    volume?: number;
   }>;
   specifications?: {
     dimensions?: string;
     modelNumber?: string;
-    weight?: string;
+    weight?: string | number;
+    volume?: string | number;
   };
   deliveryTime: string;
   shippingCost: number;
@@ -105,6 +119,11 @@ interface FirebaseProduct {
   nameLower?: string;
   wholesalePrice?: number;
   uid?: string;
+  createdBy?: string;
+  sellerId?: string;
+  sellerUid?: string;
+  vendorId?: string;
+  ownerId?: string;
   logo?: string;
   companyLogo?: string;
   imageUrl?: string;
@@ -125,6 +144,50 @@ interface OrderMatrixItem {
 type BootstrapProduct = FirebaseProduct & {
   sourceType?: 'firebase' | 'api';
 };
+
+/** Poids en kg depuis Firestore (string "1000", nombre, ou avec suffixe kg). */
+function parseWeightKg(raw: unknown): number {
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw >= 0 ? raw : 0;
+  const s = String(raw).trim().replace(/\s*kg\s*$/i, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/** Poids unitaire : specifications puis première variante avec weight. */
+function getUnitWeightKg(product: FirebaseProduct | null): number {
+  if (!product) return 0;
+  const specW = parseWeightKg(product.specifications?.weight);
+  if (specW > 0) return specW;
+  for (const v of product.variants ?? []) {
+    const w = parseWeightKg((v as { weight?: unknown }).weight);
+    if (w > 0) return w;
+  }
+  return 0;
+}
+
+function parseVolumeM3(raw: unknown): number {
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw >= 0 ? raw : 0;
+  const s = String(raw).trim().replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/** Poids / volume pour une ligne panier (variante si présente, sinon fiche produit). */
+function getLineSpecsForCart(product: FirebaseProduct, item: OrderMatrixItem): { weight: string; volume: string } {
+  const variant = product.variants?.find((v) => v.id === item.variantId);
+  const wVar = variant ? parseWeightKg(variant.weight) : 0;
+  const wSpec = parseWeightKg(product.specifications?.weight);
+  const wKg = wVar > 0 ? wVar : wSpec;
+  const volVar = variant ? parseVolumeM3(variant.volume) : 0;
+  const volSpec = parseVolumeM3(product.specifications?.volume);
+  const vol = volVar > 0 ? volVar : volSpec;
+  return {
+    weight: wKg > 0 ? String(wKg) : '0',
+    volume: vol > 0 ? String(vol) : '0',
+  };
+}
 
 function normalizeBootstrapProduct(rawValue: unknown, fallbackId?: string): BootstrapProduct | null {
   if (!rawValue || typeof rawValue !== 'string') {
@@ -156,6 +219,9 @@ function normalizeBootstrapProduct(rawValue: unknown, fallbackId?: string): Boot
       stockQuantity: Number(parsed?.stockQuantity) || 0,
       hasVariants: Boolean(parsed?.hasVariants),
       attributes: parsed?.attributes || [],
+      attributesLocalized: Array.isArray(parsed?.attributesLocalized)
+        ? parsed.attributesLocalized
+        : undefined,
       variants: parsed?.variants || [],
       specifications: parsed?.specifications || {},
       deliveryTime: String(parsed?.deliveryTime || 'N/A'),
@@ -179,6 +245,10 @@ function normalizeBootstrapProduct(rawValue: unknown, fallbackId?: string): Boot
       premiumSupplier: Boolean(parsed?.premiumSupplier),
       wholesalePrice: parsed?.wholesalePrice ? Number(parsed.wholesalePrice) : undefined,
       uid: parsed?.uid,
+      createdBy: parsed?.createdBy,
+      sellerId: parsed?.sellerId,
+      vendorId: parsed?.vendorId,
+      ownerId: parsed?.ownerId,
       logo: parsed?.logo,
       companyLogo: parsed?.companyLogo,
       imageUrl: parsed?.imageUrl,
@@ -198,6 +268,8 @@ export default function ProductDetailScreen() {
     : params.initialProductData;
 
   const router = useRouter();
+  const { t, i18n } = useTranslation();
+  const { user } = useAuth();
   const { addToCart } = useCart();
   const { currency } = useCurrency();
   const bootstrapProduct = useMemo(
@@ -232,10 +304,49 @@ const [lastSimilarDoc, setLastSimilarDoc] = useState<any>(null);
 const [hasMoreSimilar, setHasMoreSimilar] = useState(true);
 const [loadingMoreSimilar, setLoadingMoreSimilar] = useState(false);
 
+  const localizedTitle = useMemo(
+    () =>
+      product
+        ? getLocalizedProductText(
+            product.name,
+            'name',
+            product as unknown as Record<string, unknown>,
+            i18n.language,
+          )
+        : '',
+    [product, i18n.language],
+  );
+
+  const localizedDescription = useMemo(
+    () =>
+      product
+        ? getLocalizedProductText(
+            product.description,
+            'description',
+            product as unknown as Record<string, unknown>,
+            i18n.language,
+          )
+        : '',
+    [product, i18n.language],
+  );
+
+  const formatDisplayPrice = useCallback(
+    (priceInXOF: number) => {
+      const converted = priceInXOF * currency.rate;
+      const locale = intlLocaleForAppLanguage(i18n.language);
+      if (currency.code === 'XOF') {
+        return `${Math.round(converted).toLocaleString(locale)} CFA`;
+      }
+      return `${currency.symbol}${converted.toLocaleString(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+    },
+    [currency, i18n.language],
+  );
+
   // --- VARIABLES CALCULÉES ---
-  const productWeight = useMemo(() => {
-  return product?.specifications?.weight || 0;
-}, [product]);
+  const unitWeightKg = useMemo(() => getUnitWeightKg(product), [product]);
   const selectedVariant = useMemo(() => {
     if (!product?.variants || !selectedCarouselColor) return null;
     return product.variants.find(v => v.color === selectedCarouselColor);
@@ -372,46 +483,34 @@ const fetchSimilarProducts = async (categoryId, companyId, currentProductId) => 
   }
 };
 
-const fetchApiSimilarProducts = async (categoryId: string, currentProductId: string) => {
-  if (!categoryId) return;
-
-  setLoadingSimilar(true);
-  try {
-    const products = await getPublicApiProductsByCategory(categoryId, 20);
-    setSimilarProducts(products.filter((item) => item.id !== currentProductId) as FirebaseProduct[]);
-    setHasMoreSimilar(false);
-    setLastSimilarDoc(null);
-  } catch (error) {
-    console.error("Erreur similaires API:", error);
-  } finally {
-    setLoadingSimilar(false);
-  }
-};
-
-// --- RÉCUPÉRATION DES COULEURS DISPONIBLES ---
-const availableColors = useMemo(() => {
-  // On cherche dans 'attributes' (nom réel dans Firestore)
+// --- Attribut « couleur » + valeurs (pour i18n + carrousel) ---
+const colorAttributeMeta = useMemo(() => {
   const attrs = product?.attributes || [];
-  
-  const colorAttr = attrs.find(
-    attr => attr.name.toLowerCase().includes('couleur') || 
-            attr.name.toLowerCase().includes('color')
+  return attrs.find(
+    (a) =>
+      a.name.toLowerCase().includes('couleur') ||
+      a.name.toLowerCase().includes('color'),
   );
-  
-  return colorAttr?.values || [];
 }, [product]);
 
-// --- RÉCUPÉRATION DES TAILLES DISPONIBLES ---
-const availableSizes = useMemo(() => {
+const availableColors = useMemo(
+  () => colorAttributeMeta?.values || [],
+  [colorAttributeMeta],
+);
+
+const sizeAttributeMeta = useMemo(() => {
   const attrs = product?.attributes || [];
-  
-  const sizeAttr = attrs.find(
-    attr => attr.name.toLowerCase().includes('taille') || 
-            attr.name.toLowerCase().includes('size')
+  return attrs.find(
+    (a) =>
+      a.name.toLowerCase().includes('taille') ||
+      a.name.toLowerCase().includes('size'),
   );
-  
-  return sizeAttr?.values || [];
 }, [product]);
+
+const availableSizes = useMemo(
+  () => sizeAttributeMeta?.values || [],
+  [sizeAttributeMeta],
+);
 
 // --- INITIALISATION DE LA MATRICE DE COMMANDE ---
 // --- INITIALISATION DE LA MATRICE DE COMMANDE ---
@@ -466,9 +565,8 @@ useEffect(() => {
     setOrderMatrix(newMatrix);
 
     // Initialisation de la couleur par défaut pour le carrousel
-    const colorAttr = product.attributes.find(a => /couleur|color/i.test(a.name));
-    if (colorAttr && colorAttr.values.length > 0 && !selectedCarouselColor) {
-      setSelectedCarouselColor(String(colorAttr.values[0]));
+    if (colorAttributeMeta && colorAttributeMeta.values.length > 0 && !selectedCarouselColor) {
+      setSelectedCarouselColor(String(colorAttributeMeta.values[0]));
     }
 
   } else if (product) {
@@ -585,13 +683,8 @@ const loadMoreSimilar = async () => {
         const productSnap = await getDoc(productRef);
         
         if (!productSnap.exists()) {
-          const apiProduct = await getPublicApiProduct(normalizedId);
-          setProduct(apiProduct as FirebaseProduct);
-          setProductSource('api');
-          setError(null);
-          if (apiProduct.categoryId) {
-            await fetchApiSimilarProducts(String(apiProduct.categoryId), apiProduct.id);
-          }
+          setProduct(null);
+          setError("Ce produit n'existe pas ou n'est plus disponible.");
         } else {
           const productData = productSnap.data();
           
@@ -616,12 +709,15 @@ const loadMoreSimilar = async () => {
           }));
           setProductSource('firebase');
           
+          /* Produits similaires après le premier rendu pour ne pas bloquer l’affichage. */
           if (productWithId.categoryId) {
-            await fetchSimilarProducts(
-              productWithId.categoryId, 
-              productWithId.companyId || '', 
-              productWithId.id
-            );
+            InteractionManager.runAfterInteractions(() => {
+              fetchSimilarProducts(
+                productWithId.categoryId,
+                productWithId.companyId || '',
+                productWithId.id
+              );
+            });
           }
         }
       } catch (err: any) {
@@ -635,40 +731,59 @@ const loadMoreSimilar = async () => {
     fetchProduct();
   }, [bootstrapProduct, id]);
 
+  /* Précharge d’abord les visuels galerie (perçu plus rapide). */
   useEffect(() => {
-    const imageUris = [
-      ...galleryImages,
-      ...similarProducts.slice(0, 10).map((item) => item.mainImage || item.images?.[0] || item.imageUrl),
+    const primary = galleryImages.slice(0, 3).filter(Boolean).map((u) => String(u));
+    if (!primary.length) return;
+    Image.prefetch(primary, 'memory-disk').catch(() => {});
+  }, [galleryImages]);
+
+  /* Puis le reste en différé pour ne pas saturer le réseau au montage. */
+  useEffect(() => {
+    const rest = [
+      ...galleryImages.slice(3),
+      ...similarProducts.slice(0, 8).map((item) => item.mainImage || item.images?.[0] || item.imageUrl),
       company?.logo,
     ]
       .filter(Boolean)
       .map((item) => String(item));
-
-    if (!imageUris.length) {
-      return;
-    }
-
-    Image.prefetch(imageUris, 'memory-disk').catch(() => {});
+    if (!rest.length) return;
+    const t = setTimeout(() => {
+      Image.prefetch(rest, 'memory-disk').catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
   }, [company?.logo, galleryImages, similarProducts]);
 
   // --- RÉCUPÉRATION DES DONNÉES DE L'ENTREPRISE ---
   useEffect(() => {
-    const fetchCompanyData = async () => {
-      if (productSource === 'api') {
-        setCompany(null);
-        setLoadingCompany(false);
-        return;
-      }
+    if (productSource === 'api') {
+      setCompany(null);
+      setLoadingCompany(false);
+      return;
+    }
 
-      if (product?.companyId) {
+    if (!product?.companyId) {
+      setCompany(null);
+      setLoadingCompany(false);
+      return;
+    }
+
+    let cancelled = false;
+    InteractionManager.runAfterInteractions(() => {
+      (async () => {
         setLoadingCompany(true);
-        const companyData = await fetchCompany(product.companyId);
-        setCompany(companyData);
-        setLoadingCompany(false);
-      }
-    };
+        try {
+          const companyData = await fetchCompany(product.companyId!);
+          if (!cancelled) setCompany(companyData);
+        } finally {
+          if (!cancelled) setLoadingCompany(false);
+        }
+      })();
+    });
 
-    fetchCompanyData();
+    return () => {
+      cancelled = true;
+    };
   }, [product?.companyId, productSource]);
 
   // --- CALCUL DU TOTAL DES QUANTITÉS ---
@@ -676,12 +791,10 @@ const loadMoreSimilar = async () => {
     return Object.values(orderMatrix).reduce((sum, item) => sum + item.quantity, 0);
   }, [orderMatrix]);
 
-  // --- CALCUL DU POIDS TOTAL ---
-  const totalWeight = useMemo(() => {
-    const weightStr = product?.specifications?.weight || "0";
-    const weightNum = parseFloat(weightStr.replace(',', '.'));
-    return (weightNum * totalQuantity).toFixed(2);
-  }, [product, totalQuantity]);
+  // --- CALCUL DU POIDS TOTAL (commande) ---
+  const totalOrderWeightKg = useMemo(() => {
+    return (unitWeightKg * totalQuantity).toFixed(2);
+  }, [unitWeightKg, totalQuantity]);
 
   // --- VÉRIFICATION SI LE MOQ EST ATTEINT ---
   const isMOQReached = useMemo(() => {
@@ -778,6 +891,7 @@ const handleAddToCart = () => {
   try {
     itemsToAdd.forEach((item) => {
       const unitPrice = getEffectiveUnitPrice(item);
+      const lineSpecs = getLineSpecsForCart(product, item);
 
       const productForCart = {
         id: product.id,
@@ -794,10 +908,9 @@ const handleAddToCart = () => {
         originalCurrency: product.currency || "XOF",
         hasFreeShipping: product.hasFreeShipping || false,
         
-        // --- AJOUT CORRECT ICI ---
         specifications: {
-          weight: product.specifications?.weight || "0",
-          volume: product.specifications?.volume || "0",
+          weight: lineSpecs.weight,
+          volume: lineSpecs.volume,
         },
       };
 
@@ -830,28 +943,35 @@ const handleBuyNow = async () => {
   setAddingToCart(true);
 
   try {
-    const formattedItems = itemsToOrder.map((item) => {
-      const unitPrice = getEffectiveUnitPrice(item);
-      return {
-        id: product.id,
-        cartId: `${product.id}-${item.color || "NS"}-${item.size || "NS"}`,
-        name: product.name,
-        price: unitPrice,
-        quantity: item.quantity,
-        selectedSize: item.size || null,
-        selectedColor: item.color || null,
-        image: item.image || product.mainImage || product.images?.[0] || "",
-        seller: product.companyName || product.supplier || "Vendeur",
-        minOrder: product.minOrder || 1,
-        hasFreeShipping: product.hasFreeShipping || false,
-        
-        // --- TRANSFÉRER LE POIDS POUR LE CHECKOUT ---
-        specifications: {
-          weight: product.specifications?.weight || "0",
-          volume: product.specifications?.volume || "0",
-        },
-      };
-    });
+        const formattedItems = itemsToOrder.map((item) => {
+          const unitPrice = getEffectiveUnitPrice(item);
+          const lineSpecs = getLineSpecsForCart(product, item);
+          const isZero = isZeroDollarsProduct({
+            price: unitPrice,
+            basePrice: product.basePrice as any,
+            companyName: product.companyName,
+            supplier: product.supplier,
+            seller: (product as any).seller,
+            name: product.name,
+          });
+          return {
+            id: product.id,
+            cartId: `${product.id}-${item.color || "NS"}-${item.size || "NS"}`,
+            name: product.name,
+            price: unitPrice,
+            quantity: item.quantity,
+            selectedSize: item.size || null,
+            selectedColor: item.color || null,
+            image: item.image || product.mainImage || product.images?.[0] || "",
+            seller: product.companyName || product.supplier || "Vendeur",
+            minOrder: product.minOrder || 1,
+            hasFreeShipping: isZero ? false : (product.hasFreeShipping || false),
+            specifications: {
+              weight: lineSpecs.weight,
+              volume: lineSpecs.volume,
+            },
+          };
+        });
 
     // Optionnel : mise en panier
     formattedItems.forEach(item => addToCart(item));
@@ -880,22 +1000,39 @@ const handleBuyNow = async () => {
   }
 };
 
-const handleChat = () => {
+const handleChat = async () => {
   if (!product) {
     console.error("❌ Produit introuvable");
     return;
   }
 
-  const sellerId =
-  product.uid ||
-  product.sellerId ||
-  product.vendorId ||
-  product.ownerId;
-
-  if (!sellerId) {
-    console.error("❌ UID vendeur manquant dans le produit", product);
+  if (!user?.uid) {
+    Alert.alert(
+      "Connexion requise",
+      "Connectez-vous pour écrire à la boutique ou à l’entreprise.",
+    );
     return;
   }
+
+  const sellerUid = product.sellerUid;
+  const companyDocId = product.companyId;
+
+  if (!companyDocId || !sellerUid) {
+    console.error("Produit invalide :", product);
+    Alert.alert(
+      "Contact indisponible",
+      "Produit invalide : companyId/sellerUid manquant. Impossible d'ouvrir la discussion.",
+    );
+    return;
+  }
+
+  const contactId = companyDocId;
+
+  console.log({
+    productId: product.id,
+    sellerUid,
+    companyId: companyDocId,
+  });
 
   const mainImage =
     product.images?.[0] ||
@@ -916,15 +1053,15 @@ const handleChat = () => {
 
   const formattedPrice = `${chatPriceValue?.toLocaleString()} ${product.currency || "FCFA"}`;
 
-  console.log("🧭 Navigation vers conversation avec UID vendeur:", sellerId);
-
   router.push({
     pathname: "/conversation/[id]",
     params: {
-      id: sellerId,
-      sellerId: sellerId,
+      id: contactId,
+      sellerId: sellerUid ? String(sellerUid) : contactId,
+      companyId: companyDocId || undefined,
       productId: product.id,
-      productName: product.name,
+      productContext: "1",
+      productName: localizedTitle,
       productImage: mainImage,
       productPrice: formattedPrice,
       sellerName:
@@ -939,6 +1076,8 @@ const handleChat = () => {
   });
 };
 
+const isValidProductForConversation = Boolean(product?.companyId && product?.sellerUid);
+
   const handleCompanyPress = () => {
     if (company?.id) {
       router.push({
@@ -952,9 +1091,15 @@ const handleChat = () => {
   const ColorCarousel = () => {
     if (!availableColors.length) return null;
 
+    const productRecord = product as unknown as Record<string, unknown>;
+    const colorAttrForLocale = {
+      id: colorAttributeMeta?.id,
+      name: colorAttributeMeta?.name || 'Couleur',
+    };
+
     return (
       <View style={styles.colorCarouselContainer}>
-        <Text style={styles.colorCarouselTitle}>Couleurs disponibles:</Text>
+        <Text style={styles.colorCarouselTitle}>{t('productDetail.colorsAvailable')}</Text>
         <ScrollView 
           horizontal 
           showsHorizontalScrollIndicator={false}
@@ -984,9 +1129,11 @@ const handleChat = () => {
                   transition={120}
                 />
                 <View style={styles.colorCarouselInfo}>
-                  <Text style={styles.colorCarouselColorName}>{color}</Text>
+                  <Text style={styles.colorCarouselColorName}>
+                    {getLocalizedVariantValue(color, colorAttrForLocale, productRecord, i18n.language)}
+                  </Text>
                   <Text style={styles.colorCarouselStock}>
-                    {totalStock} en stock
+                    {t('productDetail.inStockCount', { count: totalStock })}
                   </Text>
                 </View>
                 {selectedCarouselColor === color && (
@@ -1005,11 +1152,19 @@ const handleChat = () => {
   // --- COMPOSANT POUR LA LIGNE DE TAILLE ---
   const SizeRow = ({ item, matrixKey }: { item: OrderMatrixItem; matrixKey: string }) => {
     const unitPrice = getEffectiveUnitPrice(item);
+    const productRecord = product as unknown as Record<string, unknown>;
+    const sizeAttrForLocale = {
+      id: sizeAttributeMeta?.id,
+      name: sizeAttributeMeta?.name || 'Taille',
+    };
+    const sizeLabel = item.size?.trim()
+      ? getLocalizedVariantValue(item.size, sizeAttrForLocale, productRecord, i18n.language)
+      : t('productDetail.sizeStandard');
     
     return (
       <View style={styles.sizeRow}>
         <View style={styles.sizeInfo}>
-          <Text style={styles.sizeName}>{item.size || 'Standard'}</Text>
+          <Text style={styles.sizeName}>{sizeLabel}</Text>
           <View style={styles.sizePriceStock}>
             <Text style={styles.sizePrice}>{formatDisplayPrice(unitPrice)}</Text>
             <Text style={[
@@ -1018,7 +1173,7 @@ const handleChat = () => {
               item.stock > 0 ? styles.lowStock : 
               styles.outOfStock
             ]}>
-              Stock: {item.stock}
+              {t('productDetail.stockLabel', { count: item.stock })}
             </Text>
           </View>
         </View>
@@ -1057,6 +1212,12 @@ const handleChat = () => {
 
   // --- COMPOSANT POUR LA CARTE PRODUIT SIMILAIRE ---
   const SimilarProductCard = ({ product }: { product: FirebaseProduct }) => {
+    const similarName = getLocalizedProductText(
+      product.name,
+      'name',
+      product as unknown as Record<string, unknown>,
+      i18n.language,
+    );
     const handlePress = () => {
       router.push({
         pathname: '/product/[id]',
@@ -1095,13 +1256,12 @@ const handleChat = () => {
         
         <View style={styles.similarProductInfo}>
           <Text style={styles.similarProductName} numberOfLines={2}>
-            {product.name}
+            {similarName}
           </Text>
           
           <View style={styles.similarProductPriceContainer}>
-            <Text style={styles.similarProductCurrency}>{product.currency || 'FCFA'}</Text>
             <Text style={styles.similarProductPrice}>
-              {product.price.toLocaleString()}
+              {formatDisplayPrice(product.price)}
             </Text>
           </View>
           
@@ -1122,19 +1282,6 @@ const handleChat = () => {
     );
   };
   
-  const formatDisplayPrice = (priceInXOF: number) => {
-    const converted = priceInXOF * currency.rate;
-    
-    if (currency.code === 'XOF') {
-      return Math.round(converted).toLocaleString('fr-FR') + ' CFA';
-    }
-    
-    return `${currency.symbol}${converted.toLocaleString(undefined, { 
-      minimumFractionDigits: 2, 
-      maximumFractionDigits: 2 
-    })}`;
-  };
-
   // --- COMPOSANT POUR LE RÉCAPITULATIF DYNAMIQUE ---
   const OrderSummary = () => {
     if (totalQuantity === 0) return null;
@@ -1220,15 +1367,17 @@ const handleChat = () => {
         {/* GALERIE D'IMAGES */}
         <ProductGallery 
           images={product.images?.length ? product.images : [product.mainImage]}
-          productName={product.name}
-          hasFreeShipping={product.hasFreeShipping}
         />
 
-{/* SECTION PRINCIPALE - NOM ET PRIX */}
+{/* SECTION PRINCIPALE — titre unique, hiérarchie B2B */}
         <View style={styles.mainInfo}>
           
-          {/* 1. Badges statut (Nouveau, Tendance, etc.) */}
+          {/* 1. Badges : contexte pro puis promos */}
           <View style={styles.badgesContainer}>
+            <View style={styles.b2bBadge}>
+              <Ionicons name="briefcase-outline" size={12} color="#C2410C" />
+              <Text style={styles.b2bBadgeText}>Produit B2B</Text>
+            </View>
             {product.newArrival && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>Nouveau</Text>
@@ -1250,8 +1399,9 @@ const handleChat = () => {
             }) && <ZeroDollarsFreeBadge />}
           </View>
 
-          {/* 2. Nom du produit (Affiché une seule fois) */}
-          <Text style={styles.productName}>{product.name}</Text>
+          <Text style={styles.productName} numberOfLines={3}>
+            {localizedTitle}
+          </Text>
 
 {/* 3. Zone de Prix Dynamique */}
           <View style={styles.priceContainer}>
@@ -1295,8 +1445,8 @@ const handleChat = () => {
           </View>
 
           {/* 6. Description */}
-          {product.description ? (
-            <Text style={styles.description}>{product.description}</Text>
+          {localizedDescription ? (
+            <Text style={styles.description}>{localizedDescription}</Text>
           ) : null}
 
           {/* 7. SECTION BOUTIQUE */}
@@ -1417,12 +1567,21 @@ const handleChat = () => {
             </View>
           ) : null}
           
-          {/* Poids */}
-          {product.specifications?.weight && (
+          {/* Poids (specifications ou variante) */}
+          {unitWeightKg > 0 && (
             <View style={styles.infoRow}>
               <Ionicons name="scale-outline" size={18} color="#666" />
-              <Text style={styles.infoLabel}>Poids total:</Text>
-              <Text style={styles.infoValue}>{totalWeight} kg</Text>
+              <Text style={styles.infoLabel}>Poids unitaire :</Text>
+              <Text style={styles.infoValue}>
+                {unitWeightKg.toLocaleString('fr-FR', { maximumFractionDigits: 3 })} kg
+              </Text>
+            </View>
+          )}
+          {unitWeightKg > 0 && totalQuantity > 0 && (
+            <View style={styles.infoRow}>
+              <Ionicons name="layers-outline" size={18} color="#666" />
+              <Text style={styles.infoLabel}>Poids total (commande) :</Text>
+              <Text style={styles.infoValue}>{totalOrderWeightKg} kg</Text>
             </View>
           )}
         </View>
@@ -1529,6 +1688,7 @@ const handleChat = () => {
     price: effectiveUnitPrice,
   }}
   onChat={handleChat}
+  chatDisabled={!isValidProductForConversation}
   onAddToCart={handleAddToCart}
   onBuyNow={handleBuyNow}
   addingToCart={addingToCart}
@@ -1538,7 +1698,7 @@ const handleChat = () => {
       <WholesaleQuoteForm 
         visible={isQuoteVisible}
         onClose={() => setIsQuoteVisible(false)}
-        productName={product.name}
+        productName={localizedTitle}
         productId={product.id}
         productImages={product.images || [product.mainImage]}
         currentPrice={product.price}
@@ -1626,9 +1786,16 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   mainInfo: { 
-    padding: 16, 
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 16,
     backgroundColor: COLORS.white, 
-    marginBottom: 8 
+    marginHorizontal: 4,
+    marginTop: 4,
+    marginBottom: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
   originalPriceContainer: {
     flexDirection: 'row',
@@ -1677,17 +1844,36 @@ const styles = StyleSheet.create({
     color: COLORS.white
   },
   productName: { 
-    fontSize: 18, 
-    color: COLORS.text, 
-    lineHeight: 24, 
-    marginBottom: 12, 
-    fontWeight: '700' 
+    fontSize: 21, 
+    color: '#0F172A', 
+    lineHeight: 28, 
+    marginBottom: 14, 
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   badgesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 12
+    gap: 8,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  b2bBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFF7ED',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+  },
+  b2bBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#9A3412',
+    letterSpacing: 0.2,
   },
   badge: {
     backgroundColor: COLORS.primary,

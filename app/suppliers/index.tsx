@@ -6,11 +6,20 @@ import {
   Platform, Keyboard, TouchableWithoutFeedback
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, query, where } from 'firebase/firestore'; 
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  limit,
+  getCountFromServer,
+} from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { db, auth } from '../../src/config/firebase';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { useTranslation } from 'react-i18next';
 
 interface Supplier {
   id: string;
@@ -27,6 +36,8 @@ type TabType = 'public' | 'supplier';
 
 export default function SuppliersScreen() {
   const router = useRouter();
+  const { user, userRole } = useAuth();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabType>('public');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,38 +46,72 @@ export default function SuppliersScreen() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Visible pour invités (connexion fournisseur) et comptes ayant un rôle fournisseur.
+  const canAccessSupplierSpace =
+    !user || userRole === 'seller' || userRole === 'admin' || userRole === 'super-admin';
+
+  useEffect(() => {
+    if (!canAccessSupplierSpace && activeTab === 'supplier') {
+      setActiveTab('public');
+    }
+  }, [activeTab, canAccessSupplierSpace]);
 
   useEffect(() => {
 const loadSuppliers = async () => {
   try {
     setLoading(true);
-    // 1. Récupérer les entreprises actives
-    const q = query(collection(db, 'companies'), where('isActive', '==', true));
+    /**
+     * Avant : `getDocs` sur **tous** les produits par entreprise → lecture énorme (minutes si gros catalogue).
+     * Maintenant : `getCountFromServer` (agrégat) + plafond d’entreprises listées.
+     */
+    const MAX_SUPPLIERS_LIST = 80;
+    const q = query(
+      collection(db, 'companies'),
+      where('isActive', '==', true),
+      limit(MAX_SUPPLIERS_LIST),
+    );
     const snapshot = await getDocs(q);
-    
-    // 2. Pour chaque entreprise, compter ses produits
-    const list = await Promise.all(snapshot.docs.map(async (doc) => {
-      const data = doc.data();
-      
-      // On cherche les produits qui appartiennent à ce fournisseur
-      // IMPORTANT : Vérifie si ton champ s'appelle 'supplierId' ou 'uid' dans la collection 'products'
-      const productsQuery = query(
-        collection(db, 'products'), 
-        where('supplierId', '==', doc.id) 
-      );
-      
-      const productsSnapshot = await getDocs(productsQuery);
-      const realCount = productsSnapshot.size; // Récupère le nombre réel de documents trouvés
 
-      return {
-        id: doc.id,
-        ...data,
-        stats: {
-          ...data.stats,
-          productCount: realCount // On remplace le 0 ou le 2 par le vrai chiffre
+    const list = await Promise.all(
+      snapshot.docs.map(async (docSnap) => {
+        const data = docSnap.data();
+        const fromStats =
+          typeof data.stats?.productCount === 'number' ? data.stats.productCount : null;
+
+        let realCount = fromStats ?? 0;
+        if (fromStats == null) {
+          try {
+            const byCompany = query(
+              collection(db, 'products'),
+              where('companyId', '==', docSnap.id),
+            );
+            const c1 = await getCountFromServer(byCompany);
+            realCount = c1.data().count;
+            if (realCount === 0) {
+              const bySupplier = query(
+                collection(db, 'products'),
+                where('supplierId', '==', docSnap.id),
+              );
+              const c2 = await getCountFromServer(bySupplier);
+              realCount = c2.data().count;
+            }
+          } catch {
+            realCount = 0;
+          }
         }
-      } as Supplier;
-    }));
+
+        return {
+          id: docSnap.id,
+          ...data,
+          stats: {
+            ...data.stats,
+            productCount: realCount,
+          },
+        } as Supplier;
+      }),
+    );
 
     setSuppliers(list);
   } catch (error) {
@@ -83,7 +128,7 @@ const loadSuppliers = async () => {
 
   const handleSupplierLogin = async () => {
     if (!loginEmail || !loginPassword) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      Alert.alert(t('app.account.errorTitle'), t('app.account.loginFieldsError'));
       return;
     }
 
@@ -99,12 +144,12 @@ const loadSuppliers = async () => {
       console.error('Erreur connexion:', error);
       let errorMessage = 'Erreur de connexion';
       switch (error.code) {
-        case 'auth/user-not-found': errorMessage = 'Aucun compte trouvé avec cet email'; break;
-        case 'auth/wrong-password': errorMessage = 'Mot de passe incorrect'; break;
-        case 'auth/invalid-email': errorMessage = 'Email invalide'; break;
-        case 'auth/too-many-requests': errorMessage = 'Trop de tentatives. Réessayez plus tard'; break;
+        case 'auth/user-not-found': errorMessage = t('app.supplier.index.authUserNotFound'); break;
+        case 'auth/wrong-password': errorMessage = t('app.supplier.index.authWrongPassword'); break;
+        case 'auth/invalid-email': errorMessage = t('app.supplier.index.authInvalidEmail'); break;
+        case 'auth/too-many-requests': errorMessage = t('app.supplier.index.authTooManyRequests'); break;
       }
-      Alert.alert('Erreur', errorMessage);
+      Alert.alert(t('app.account.errorTitle'), errorMessage);
     } finally {
       setLoginLoading(false);
     }
@@ -120,7 +165,7 @@ const loadSuppliers = async () => {
     if (user) {
       router.push(`/suppliers/register?id=${user.uid}`);
     } else {
-      Alert.alert('Erreur', 'Vous devez être connecté pour modifier votre profil');
+      Alert.alert(t('app.account.errorTitle'), t('app.supplier.index.editProfileRequiresLogin'));
     }
   };
 
@@ -128,7 +173,13 @@ const loadSuppliers = async () => {
     <View style={styles.container}>
       {/* En-tête avec onglets */}
       <LinearGradient colors={['#FF6B00', '#FF8C00']} style={styles.header}>
-        <Text style={styles.mainTitle}>Fournisseurs</Text>
+        <Text style={styles.mainTitle}>{t('common.suppliers')}</Text>
+        {canAccessSupplierSpace && (
+          <View style={styles.accessBadge}>
+            <Ionicons name="shield-checkmark-outline" size={14} color="#065F46" />
+            <Text style={styles.accessBadgeText}>{t('app.supplier.index.supplierAccessBadge')}</Text>
+          </View>
+        )}
         
         <View style={styles.tabsContainer}>
           <TouchableOpacity
@@ -136,23 +187,25 @@ const loadSuppliers = async () => {
             onPress={() => setActiveTab('public')}
           >
             <Ionicons name="people" size={20} color={activeTab === 'public' ? '#FF6B00' : '#fff'} />
-            <Text style={[styles.tabText, activeTab === 'public' && styles.activeTabText]}>Liste publique</Text>
+            <Text style={[styles.tabText, activeTab === 'public' && styles.activeTabText]}>{t('app.supplier.index.publicListTab')}</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'supplier' && styles.activeTab]}
-            onPress={() => setActiveTab('supplier')}
-          >
-            <Ionicons name="business" size={20} color={activeTab === 'supplier' ? '#FF6B00' : '#fff'} />
-            <Text style={[styles.tabText, activeTab === 'supplier' && styles.activeTabText]}>Espace pro</Text>
-          </TouchableOpacity>
+          {canAccessSupplierSpace && (
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'supplier' && styles.activeTab]}
+              onPress={() => setActiveTab('supplier')}
+            >
+              <Ionicons name="business" size={20} color={activeTab === 'supplier' ? '#FF6B00' : '#fff'} />
+              <Text style={[styles.tabText, activeTab === 'supplier' && styles.activeTabText]}>{t('app.supplier.index.proSpaceTab')}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </LinearGradient>
 
       {/* CONTENU : LISTE PUBLIQUE */}
       {activeTab === 'public' && (
         <View style={styles.tabContent}>
-          <Text style={styles.tabTitle}>Nos Fournisseurs ({suppliers.length})</Text>
+          <Text style={styles.tabTitle}>{t('app.supplier.index.ourSuppliersCount', { count: suppliers.length })}</Text>
           {loading ? (
             <View style={styles.center}><ActivityIndicator size="large" color="#FF6B00" /></View>
           ) : (
@@ -166,22 +219,30 @@ const loadSuppliers = async () => {
                       <Text style={styles.logoText}>{item.name?.charAt(0).toUpperCase() || 'F'}</Text>
                     </View>
                     <View style={styles.companyInfo}>
-                      <Text style={styles.name}>{item.name || 'Nom manquant'}</Text>
-                      <Text style={styles.email}>{item.email || 'Email non renseigné'}</Text>
+                      <Text style={styles.name}>{item.name || t('app.supplier.index.missingName')}</Text>
+                      <Text style={styles.email}>{item.email || t('app.supplier.index.missingEmail')}</Text>
                     </View>
                   </View>
                   <View style={styles.cardStats}>
                     <View style={styles.statItem}>
                       <Ionicons name="cube-outline" size={16} color="#FF6B00" />
-                      <Text style={styles.count}>{item.stats?.productCount ?? 0} produits</Text>
+                      <Text style={styles.count}>{t('app.supplier.index.productsCount', { count: item.stats?.productCount ?? 0 })}</Text>
                     </View>
                     <View style={[styles.statusBadge, item.isActive ? styles.statusActive : styles.statusInactive]}>
                       <Ionicons name={item.isActive ? "checkmark-circle" : "close-circle"} size={12} color="#fff" />
-                      <Text style={styles.statusText}>{item.isActive ? 'Actif' : 'Inactif'}</Text>
+                      <Text style={styles.statusText}>{item.isActive ? t('app.supplier.index.active') : t('app.supplier.index.inactive')}</Text>
                     </View>
                   </View>
-                  <TouchableOpacity style={styles.viewButton} onPress={() => router.push(`/company/${item.id}`)}>
-                    <Text style={styles.viewButtonText}>Voir la boutique</Text>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/company/[id]',
+                        params: { id: item.id, view: 'dashboard' },
+                      })
+                    }
+                  >
+                    <Text style={styles.viewButtonText}>{t('app.supplier.index.viewStore')}</Text>
                     <Ionicons name="arrow-forward" size={16} color="#fff" />
                   </TouchableOpacity>
                 </View>
@@ -193,7 +254,7 @@ const loadSuppliers = async () => {
       )}
 
       {/* CONTENU : ESPACE PRO */}
-      {activeTab === 'supplier' && (
+      {activeTab === 'supplier' && canAccessSupplierSpace && (
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
           style={{ flex: 1 }}
@@ -204,19 +265,39 @@ const loadSuppliers = async () => {
                 <View style={styles.loginIcon}>
                   <Ionicons name="business" size={48} color="#FF6B00" />
                 </View>
-                <Text style={styles.loginTitle}>Espace Fournisseur</Text>
+                <Text style={styles.loginTitle}>{t('app.supplier.index.supplierSpaceTitle')}</Text>
                 <Text style={styles.loginSubtitle}>
-                  Gérez votre entreprise, vos produits et vos commandes
+                  {t('app.supplier.index.supplierSpaceSubtitle')}
                 </Text>
+                <View style={styles.proPillsRow}>
+                  <View style={styles.proPill}>
+                    <Ionicons name="shield-checkmark-outline" size={14} color="#065F46" />
+                    <Text style={styles.proPillText}>{t('app.supplier.index.secureAccess')}</Text>
+                  </View>
+                  <View style={styles.proPill}>
+                    <Ionicons name="speedometer-outline" size={14} color="#1D4ED8" />
+                    <Text style={styles.proPillText}>{t('app.supplier.index.proDashboard')}</Text>
+                  </View>
+                </View>
               </View>
 
               <View style={styles.formContainer}>
-                <Text style={styles.formLabel}>Email professionnel</Text>
+                <View style={styles.infoCard}>
+                  <Ionicons name="information-circle-outline" size={18} color="#1D4ED8" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.infoCardTitle}>{t('app.supplier.index.supplierLoginTitle')}</Text>
+                    <Text style={styles.infoCardText}>
+                      {t('app.supplier.index.useMainAccountCredentials')}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.formLabel}>{t('app.supplier.index.businessEmailLabel')}</Text>
                 <View style={styles.inputContainer}>
                   <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
-                    placeholder="contact@votre-entreprise.com"
+                    placeholder={t('app.supplier.index.businessEmailPlaceholder')}
                     value={loginEmail}
                     onChangeText={setLoginEmail}
                     autoCapitalize="none"
@@ -224,17 +305,27 @@ const loadSuppliers = async () => {
                   />
                 </View>
 
-                <Text style={styles.formLabel}>Mot de passe</Text>
+                <Text style={styles.formLabel}>{t('app.supplier.index.passwordLabel')}</Text>
                 <View style={styles.inputContainer}>
                   <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
-                    placeholder="Votre mot de passe"
+                    placeholder={t('app.supplier.index.passwordPlaceholder')}
                     value={loginPassword}
                     onChangeText={setLoginPassword}
-                    secureTextEntry
+                    secureTextEntry={!showPassword}
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword((prev) => !prev)}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? t('app.supplier.index.hidePasswordA11y') : t('app.supplier.index.showPasswordA11y')}
+                  >
+                    <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#666" />
+                  </TouchableOpacity>
                 </View>
+                <Text style={styles.passwordHint}>
+                  {t('app.supplier.index.useMainAccountPasswordHint')}
+                </Text>
 
                 <TouchableOpacity 
                   style={[styles.loginButton, loginLoading && styles.loginButtonDisabled]} 
@@ -245,7 +336,7 @@ const loadSuppliers = async () => {
                     <ActivityIndicator color="#fff" />
                   ) : (
                     <>
-                      <Text style={styles.loginButtonText}>Se connecter</Text>
+                      <Text style={styles.loginButtonText}>{t('app.messages.signIn')}</Text>
                       <Ionicons name="arrow-forward" size={20} color="#fff" />
                     </>
                   )}
@@ -253,7 +344,7 @@ const loadSuppliers = async () => {
 
                 <View style={styles.divider}>
                   <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>ou</Text>
+                  <Text style={styles.dividerText}>{t('app.supplier.index.or')}</Text>
                   <View style={styles.dividerLine} />
                 </View>
 
@@ -262,35 +353,44 @@ const loadSuppliers = async () => {
                   onPress={handleRegisterSupplier}
                 >
                   <Ionicons name="person-add-outline" size={20} color="#FF6B00" />
-                  <Text style={styles.registerButtonText}>Créer un compte fournisseur</Text>
+                  <Text style={styles.registerButtonText}>{t('app.supplier.index.createSupplierAccount')}</Text>
                 </TouchableOpacity>
 
-                {/* ✅ NOUVEAU : Bouton pour modifier le profil */}
                 <TouchableOpacity 
                   style={styles.editProfileButton} 
                   onPress={handleEditProfile}
                 >
                   <Ionicons name="create-outline" size={20} color="#FF6B00" />
-                  <Text style={styles.editProfileButtonText}>Modifier mon profil</Text>
+                  <Text style={styles.editProfileButtonText}>{t('app.supplier.index.editMyProfile')}</Text>
                 </TouchableOpacity>
 
+                {user && (userRole === 'seller' || userRole === 'admin' || userRole === 'super-admin') && (
+                  <TouchableOpacity
+                    style={styles.dashboardQuickButton}
+                    onPress={() => router.push('/suppliers/dashboard')}
+                  >
+                    <Ionicons name="grid-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.dashboardQuickText}>{t('app.supplier.index.goToDashboard')}</Text>
+                  </TouchableOpacity>
+                )}
+
                 <View style={styles.featuresContainer}>
-                  <Text style={styles.featuresTitle}>Espace Fournisseur :</Text>
+                  <Text style={styles.featuresTitle}>{t('app.supplier.index.supplierSpaceFeaturesTitle')}</Text>
                   <View style={styles.featureItem}>
                     <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <Text style={styles.featureText}>Gérez vos produits en temps réel</Text>
+                    <Text style={styles.featureText}>{t('app.supplier.index.featureManageProducts')}</Text>
                   </View>
                   <View style={styles.featureItem}>
                     <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <Text style={styles.featureText}>Suivez vos commandes et statistiques</Text>
+                    <Text style={styles.featureText}>{t('app.supplier.index.featureTrackOrders')}</Text>
                   </View>
                   <View style={styles.featureItem}>
                     <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <Text style={styles.featureText}>Modifiez votre profil d'entreprise</Text>
+                    <Text style={styles.featureText}>{t('app.supplier.index.featureEditCompany')}</Text>
                   </View>
                   <View style={styles.featureItem}>
                     <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-                    <Text style={styles.featureText}>Accédez aux demandes des clients</Text>
+                    <Text style={styles.featureText}>{t('app.supplier.index.featureAccessRequests')}</Text>
                   </View>
                 </View>
               </View>
@@ -318,8 +418,24 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '700',
     color: '#fff',
-    marginBottom: 20,
+    marginBottom: 10,
     textAlign: 'center',
+  },
+  accessBadge: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#D1FAE5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
+  },
+  accessBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#065F46',
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -497,8 +613,51 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  proPillsRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  proPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  proPillText: {
+    fontSize: 12,
+    color: '#1E3A8A',
+    fontWeight: '600',
+  },
   formContainer: {
     marginBottom: 32,
+  },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+    marginBottom: 8,
+  },
+  infoCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E3A8A',
+    marginBottom: 2,
+  },
+  infoCardText: {
+    fontSize: 12,
+    color: '#1F2937',
+    lineHeight: 17,
   },
   formLabel: {
     fontSize: 14,
@@ -524,6 +683,11 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     color: '#1A1A1A',
+  },
+  passwordHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#6B7280',
   },
   forgotPassword: {
     alignSelf: 'flex-end',
@@ -602,6 +766,22 @@ const styles = StyleSheet.create({
     color: '#FF6B00',
     fontSize: 16,
     fontWeight: '600',
+  },
+  dashboardQuickButton: {
+    marginTop: 12,
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  dashboardQuickText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
   featuresContainer: {
     backgroundColor: '#fff',

@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import ProductCardPremium from './ProductCardPremium';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -119,6 +120,7 @@ export default function TrendingProductsPremium({
   refreshing = false,
   onRefresh,
 }: TrendingProductsPremiumProps) {
+  const { t } = useTranslation();
   const fadeIn = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(24)).current;
 
@@ -159,7 +161,7 @@ export default function TrendingProductsPremium({
     return (
       <View style={styles.loadingWrapper}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingLabel}>Chargement des tendances...</Text>
+        <Text style={styles.loadingLabel}>{t('app.premium.trendingLoading')}</Text>
       </View>
     );
   }
@@ -173,8 +175,8 @@ export default function TrendingProductsPremium({
             <Ionicons name="trending-up" size={28} color="#fff" />
           </LinearGradient>
           <View style={styles.titleTextContainer}>
-            <Text style={styles.sectionTitle}>Tendances du moment</Text>
-            <Text style={styles.sectionSubtitle}>Découvrez les produits les plus populaires</Text>
+            <Text style={styles.sectionTitle}>{t('app.premium.trendingSectionTitle')}</Text>
+            <Text style={styles.sectionSubtitle}>{t('app.premium.trendingSectionSubtitle')}</Text>
           </View>
         </View>
       </View>
@@ -191,7 +193,7 @@ export default function TrendingProductsPremium({
         ListHeaderComponent={headerComponent}
         ListFooterComponent={footerComponent}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>Aucun produit tendance pour le moment</Text>
+          <Text style={styles.emptyText}>{t('app.premium.trendingEmpty')}</Text>
         }
         // Optimisations de performance
         initialNumToRender={6}

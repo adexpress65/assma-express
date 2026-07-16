@@ -13,12 +13,15 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { useCart, CartItem as CartItemType } from '@/contexts/CartContext';
+import { useCheckout } from '@/contexts/CheckoutContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { saneQty } from '@/utils/quantity';
 import { isZeroDollarsProduct } from '@/utils/zeroDollarsShop';
+import { displaySellerName } from '@/utils/companyDisplayName';
 
 const { width } = Dimensions.get('window');
 
@@ -88,7 +91,7 @@ const CartItem = memo(({
   onRemove,
   formatPrice
 }: CartItemProps) => {
-  
+  const { t } = useTranslation();
   const itemPrice = Number(item.price) || 0;
   const itemQuantity = Number(quantity) || 1;
   const totalItemPrice = itemPrice * itemQuantity;
@@ -122,19 +125,25 @@ const CartItem = memo(({
           <View style={styles.variants}>
             {item.selectedSize && (
               <View style={styles.variantBadge}>
-                <Text style={styles.variantText}>Taille: {item.selectedSize}</Text>
+                <Text style={styles.variantText}>
+                  {t('app.cart.size', { value: item.selectedSize })}
+                </Text>
               </View>
             )}
             {item.selectedColor && (
               <View style={styles.variantBadge}>
-                <Text style={styles.variantText}>Couleur: {item.selectedColor}</Text>
+                <Text style={styles.variantText}>
+                  {t('app.cart.color', { value: item.selectedColor })}
+                </Text>
               </View>
             )}
           </View>
         )}
 
-        <Text style={styles.price}>{formatPrice(itemPrice)}</Text>
-        <Text style={styles.unitPrice}>{formatPrice(itemPrice)} / unité</Text>
+        <Text style={styles.price}>
+          {formatPrice(itemPrice)}{' '}
+          <Text style={styles.unitSuffix}>{t('app.cart.perUnit')}</Text>
+        </Text>
 
         <View style={styles.quantityContainer}>
           <TouchableOpacity 
@@ -168,12 +177,14 @@ const CartItem = memo(({
           </TouchableOpacity>
 
           {item.minOrder && item.minOrder > 1 && itemQuantity < item.minOrder && (
-            <Text style={styles.minOrderWarning}>Min: {item.minOrder}</Text>
+            <Text style={styles.minOrderWarning}>
+              {t('app.cart.minShort', { value: item.minOrder })}
+            </Text>
           )}
         </View>
 
         <Text style={styles.itemTotal}>
-          Total: {formatPrice(totalItemPrice)}
+          {t('app.cart.total', { amount: formatPrice(totalItemPrice) })}
         </Text>
       </View>
 
@@ -195,24 +206,25 @@ CartItem.displayName = 'CartItem';
 /* Composant Empty State                              */
 /* -------------------------------------------------- */
 
-const EmptyCart = memo(({ onContinueShopping }: { onContinueShopping: () => void }) => (
-  <View style={styles.emptyContainer}>
-    <View style={styles.emptyIconContainer}>
-      <Ionicons name="cart-outline" size={80} color="#ff6a00" />
+const EmptyCart = memo(({ onContinueShopping }: { onContinueShopping: () => void }) => {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyIconContainer}>
+        <Ionicons name="cart-outline" size={80} color="#ff6a00" />
+      </View>
+      <Text style={styles.emptyTitle}>{t('app.cart.emptyTitle')}</Text>
+      <Text style={styles.emptySubtitle}>{t('app.cart.emptySubtitle')}</Text>
+      <TouchableOpacity
+        style={styles.shopButton}
+        onPress={onContinueShopping}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.shopButtonText}>{t('app.cart.continueShopping')}</Text>
+      </TouchableOpacity>
     </View>
-    <Text style={styles.emptyTitle}>Votre panier est vide</Text>
-    <Text style={styles.emptySubtitle}>
-      Découvrez nos produits et trouvez votre bonheur
-    </Text>
-    <TouchableOpacity 
-      style={styles.shopButton}
-      onPress={onContinueShopping}
-      activeOpacity={0.8}
-    >
-      <Text style={styles.shopButtonText}>Continuer mes achats</Text>
-    </TouchableOpacity>
-  </View>
-));
+  );
+});
 
 EmptyCart.displayName = 'EmptyCart';
 
@@ -221,11 +233,13 @@ EmptyCart.displayName = 'EmptyCart';
 /* -------------------------------------------------- */
 
 export default function CartScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   
   const { formatPrice } = useCurrency();
   const { cartItems, updateQuantity, removeFromCart } = useCart();
+  const { initOrder } = useCheckout();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -333,26 +347,30 @@ export default function CartScreen() {
   }, [quantities, updateQuantityWithDebounce]);
 
   const handleRemove = useCallback((cartId: string) => {
-    Alert.alert('Supprimer', 'Voulez-vous supprimer cet article ?', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', onPress: () => removeFromCart(cartId), style: 'destructive' }
+    Alert.alert(t('app.cart.removeTitle'), t('app.cart.removeOneMessage'), [
+      { text: t('app.cart.cancel'), style: 'cancel' },
+      { text: t('app.cart.removeConfirm'), onPress: () => removeFromCart(cartId), style: 'destructive' },
     ]);
-  }, [removeFromCart]);
+  }, [removeFromCart, t]);
 
   const handleRemoveSelected = useCallback(() => {
     if (selectedItems.length === 0) return;
-    Alert.alert('Supprimer', `Supprimer ${selectedItems.length} article(s) ?`, [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer',
-        onPress: () => {
-          selectedItems.forEach(item => removeFromCart(item.cartId));
-          setSelected(new Set());
+    Alert.alert(
+      t('app.cart.removeTitle'),
+      t('app.cart.removeManyMessage', { count: selectedItems.length }),
+      [
+        { text: t('app.cart.cancel'), style: 'cancel' },
+        {
+          text: t('app.cart.removeConfirm'),
+          onPress: () => {
+            selectedItems.forEach((item) => removeFromCart(item.cartId));
+            setSelected(new Set());
+          },
+          style: 'destructive',
         },
-        style: 'destructive'
-      }
-    ]);
-  }, [selectedItems, removeFromCart]);
+      ],
+    );
+  }, [selectedItems, removeFromCart, t]);
 
 const handleCheckout = async () => {
     if (selectedItems.length === 0) return;
@@ -368,7 +386,11 @@ const handleCheckout = async () => {
           price: Number(item.price),
           quantity: quantities[item.cartId] ?? item.quantity,
           imageUrl: item.image || item.imageUrl,
-          companyName: item.seller || "Kissgroup88",
+          companyName: displaySellerName({
+            seller: item.seller,
+            companyName: (item as { companyName?: string }).companyName,
+            companyId: (item as { companyId?: string }).companyId,
+          }),
           
           // --- AJOUTS CRUCIAUX POUR LE SHIPPING ---
           specifications: {
@@ -386,9 +408,12 @@ const handleCheckout = async () => {
         }
       };
 
+      initOrder(orderData);
       router.push({
-        pathname: '/checkout', 
-        params: { orderData: JSON.stringify(orderData) }
+        pathname: '/checkout',
+        params: {
+          orderData: encodeURIComponent(JSON.stringify(orderData)),
+        },
       });
     } catch (error) {
       console.error(error);
@@ -429,10 +454,13 @@ const handleCheckout = async () => {
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            Mon Panier <Text style={styles.headerCount}>({cartItems.length})</Text>
+            {t('app.cart.headerTitle')}{' '}
+            <Text style={styles.headerCount}>({cartItems.length})</Text>
           </Text>
           <TouchableOpacity onPress={toggleSelectAll} style={styles.headerButton}>
-            <Text style={styles.selectAllText}>{selectAll ? 'Tout désél.' : 'Tout sél.'}</Text>
+            <Text style={styles.selectAllText}>
+              {selectAll ? t('app.cart.deselectAll') : t('app.cart.selectAll')}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -448,7 +476,9 @@ const handleCheckout = async () => {
         <View style={styles.footer}>
           <View style={styles.footerRow}>
             <View style={styles.footerLeft}>
-              <Text style={styles.footerLabel}>{selectedCount} article{selectedCount > 1 ? 's' : ''}</Text>
+              <Text style={styles.footerLabel}>
+                {t('app.cart.itemsSelected', { count: selectedCount })}
+              </Text>
               <Text style={styles.footerPrice}>{formatPrice(subtotalXOF)}</Text>
             </View>
             <TouchableOpacity 
@@ -456,12 +486,20 @@ const handleCheckout = async () => {
               onPress={handleCheckout}
               disabled={selectedCount === 0 || isCheckingOut}
             >
-              {isCheckingOut ? <ActivityIndicator color="#fff" /> : <Text style={styles.checkoutBtnTxt}>Commander ({totalQuantity})</Text>}
+              {isCheckingOut ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.checkoutBtnTxt}>
+                  {t('app.cart.checkout', { count: totalQuantity })}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
           {selectedCount > 0 && (
             <TouchableOpacity style={styles.footerActions} onPress={handleRemoveSelected}>
-              <Text style={styles.deleteSelectedText}>Supprimer la sélection ({selectedCount})</Text>
+              <Text style={styles.deleteSelectedText}>
+                {t('app.cart.deleteSelection', { count: selectedCount })}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -488,8 +526,8 @@ const styles = StyleSheet.create({
   variants: { flexDirection: 'row', marginBottom: 4, flexWrap: 'wrap' },
   variantBadge: { backgroundColor: '#f5f5f5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 4 },
   variantText: { fontSize: 10, color: '#666' },
-  price: { color: '#ff6a00', fontWeight: '700', fontSize: 15 },
-  unitPrice: { fontSize: 11, color: '#999', marginBottom: 6 },
+  price: { color: '#ff6a00', fontWeight: '700', fontSize: 15, marginBottom: 6 },
+  unitSuffix: { fontSize: 12, color: '#999', fontWeight: '500' },
   quantityContainer: { flexDirection: 'row', alignItems: 'center' },
   quantityButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f5f5f5', justifyContent: 'center', alignItems: 'center' },
   quantityValue: { minWidth: 40, alignItems: 'center' },

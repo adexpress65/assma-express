@@ -1,18 +1,56 @@
-// 📁 apps/mobile/src/types/payment.ts
-export type PaymentMethodType = 
-  | 'card' 
-  | 'wallet' 
-  | 'bank_transfer' 
+// Types paiement — méthodes checkout et réponses API passerelles
+import type { OrderItem, ShippingAddress } from './order';
+import type { CartSummary } from './cart';
+
+// ─── Méthodes de paiement du checkout mobile ───────────────────────────────
+
+export type CheckoutPaymentMethod =
+  | 'fedapay_mobile'
+  | 'fedapay_card'
+  | 'ngenius_card'
+  | 'paydunya';
+
+// ─── Payload envoyé au backend paiement ────────────────────────────────────
+
+export interface PaymentPayload {
+  orderId: string;
+  userId: string;
+  amount: number;
+  currencyCode: string;
+  email: string;
+  firstname: string;
+  lastname: string;
+  method: CheckoutPaymentMethod;
+  items: OrderItem[];
+  summary: CartSummary;
+  shippingAddress?: ShippingAddress;
+}
+
+// ─── Réponse du backend paiement ───────────────────────────────────────────
+
+export interface PaymentResult {
+  url?: string;
+  error?: string;
+  transactionId?: string;
+  status?: string;
+}
+
+// ─── Types génériques (méthodes stockées, transactions, wallet) ────────────
+
+export type PaymentMethodType =
+  | 'card'
+  | 'wallet'
+  | 'bank_transfer'
   | 'cash_on_delivery'
-  | 'cih' 
-  | 'attijari' 
+  | 'cih'
+  | 'attijari'
   | 'bmce';
 
-export type PaymentStatus = 
+export type PaymentStatus =
   | 'pending'
-  | 'processing' 
-  | 'completed' 
-  | 'failed' 
+  | 'processing'
+  | 'completed'
+  | 'failed'
   | 'refunded'
   | 'cancelled';
 
@@ -21,23 +59,16 @@ export interface PaymentMethod {
   userId: string;
   type: PaymentMethodType;
   isDefault: boolean;
-  
-  // Pour les cartes
   lastFour?: string;
   cardHolder?: string;
   expiryMonth?: number;
   expiryYear?: number;
   brand?: 'visa' | 'mastercard' | 'amex';
-  
-  // Pour les virements
   bankName?: string;
   accountName?: string;
   accountNumber?: string;
   rib?: string;
-  
-  // Sécurité
-  token?: string; // Pour les gateways
-  
+  token?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,19 +82,12 @@ export interface Transaction {
   status: PaymentStatus;
   paymentMethodId: string;
   paymentMethodType: PaymentMethodType;
-  
-  // Frais
   fees: number;
   totalAmount: number;
-  
-  // Références
   gatewayTransactionId?: string;
-  gatewayResponse?: Record<string, any>;
-  
-  // Métadonnées
+  gatewayResponse?: Record<string, unknown>;
   description?: string;
-  metadata?: Record<string, any>;
-  
+  metadata?: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
 }

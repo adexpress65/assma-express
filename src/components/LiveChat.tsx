@@ -47,37 +47,41 @@ const LiveChat: React.FC<LiveChatProps> = ({ liveId }) => {
     const isGift = item.type === 'gift';
     const isCurrentUser = item.userId === user?.uid;
 
-    return null; // CORRIGÉ: (
-      <View style={[
-        styles.messageContainer,
-        isSystem && styles.systemMessage,
-        isGift && styles.giftMessage,
-        isCurrentUser && styles.currentUserMessage
-      ]}>
+    return (
+      <View
+        style={[
+          styles.messageContainer,
+          isSystem && styles.systemMessage,
+          isGift && styles.giftMessage,
+          isCurrentUser && styles.currentUserMessage,
+        ]}
+      >
         {!isSystem && !isGift && (
           <Text style={styles.userName}>{item.userName}:</Text>
         )}
-        <Text style={[
-          styles.messageText,
-          isSystem && styles.systemMessageText,
-          isGift && styles.giftMessageText,
-          isCurrentUser && styles.currentUserMessageText
-        ]}>
+        <Text
+          style={[
+            styles.messageText,
+            isSystem && styles.systemMessageText,
+            isGift && styles.giftMessageText,
+            isCurrentUser && styles.currentUserMessageText,
+          ]}
+        >
           {item.text}
         </Text>
-        {isGift && <Text style={styles.giftEmoji}>{/* ğŸ */}</Text>}
+        {isGift && <Text style={styles.giftEmoji}>??</Text>}
       </View>
-    )
+    );
   };
 
-  return null; // CORRIGÉ: (
-    <KeyboardAvoidingView 
+  return (
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
       <View style={styles.chatHeader}>
-        <Text style={styles.chatTitle}>{/* Chat en direct */}</Text>
+        <Text style={styles.chatTitle}>Chat en direct</Text>
         <Text style={styles.messageCount}>{liveMessages.length} messages</Text>
       </View>
 
@@ -99,16 +103,16 @@ const LiveChat: React.FC<LiveChatProps> = ({ liveId }) => {
           multiline={false}
           maxLength={200}
         />
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.sendButton, !message.trim() && styles.sendButtonDisabled]}
           onPress={handleSendMessage}
           disabled={!message.trim()}
         >
-          <Text style={styles.sendButtonText}>{/* ğŸ“¤ */}</Text>
+          <Text style={styles.sendButtonText}>Envoyer</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
-  )
+  );
 };
 
 const styles = StyleSheet.create({

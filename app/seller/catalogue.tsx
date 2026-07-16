@@ -15,7 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from "@/contexts/AuthContext";
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db } from "@/config/firebase";
 
 const { width } = Dimensions.get('window');
@@ -40,7 +40,8 @@ export default function SellerCatalogue() {
       const q = query(
         collection(db, 'products'),
         where('sellerId', '==', user.uid),
-        orderBy('updatedAt', 'desc')
+        orderBy('updatedAt', 'desc'),
+        limit(120),
       );
       
       const querySnapshot = await getDocs(q);

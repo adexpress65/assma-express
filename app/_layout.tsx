@@ -1,13 +1,22 @@
-import { Stack } from "expo-router";
+import {
+  registerSentryNavigationContainer,
+  wrapRootComponent,
+} from "../src/config/sentry";
+import { Stack, useNavigationContainerRef, useRouter } from "expo-router";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { I18nextProvider, useTranslation } from "react-i18next";
-import { I18nManager, Platform, Alert } from "react-native";
+import { AppState, Platform, Alert } from "react-native";
+import Constants from "expo-constants";
 import { PortalProvider } from "@gorhom/portal"; // Ajout pour la gestion des menus superposés
+import * as SplashScreen from "expo-splash-screen";
+import * as Font from "expo-font";
+import { Ionicons } from "@expo/vector-icons";
 
 import * as Updates from "expo-updates";
 import * as Notifications from "expo-notifications";
+import { onAuthStateChanged } from "firebase/auth";
 
 // SÉCURITÉ : Vérification pour ExpoDevice
 let Device = null;
@@ -17,69 +26,210 @@ try {
   console.log("ExpoDevice non disponible");
 }
 
-import { doc, updateDoc } from "firebase/firestore";
-import { db, auth } from "../src/config/firebase";
+import { doc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "../src/config/firebase";
 
 import i18n from "../src/services/i18n";
+import { applyLayoutDirectionForLanguage } from "../src/utils/layoutDirection";
 
-import { AuthProvider, useAuth } from "../src/contexts/AuthContext";
+import { AuthProvider } from "../src/contexts/AuthContext";
 import { CartProvider } from "../src/contexts/CartContext";
+import { CheckoutProvider } from "../src/contexts/CheckoutContext";
 import { OrderProvider } from "../src/contexts/OrderContext";
 import { MessagesProvider } from "../src/contexts/MessagesContext";
 import { LiveProvider } from "../src/contexts/LiveContext";
 import { WebRTCProvider } from "../src/contexts/WebRTCContext";
 import { CurrencyProvider } from "../src/contexts/CurrencyContext";
 
+// Garde le splash natif visible jusqu'à préparation complète de l'app.
+void SplashScreen.preventAutoHideAsync().catch(() => {});
+
+async function waitForI18nReady(timeoutMs = 4000): Promise<void> {
+  if (i18n.isInitialized) return;
+  await new Promise<void>((resolve) => {
+    const onInitialized = () => {
+      i18n.off("initialized", onInitialized);
+      clearTimeout(timeoutId);
+      resolve();
+    };
+    const timeoutId = setTimeout(() => {
+      i18n.off("initialized", onInitialized);
+      resolve();
+    }, timeoutMs);
+    i18n.on("initialized", onInitialized);
+  });
+}
+
+async function prepareApp(): Promise<void> {
+  await Promise.allSettled([
+    waitForI18nReady(),
+    Font.loadAsync(Ionicons.font),
+    import("../src/config/firebase"),
+  ]);
+}
+
 // Configuration du gestionnaire de notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
 });
 
-function LanguageDirectionManager({ children }) {
+/** Ouverture conversation / fiche produit quand l’utilisateur tape une notification push. */
+function PushNotificationRouter() {
+  const router = useRouter();
+  const handledColdStart = useRef(false);
+
+  useEffect(() => {
+    const openFromNotification = (notification: Notifications.Notification) => {
+      const data = notification.request.content
+        .data as Record<string, unknown> | undefined;
+      if (!data) return;
+      const convId = data.conversationId;
+      if (typeof convId === "string" && convId.length > 0) {
+        router.push(`/conversation/${convId}`);
+        return;
+      }
+      const productId = data.productId;
+      if (typeof productId === "string" && productId.length > 0) {
+        router.push(`/product/${productId}`);
+      }
+    };
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        openFromNotification(response.notification);
+      },
+    );
+
+    const last = Notifications.getLastNotificationResponse();
+    if (last?.notification && !handledColdStart.current) {
+      handledColdStart.current = true;
+      openFromNotification(last.notification);
+    }
+
+    return () => subscription.remove();
+  }, [router]);
+
+  return null;
+}
+
+function LanguageDirectionManager({ children }: { children: ReactNode }) {
   const { i18n: i18nInstance } = useTranslation();
 
   useEffect(() => {
-    const isArabic = i18nInstance.language === "ar";
-    if (isArabic && !I18nManager.isRTL) {
-      I18nManager.allowRTL(true);
-      I18nManager.forceRTL(true);
-      // Note: Un redémarrage est souvent nécessaire pour le RTL natif
-    }
+    applyLayoutDirectionForLanguage(i18nInstance.language);
   }, [i18nInstance.language]);
 
   return <>{children}</>;
 }
 
-function AppInitializer({ children }) {
-  const { user } = useAuth();
+function AppInitializer({ children }: { children: ReactNode }) {
+  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
 
   useEffect(() => {
-    // --- 1. LOGIQUE DE MISE À JOUR FORCÉE (OTA OPTIMISÉE) ---
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUid(nextUser?.uid ?? null);
+    });
+    return unsubscribe;
+  }, []);
+
+  const registerPushToken = useCallback(async () => {
+    if (!Device || !Device.isDevice) {
+      console.log("Notifications : Uniquement sur appareil physique");
+      return;
+    }
+
+    if (!uid) return;
+
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== "granted") {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== "granted") {
+        console.warn(
+          "[push] Permission notifications refusée — activez-les dans Réglages > A2Express pour recevoir les alertes.",
+        );
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        await Notifications.setNotificationChannelAsync("default", {
+          name: "A2Express",
+          importance: Notifications.AndroidImportance.MAX,
+          sound: "default",
+          vibrationPattern: [0, 250, 250, 250],
+        });
+      }
+
+      const easExtra = Constants.expoConfig?.extra as
+        | { eas?: { projectId?: string } }
+        | undefined;
+      const projectId =
+        easExtra?.eas?.projectId ??
+        (Constants as { easConfig?: { projectId?: string } }).easConfig?.projectId ??
+        "bb3399ba-97b7-4707-80eb-b524775df88a";
+
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+      const token = tokenData.data;
+
+      console.log("--------------------------");
+      console.log("TOKEN PUSH A2EXPRESS :", token);
+      console.log("--------------------------");
+
+      const userRef = doc(db, "users", uid);
+      // setDoc + merge : updateDoc échouait si users/{uid} n’existait pas encore → aucun token → aucune push.
+try {
+  // On tente d'abord la mise à jour ciblée (ne touchera JAMAIS au rôle)
+  await updateDoc(userRef, {
+    pushToken: token,
+    lastActive: serverTimestamp(),
+  });
+} catch (error) {
+  // Si le document n'existe pas encore du tout, on le crée avec le rôle par défaut
+  await setDoc(userRef, {
+    pushToken: token,
+    lastActive: serverTimestamp(),
+    role: "customer", // Rôle initial uniquement à la toute première création
+  }, { merge: true });
+}
+      console.log("Token push enregistré (Firestore) pour :", uid);
+    } catch (e) {
+      console.warn("[push] Erreur enregistrement token :", e);
+    }
+  }, [uid]);
+
+  useEffect(() => {
     async function checkOTAUpdate() {
       try {
-        if (__DEV__) return; 
+        if (__DEV__) return;
 
         const update = await Updates.checkForUpdateAsync();
-        
+
         if (update.isAvailable) {
           await Updates.fetchUpdateAsync();
-          
+
           Alert.alert(
             "Mise à jour installée 🚀",
             "Une nouvelle version de A2Express a été téléchargée. L'application va redémarrer pour appliquer les corrections immédiatement.",
             [
-              { 
-                text: "Mettre à jour maintenant", 
+              {
+                text: "Mettre à jour maintenant",
                 onPress: async () => {
                   await Updates.reloadAsync();
-                } 
-              }
+                },
+              },
             ],
-            { cancelable: false }
+            { cancelable: false },
           );
         }
       } catch (error) {
@@ -87,70 +237,70 @@ function AppInitializer({ children }) {
       }
     }
 
-    // --- 2. ENREGISTREMENT DU PUSH TOKEN ---
-    async function registerPushToken() {
-      if (!Device || !Device.isDevice) {
-        console.log("Notifications : Uniquement sur appareil physique");
-        return;
-      }
-
-      try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-
-        if (existingStatus !== "granted") {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-
-        if (finalStatus !== "granted") {
-          console.log("Permission de notification refusée");
-          return;
-        }
-
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: "bb3399ba-97b7-4707-80eb-b524775df88a",
-        });
-        const token = tokenData.data;
-
-        console.log("--------------------------");
-        console.log("TOKEN PUSH A2EXPRESS :", token);
-        console.log("--------------------------");
-
-        if (user?.uid) {
-          const userRef = doc(db, "users", user.uid);
-          await updateDoc(userRef, {
-            pushToken: token,
-            lastActive: new Date(),
-          });
-          console.log("Token sauvegardé dans Firestore pour :", user.uid);
-        }
-      } catch (e) {
-        console.log("Erreur enregistrement Token:", e);
-      }
+    void checkOTAUpdate();
+    if (uid) {
+      void registerPushToken();
     }
+  }, [uid, registerPushToken]);
 
-    checkOTAUpdate();
-    if (user) {
-      registerPushToken();
-    }
-  }, [user]);
+  useEffect(() => {
+    if (!uid) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void registerPushToken();
+      }
+    });
+    return () => sub.remove();
+  }, [uid, registerPushToken]);
 
   return <>{children}</>;
 }
 
-export default function RootLayout() {
+function RootLayout() {
+  const navigationRef = useNavigationContainerRef();
+  const [isAppReady, setIsAppReady] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const bootstrap = async () => {
+      await prepareApp();
+      if (isMounted) {
+        setIsAppReady(true);
+      }
+    };
+    void bootstrap();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    registerSentryNavigationContainer(navigationRef);
+  }, [navigationRef]);
+
+  const onLayoutRootView = useCallback(async () => {
+    if (!isAppReady) return;
+    await SplashScreen.hideAsync();
+  }, [isAppReady]);
+
+  if (!isAppReady) {
+    // Pas de rendu React intermédiaire: le splash natif reste visible.
+    return null;
+  }
+
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
       {/* PortalProvider enveloppe tout pour permettre aux composants de "sortir" du layout standard */}
       <PortalProvider>
         <SafeAreaProvider>
           <I18nextProvider i18n={i18n}>
             <LanguageDirectionManager>
               <AuthProvider>
+                <PushNotificationRouter />
                 <AppInitializer>
                   <CurrencyProvider>
                     <CartProvider>
+                      <CheckoutProvider>
                       <OrderProvider>
                         <MessagesProvider>
                           <LiveProvider>
@@ -160,11 +310,20 @@ export default function RootLayout() {
                                   headerShown: false,
                                   animation: "fade",
                                 }}
-                              />
+                              >
+                                <Stack.Screen
+                                  name="profile"
+                                  options={{
+                                    headerShown: false,
+                                    animation: "slide_from_right",
+                                  }}
+                                />
+                              </Stack>
                             </WebRTCProvider>
                           </LiveProvider>
                         </MessagesProvider>
                       </OrderProvider>
+                      </CheckoutProvider>
                     </CartProvider>
                   </CurrencyProvider>
                 </AppInitializer>
@@ -176,3 +335,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default wrapRootComponent(RootLayout);

@@ -205,7 +205,7 @@ export default function PremiumHomeScreen() {
             
             <View style={styles.simpleFooter}>
               <Text style={styles.footerText}>A2Express Marketplace • B2B Africa</Text>
-              <Text style={styles.footerText}>© 2026 Tous droits réservés</Text>
+              <Text style={styles.footerText}>{t('app.premium.footerCopyright')}</Text>
             </View>
           </View>
         }

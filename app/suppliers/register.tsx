@@ -238,7 +238,7 @@ export default function SupplierRegistration() {
 const pickImage = async (type: 'logo' | 'cover') => {
   try {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: type === 'logo',
       aspect: type === 'logo' ? [1, 1] : [16, 9],
       quality: 0.7, 

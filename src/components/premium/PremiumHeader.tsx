@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Portal } from '@gorhom/portal';
 
@@ -28,10 +28,14 @@ import type { SearchResultItem } from '@/services/searchService';
 import {
   analyzeImageForVisualSearch,
   ImageSearchGeminiError,
+  isVisualSearchGeminiConfigured,
 } from '@/services/imageSearchGemini';
 import LanguageSelectorModal from '@/components/language/LanguageSelectorModal';
 import { Language } from '@/services/i18n/languages';
+import { changeLanguage } from '@/services/i18n';
+import { isRTLLanguage } from '@/utils/layoutDirection';
 import { useCurrency } from '../../contexts/CurrencyContext';
+import { setVisualSearchPickBase64, setVisualSearchDescriptor } from '@/services/visualSearchImageBuffer';
 
 const { width } = Dimensions.get('window');
 
@@ -156,19 +160,19 @@ export function PremiumHeaderTopBar() {
       name: getLanguageName(i18n.language),
       nativeName: getNativeLanguageName(i18n.language),
       flag: getFlag(i18n.language),
-      direction: i18n.language === 'ar' ? 'rtl' : 'ltr',
+      direction: isRTLLanguage(i18n.language) ? 'rtl' : 'ltr',
     });
   }, [getFlag, getLanguageName, getNativeLanguageName, i18n.language]);
 
   const handleLanguageSelect = useCallback(async (language: Language) => {
     try {
-      await i18n.changeLanguage(language.code);
+      await changeLanguage(language.code);
       setCurrentLanguage(language);
       setLanguageModalVisible(false);
     } catch (error) {
       console.error(t('header.languageChangeError'), error);
     }
-  }, [i18n, t]);
+  }, [t]);
 
   const toggleCurrency = useCallback(() => {
     const codes = ['USD', 'XOF', 'EUR'];
@@ -231,7 +235,19 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
   const searchInputRef = useRef<TextInput>(null);
   const searchSectionRef = useRef<View>(null);
   const router = useRouter();
+  const pathname = usePathname();
+  /** Ref pour éviter qu’une requête Algolia/Firestore en cours rouvre le Portal au-dessus de `/search-results`. */
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const { t, i18n } = useTranslation();
+  /** Sans clé Gemini embarquée au build, ne pas afficher l’icône (évite le message technique aux clients). */
+  const imageSearchEnabled = useMemo(() => isVisualSearchGeminiConfigured(), []);
+
+  useEffect(() => {
+    if (pathname?.includes('search-results')) {
+      setShowSuggestions(false);
+    }
+  }, [pathname]);
 
   const measureSearchSection = useCallback(() => {
     searchSectionRef.current?.measure((x, y, w, h, pageX, pageY) => {
@@ -258,13 +274,18 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
 
     debounceTimer.current = setTimeout(async () => {
       try {
-        const results = await searchGlobal(searchQuery);
+        const results = await searchGlobal(searchQuery, { includeCompanies: false });
+        if (pathnameRef.current?.includes('search-results')) {
+          return;
+        }
         setSuggestions(results);
         setShowSuggestions(results.length > 0);
         measureSearchSection();
       } catch {
-        setSuggestions([]);
-        setShowSuggestions(false);
+        if (!pathnameRef.current?.includes('search-results')) {
+          setSuggestions([]);
+          setShowSuggestions(false);
+        }
       } finally {
         setLoading(false);
       }
@@ -352,15 +373,15 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
       const picker =
         source === 'camera'
           ? ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: ['images'],
               allowsEditing: false,
-              quality: 0.8,
+              quality: 0.5,
               base64: true,
             })
           : ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: ['images'],
               allowsEditing: false,
-              quality: 0.8,
+              quality: 0.5,
               base64: true,
             });
 
@@ -383,11 +404,27 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
         asset.base64,
         asset.mimeType || 'image/jpeg'
       );
-      const keywords = sanitizeSearchText(visualSearchPayload.searchQuery);
+      let keywords = sanitizeSearchText(visualSearchPayload.searchQuery);
+      if (!keywords.trim() || /^json$/i.test(keywords.trim())) {
+        keywords = sanitizeSearchText(
+          [...visualSearchPayload.labels, ...visualSearchPayload.keywords].join(' '),
+        );
+      }
+      if (!keywords.trim()) {
+        keywords = 'produit';
+      }
       const imageFileName =
         asset.fileName ||
         asset.uri.split('/').pop() ||
         `image-${Date.now()}.jpg`;
+      setVisualSearchPickBase64(asset.base64, asset.mimeType || 'image/jpeg');
+      setVisualSearchDescriptor(visualSearchPayload);
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+      setSuggestions([]);
+      setShowSuggestions(false);
       setSearchQuery(keywords);
       onSearch?.(keywords);
       router.push({
@@ -397,6 +434,8 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
           source: 'image',
           imageUri: asset.uri,
           imageFileName,
+          /** MIME réel du picker (le base64 n’est pas passé dans l’URL : relu depuis imageUri côté résultats). */
+          imageMimeType: asset.mimeType || 'image/jpeg',
           visualSearchPayload: JSON.stringify(visualSearchPayload),
           timestamp: String(Date.now()),
         },
@@ -453,7 +492,7 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
     <>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={[styles.keyboardAvoidingView, i18n.language === 'ar' && { direction: 'rtl' }]}
+        style={[styles.keyboardAvoidingView, isRTLLanguage(i18n.language) && { direction: 'rtl' }]}
       >
         <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowSuggestions(false); }}>
           <View style={styles.searchShell}>
@@ -490,17 +529,20 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
                 )}
               </View>
 
-              <TouchableOpacity
-                style={[styles.imageSearchButton, imageSearchLoading && styles.imageSearchButtonDisabled]}
-                onPress={showImageSearchOptions}
-                disabled={imageSearchLoading}
-              >
-                {imageSearchLoading ? (
-                  <ActivityIndicator size="small" color="#ff6a00" />
-                ) : (
-                  <Ionicons name="camera-outline" size={22} color="#ff6a00" />
-                )}
-              </TouchableOpacity>
+              {imageSearchEnabled ? (
+                <TouchableOpacity
+                  style={[styles.imageSearchButton, imageSearchLoading && styles.imageSearchButtonDisabled]}
+                  onPress={showImageSearchOptions}
+                  disabled={imageSearchLoading}
+                  accessibilityLabel={t('header.imageSearchAccessibility')}
+                >
+                  {imageSearchLoading ? (
+                    <ActivityIndicator size="small" color="#ff6a00" />
+                  ) : (
+                    <Ionicons name="camera-outline" size={22} color="#ff6a00" />
+                  )}
+                </TouchableOpacity>
+              ) : null}
             </View>
           </View>
         </TouchableWithoutFeedback>
@@ -519,7 +561,6 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
                 <SearchResults
                   results={suggestions}
                   onSelect={handleSelectSuggestion}
-                  onClose={() => setShowSuggestions(false)}
                 />
               </View>
             </View>

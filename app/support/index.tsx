@@ -1,84 +1,138 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, TextInput } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import React, { useMemo, useState } from "react";
+import {
+  Linking,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+
+type HelpCategory = {
+  id: string;
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  questions: string[];
+};
+
+type ContactMethod = {
+  title: string;
+  description: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  availability: string;
+  action: () => void;
+};
+
+const CONTACT_EMAIL = "adexpress65.app@gmail.com";
+const CONTACT_PHONE_1 = "+22370030384";
+const CONTACT_PHONE_2 = "+22360030384";
+
+async function openExternal(url: string): Promise<void> {
+  const can = await Linking.canOpenURL(url);
+  if (can) {
+    await Linking.openURL(url);
+  }
+}
 
 export default function SupportScreen() {
   const router = useRouter();
-  const [activeCategory, setActiveCategory] = useState('general');
+  const [activeCategory, setActiveCategory] = useState("general");
 
-  const categories = [
-    {
-      id: 'general',
-      title: 'Questions GÃƒÂ©nÃƒÂ©rales',
-      icon: 'help-circle-outline',
-      questions: [
-        'Comment crÃƒÂ©er un compte ?',
-        'Comment passer une commande ?',
-        'Quels sont les modes de paiement ?',
-        'Comment suivre ma commande ?'
-      ]
-    },
-    {
-      id: 'delivery',
-      title: 'Livraison',
-      icon: 'car-outline',
-      questions: [
-        'DÃƒÂ©lais de livraison',
-        'Frais de livraison',
-        'Zones de livraison',
-        'ProblÃƒÂ¨me de livraison'
-      ]
-    },
-    {
-      id: 'returns',
-      title: 'Retours & Remboursements',
-      icon: 'swap-horizontal-outline',
-      questions: [
-        'Politique de retour',
-        'Comment retourner un produit ?',
-        'DÃƒÂ©lai de remboursement',
-        'Produit endommagÃƒÂ©'
-      ]
-    },
-    {
-      id: 'account',
-      title: 'Compte & SÃƒÂ©curitÃƒÂ©',
-      icon: 'person-outline',
-      questions: [
-        'Modifier mon profil',
-        'ProblÃƒÂ¨me de connexion',
-        'Mot de passe oubliÃƒÂ©',
-        'SÃƒÂ©curitÃƒÂ© du compte'
-      ]
-    }
-  ];
+  const categories = useMemo<HelpCategory[]>(
+    () => [
+      {
+        id: "general",
+        title: "Questions generales",
+        icon: "help-circle-outline",
+        questions: [
+          "Comment creer un compte ?",
+          "Comment passer une commande ?",
+          "Quels sont les modes de paiement ?",
+          "Comment suivre ma commande ?",
+        ],
+      },
+      {
+        id: "delivery",
+        title: "Livraison",
+        icon: "car-outline",
+        questions: [
+          "Delais de livraison",
+          "Frais de livraison",
+          "Zones de livraison",
+          "Probleme de livraison",
+        ],
+      },
+      {
+        id: "returns",
+        title: "Retours et remboursements",
+        icon: "swap-horizontal-outline",
+        questions: [
+          "Politique de retour",
+          "Comment retourner un produit ?",
+          "Delai de remboursement",
+          "Produit endommage",
+        ],
+      },
+      {
+        id: "account",
+        title: "Compte et securite",
+        icon: "person-outline",
+        questions: [
+          "Modifier mon profil",
+          "Probleme de connexion",
+          "Mot de passe oublie",
+          "Securite du compte",
+        ],
+      },
+    ],
+    []
+  );
 
-  const contactMethods = [
-    {
-      title: 'Chat en Direct',
-      description: 'Discussion instantanÃƒÂ©e avec notre ÃƒÂ©quipe',
-      icon: 'chatbubble-ellipses-outline',
-      availability: 'Disponible 24/7',
-      action: () => router.push('/support/chat')
-    },
-    {
-      title: 'Email',
-      description: 'support@assmaexpress.com',
-      icon: 'mail-outline',
-      availability: 'RÃƒÂ©ponse sous 24h',
-      action: () => {/* Open email */}
-    },
-    {
-      title: 'TÃƒÂ©lÃƒÂ©phone',
-      description: '+212 5 22 33 44 55',
-      icon: 'call-outline',
-      availability: 'Lun-Ven 9h-18h',
-      action: () => {/* Call phone */}
-    }
-  ];
+  const contactMethods = useMemo<ContactMethod[]>(
+    () => [
+      {
+        title: "Chat en direct",
+        description: "Discussion instantanee avec l'equipe A2Express",
+        icon: "chatbubble-ellipses-outline",
+        availability: "Disponible 24/7",
+        action: () => router.push("/support/support"),
+      },
+      {
+        title: "Email",
+        description: CONTACT_EMAIL,
+        icon: "mail-outline",
+        availability: "Reponse sous 24h",
+        action: () => {
+          void openExternal(`mailto:${CONTACT_EMAIL}`);
+        },
+      },
+      {
+        title: "Telephone 1",
+        description: CONTACT_PHONE_1,
+        icon: "call-outline",
+        availability: "Lun-Dim 8h-20h",
+        action: () => {
+          void openExternal(`tel:${CONTACT_PHONE_1}`);
+        },
+      },
+      {
+        title: "Telephone 2",
+        description: CONTACT_PHONE_2,
+        icon: "call-outline",
+        availability: "Lun-Dim 8h-20h",
+        action: () => {
+          void openExternal(`tel:${CONTACT_PHONE_2}`);
+        },
+      },
+    ],
+    [router]
+  );
 
-  const currentCategory = categories.find(cat => cat.id === activeCategory);
+  const currentCategory = categories.find((cat) => cat.id === activeCategory);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -86,14 +140,13 @@ export default function SupportScreen() {
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Centre d'Aide</Text>
+        <Text style={styles.headerTitle}>Centre d'aide A2Express</Text>
         <TouchableOpacity>
           <Ionicons name="search" size={24} color="#333" />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Recherche */}
         <View style={styles.searchSection}>
           <View style={styles.searchContainer}>
             <Ionicons name="search" size={20} color="#999" />
@@ -105,9 +158,8 @@ export default function SupportScreen() {
           </View>
         </View>
 
-        {/* CatÃƒÂ©gories */}
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.categoriesScroll}
         >
@@ -116,45 +168,49 @@ export default function SupportScreen() {
               key={category.id}
               style={[
                 styles.categoryButton,
-                activeCategory === category.id && styles.categoryButtonActive
+                activeCategory === category.id && styles.categoryButtonActive,
               ]}
               onPress={() => setActiveCategory(category.id)}
             >
-              <Ionicons 
-                name={category.icon as any} 
-                size={20} 
-                color={activeCategory === category.id ? '#FF6B00' : '#666'} 
+              <Ionicons
+                name={category.icon}
+                size={20}
+                color={activeCategory === category.id ? "#FF6B00" : "#666"}
               />
-              <Text style={[
-                styles.categoryText,
-                activeCategory === category.id && styles.categoryTextActive
-              ]}>
+              <Text
+                style={[
+                  styles.categoryText,
+                  activeCategory === category.id && styles.categoryTextActive,
+                ]}
+              >
                 {category.title}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
 
-        {/* Questions frÃƒÂ©quentes */}
-        {currentCategory && (
+        {currentCategory ? (
           <View style={styles.faqSection}>
-            <Text style={styles.sectionTitle}>Questions FrÃƒÂ©quentes</Text>
-            {currentCategory.questions.map((question, index) => (
-              <TouchableOpacity key={index} style={styles.faqItem}>
+            <Text style={styles.sectionTitle}>Questions frequentes</Text>
+            {currentCategory.questions.map((question) => (
+              <TouchableOpacity key={question} style={styles.faqItem}>
                 <Text style={styles.faqQuestion}>{question}</Text>
                 <Ionicons name="chevron-forward" size={16} color="#999" />
               </TouchableOpacity>
             ))}
           </View>
-        )}
+        ) : null}
 
-        {/* Contact */}
         <View style={styles.contactSection}>
-          <Text style={styles.sectionTitle}>Contactez-nous</Text>
-          {contactMethods.map((method, index) => (
-            <TouchableOpacity key={index} style={styles.contactMethod} onPress={method.action}>
+          <Text style={styles.sectionTitle}>Contactez A2Express</Text>
+          {contactMethods.map((method) => (
+            <TouchableOpacity
+              key={method.title}
+              style={styles.contactMethod}
+              onPress={method.action}
+            >
               <View style={styles.contactIcon}>
-                <Ionicons name={method.icon as any} size={24} color="#FF6B00" />
+                <Ionicons name={method.icon} size={24} color="#FF6B00" />
               </View>
               <View style={styles.contactInfo}>
                 <Text style={styles.contactTitle}>{method.title}</Text>
@@ -166,17 +222,22 @@ export default function SupportScreen() {
           ))}
         </View>
 
-        {/* Urgence */}
         <View style={styles.emergencyCard}>
           <View style={styles.emergencyHeader}>
             <Ionicons name="warning-outline" size={24} color="#FF6B00" />
             <Text style={styles.emergencyTitle}>Besoin d'aide urgente ?</Text>
           </View>
           <Text style={styles.emergencyText}>
-            Pour les problÃƒÂ¨mes urgents concernant votre commande ou votre sÃƒÂ©curitÃƒÂ©, contactez-nous immÃƒÂ©diatement.
+            Pour un probleme urgent de commande ou de securite, contactez
+            immediatement A2Express via l'un des numeros ci-dessus.
           </Text>
-          <TouchableOpacity style={styles.emergencyButton}>
-            <Text style={styles.emergencyButtonText}>Contact Urgent</Text>
+          <TouchableOpacity
+            style={styles.emergencyButton}
+            onPress={() => {
+              void openExternal(`tel:${CONTACT_PHONE_1}`);
+            }}
+          >
+            <Text style={styles.emergencyButtonText}>Contacter en urgence</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

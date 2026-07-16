@@ -14,6 +14,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
+import { setSentryUser } from '@/config/sentry';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { Alert } from 'react-native';
@@ -65,6 +66,8 @@ interface UserProfile {
     department?: string;
     accessLevel?: number;
   };
+  /** ID document Firestore `companies/{companyId}` — lié au vendeur (backfill ou création) */
+  companyId?: string;
 }
 
 interface AuthContextType {
@@ -122,6 +125,16 @@ const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 // Définir les rôles valides pour la création
 const VALID_CREATION_ROLES: UserRole[] = ['customer', 'seller', 'admin'];
 
+const normalizeStoredRole = (role: unknown): UserRole | null => {
+  const raw = String(role ?? '').trim().toLowerCase();
+  if (['super-admin', 'super_admin', 'superadmin', 'super admin'].includes(raw)) return 'super-admin';
+  if (raw === 'admin') return 'admin';
+  if (raw === 'seller') return 'seller';
+  if (raw === 'customer') return 'customer';
+  if (raw === 'visitor') return 'visitor';
+  return null;
+};
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [authState, setAuthState] = useState<{
     user: AuthUser | null;
@@ -145,12 +158,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
 
   // Dérivé de l'état
-  const userRole: UserRole = authState.userProfile?.role || 'visitor';
+  const userRole: UserRole = authState.userProfile
+  ? normalizeStoredRole(authState.userProfile.role) || 'visitor'
+  : 'visitor';
   const isAuthenticated = !!authState.user;
   const isSuperAdmin = userRole === 'super-admin';
   const isAdmin = userRole === 'admin';
   const isSeller = userRole === 'seller';
   const isCustomer = userRole === 'customer';
+
+  useEffect(() => {
+    const u = authState.user;
+    setSentryUser({
+      id: u?.uid ?? null,
+      email: u?.email ?? undefined,
+      username: u?.displayName ?? undefined,
+    });
+  }, [authState.user]);
 
   // Convertir User Firebase en AuthUser
   const firebaseUserToAuthUser = useCallback((firebaseUser: User): AuthUser => ({
@@ -187,6 +211,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             break;
           case 'auth/wrong-password':
             errorMessage = 'Mot de passe incorrect';
+            break;
+          case 'auth/invalid-credential':
+          case 'auth/invalid-login-credentials':
+            errorMessage = 'Identifiants invalides. Vérifiez email et mot de passe.';
             break;
           case 'auth/too-many-requests':
             errorMessage = 'Trop de tentatives. Réessayez plus tard';
@@ -282,121 +310,102 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return profile;
   }, []);
 
-  // 🔥🔥🔥 CORRECTION DÉFINITIVE : Fonction de chargement de profil PROTÉGÉE
-  const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string): Promise<UserProfile> => {
-    try {
-      const userRef = doc(db, 'users', firebaseUser.uid);
-      const userDoc = await getDoc(userRef);
+// 🔥 VERSION HYBRIDE SÉCURISÉE : SANS FILTRE STRICT ET ADAPTÉE POUR APPLE
+const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string): Promise<UserProfile> => {
+  try {
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      const existingData = userDoc.data();
       
-      if (userDoc.exists()) {
-        // 🚨🚨🚨 DOCUMENT EXISTANT : On lit le document et on NE MODIFIE PAS le rôle
-        const existingData = userDoc.data();
-        
-        // 🔥 VALIDATION CRITIQUE : S'assurer que le document a un champ 'role'
-        if (!existingData.role) {
-          console.warn(`⚠️ Document existant sans champ 'role' pour UID: ${firebaseUser.uid}`);
-          
-          // 🔥 CORRECTION : Si pas de rôle, on met à jour avec 'customer' MAIS on ne crée pas un nouveau document
-          const updates = {
-            role: 'customer',
-            lastLogin: Timestamp.now(),
-            updatedAt: Timestamp.now()
-          };
-          
-          await updateDoc(userRef, updates);
-          
-          const updatedProfile = {
-            ...existingData,
-            role: 'customer' as UserRole,
-            lastLogin: updates.lastLogin,
-            updatedAt: updates.updatedAt
-          } as UserProfile;
-          
-          console.log(`🔄 Champ 'role' ajouté avec valeur: customer`);
-          return updatedProfile;
-        }
-        
-        // 🔥 SI LE ROLE EXISTE DÉJÀ : On ne le modifie JAMAIS
-        // On met seulement à jour lastLogin
+      // Si le document existe mais n'a pas de champ rôle, on met customer par défaut
+      if (!existingData.role) {
+        console.warn(`⚠️ Document existant sans champ 'role' pour UID: ${firebaseUser.uid}`);
         const updates = {
+          role: 'customer',
           lastLogin: Timestamp.now(),
           updatedAt: Timestamp.now()
         };
-        
-        // Ajouter le provider social si nécessaire
-        if (provider) {
-          updates['providerId'] = provider;
-          updates[`socialAccounts.${provider.toLowerCase()}`] = true;
-        }
-        
-        // Appliquer les updates
         await updateDoc(userRef, updates);
-        
-        // 🔥 CONSTRUIRE LE PROFIL SANS MODIFIER LE ROLE EXISTANT
-        const profile: UserProfile = {
-          uid: firebaseUser.uid,
-          email: existingData.email || firebaseUser.email || '',
-          displayName: existingData.displayName || firebaseUser.displayName || 'Utilisateur',
-          role: existingData.role, // 🔥 ROLE EXISTANT - JAMAIS MODIFIÉ
-          createdAt: existingData.createdAt || Timestamp.now(),
-          updatedAt: updates.updatedAt,
-          isActive: existingData.isActive !== false,
+        return {
+          ...existingData,
+          role: 'customer',
           lastLogin: updates.lastLogin,
-          phoneNumber: existingData.phoneNumber,
-          address: existingData.address,
-          providerId: provider || existingData.providerId,
-          socialAccounts: existingData.socialAccounts || {},
-          sellerInfo: existingData.sellerInfo,
-          adminInfo: existingData.adminInfo
-        };
-        
-        // Mettre à jour socialAccounts si provider fourni
-        if (provider) {
-          profile.socialAccounts = {
-            ...profile.socialAccounts,
-            [provider.toLowerCase()]: true
-          };
-        }
-        
-        console.log(`✅ Profil existant chargé - Rôle: ${profile.role} - UID: ${firebaseUser.uid}`);
-        return profile;
-        
-      } else {
-        // 🆕 NOUVEAU DOCUMENT : Création avec rôle par défaut 'customer'
-        console.log(`🆕 Création nouveau profil - UID: ${firebaseUser.uid}`);
-        
-        const defaultProfile = createDefaultProfile(
-          firebaseUser.uid,
-          firebaseUser.email || '',
-          firebaseUser.displayName || 'Utilisateur',
-          'customer', // 🔥 Rôle par défaut UNIQUEMENT pour les nouveaux utilisateurs
-          provider
-        );
-        
-        const cleanProfile = cleanFirestoreData(defaultProfile);
-        await setDoc(userRef, cleanProfile);
-        
-        console.log(`✅ Nouveau profil créé avec rôle: customer`);
-        return defaultProfile;
+          updatedAt: updates.updatedAt
+        } as UserProfile;
       }
-    } catch (error) {
-      console.error('❌ Erreur chargement profil:', error);
       
-      // 🔥 EN CAS D'ERREUR : Créer un profil minimal en mémoire
-      const fallbackProfile: UserProfile = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email || '',
-        displayName: firebaseUser.displayName || 'Utilisateur',
-        role: 'customer', // Valeur par défaut en cas d'erreur
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
-        isActive: true,
-        lastLogin: Timestamp.now()
+      // Préparer la mise à jour de l'activité
+      const updates: Record<string, any> = {
+        lastLogin: Timestamp.now(),
+        updatedAt: Timestamp.now()
       };
       
-      return fallbackProfile;
-    }
-  }, [cleanFirestoreData, createDefaultProfile]);
+      // Gestion propre du provider social (ex: pour Apple ou Google)
+      if (provider) {
+        updates['providerId'] = provider;
+        updates[`socialAccounts.${provider.toLowerCase()}`] = true;
+      }
+      
+      await updateDoc(userRef, updates);
+      
+      // On reprend STRICTEMENT le rôle stocké dans Firestore sans le filtrer ni le modifier
+      const profile: UserProfile = {
+        uid: firebaseUser.uid,
+        email: existingData.email || firebaseUser.email || '',
+        displayName: existingData.displayName || firebaseUser.displayName || 'Utilisateur',
+        role: existingData.role, // 🔥 GARDE LA VALEUR BRUTE DE FIRESTORE ('super-admin')
+        createdAt: existingData.createdAt || Timestamp.now(),
+        updatedAt: updates.updatedAt,
+        isActive: existingData.isActive !== false,
+        lastLogin: updates.lastLogin,
+        phoneNumber: existingData.phoneNumber || '',
+        address: existingData.address || '',
+        providerId: provider || existingData.providerId || '',
+        socialAccounts: existingData.socialAccounts || {},
+        sellerInfo: existingData.sellerInfo,
+        adminInfo: existingData.adminInfo,
+        companyId: existingData.companyId
+      };
+      
+      if (provider) {
+        profile.socialAccounts = {
+          ...profile.socialAccounts,
+          [provider.toLowerCase()]: true
+        };
+      }
+      
+      console.log(`✅ [Auth] Profil chargé avec succès - Rôle appliqué : ${profile.role}`);
+      return profile;
+      
+    } else {
+  // NOUVEAU COMPTE (ex: Première inscription ou premier Sign In With Apple)
+  console.log(`🆕 Création nouveau profil - UID: ${firebaseUser.uid}`);
+
+  // ⚠️ Définir ici ton super admin (à adapter)
+  const isSuperAdmin = firebaseUser.email === "ton-email@exemple.com";
+  const defaultRole = isSuperAdmin ? "super-admin" : "customer";
+
+  const defaultProfile = createDefaultProfile(
+    firebaseUser.uid,
+    firebaseUser.email || '',
+    firebaseUser.displayName || 'Utilisateur',
+    defaultRole,
+    provider
+  );
+
+  const cleanProfile = cleanFirestoreData(defaultProfile);
+  await setDoc(userRef, cleanProfile);
+
+  console.log(`✅ Nouveau profil créé avec rôle: ${defaultRole}`);
+  return defaultProfile;
+}
+  } catch (error) {
+    console.error('❌ Erreur critique dans loadUserProfile:', error);
+    throw error instanceof Error ? error : new Error('Erreur chargement profil utilisateur');
+  }
+}, [cleanFirestoreData, createDefaultProfile]);
 
   // 🔥 Fonction de debug pour vérifier l'état
   const debugLogState = useCallback(() => {
@@ -531,9 +540,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = useCallback(async (email: string, password: string): Promise<void> => {
     try {
       setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
+      const normalizedEmail = email.trim().toLowerCase();
       
-      console.log(`🔐 Tentative de connexion: ${email}`);
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      console.log(`🔐 Tentative de connexion: ${normalizedEmail}`);
+      const userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
       const firebaseUser = userCredential.user;
 
       // Charger le profil

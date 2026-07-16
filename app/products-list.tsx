@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '@/utils/productLocale';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
@@ -31,6 +33,7 @@ interface Product {
 
 export default function ProductsListScreen() {
   const router = useRouter();
+  const { i18n } = useTranslation();
   const params = useLocalSearchParams();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,7 +168,12 @@ export default function ProductsListScreen() {
         </View>
         <View style={styles.productInfo}>
           <Text style={styles.productName} numberOfLines={2}>
-            {item.name}
+            {getLocalizedProductText(
+              item.name,
+              'name',
+              item as unknown as Record<string, unknown>,
+              i18n.language,
+            )}
           </Text>
           <Text style={styles.productSupplier} numberOfLines={1}>
             {item.supplier || 'Fournisseur'}
@@ -189,7 +197,7 @@ export default function ProductsListScreen() {
         </View>
       </TouchableOpacity>
     );
-  }, [handleProductPress, imageUrls, loadingImages, loadingProductId]);
+  }, [handleProductPress, imageUrls, loadingImages, loadingProductId, i18n.language]);
 
   if (loading) {
     return (

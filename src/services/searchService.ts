@@ -6,6 +6,8 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/config/firebase";
+import { productsIndex } from "@/config/algolia";
+import type { AlgoliaHit } from "@/types/product";
 
 export type SearchResultItem = {
   id: string;
@@ -19,10 +21,24 @@ export type SearchResultItem = {
   featured?: boolean;
 };
 
+function isFirestoreResourceExhausted(err: unknown): boolean {
+  const code = (err as { code?: string })?.code;
+  return (
+    code === "resource-exhausted" ||
+    String((err as Error)?.message || "").toLowerCase().includes("resource-exhausted") ||
+    String((err as Error)?.message || "").toLowerCase().includes("quota")
+  );
+}
+
+/**
+ * Suggestions globales : produits via **Algolia** (0 lecture Firestore produit),
+ * catégories + entreprises via Firestore (≤ ~10 docs par recherche).
+ */
 export async function searchGlobal(
   text: string,
   options?: {
     limitFinal?: number;
+    /** @deprecated ignoré — produits servis par Algolia */
     productsFetchLimit?: number;
     includeCompanies?: boolean;
   }
@@ -30,15 +46,12 @@ export async function searchGlobal(
   if (!text || text.trim().length < 2) return [];
 
   const limitFinal = options?.limitFinal ?? 30;
-  // 💡 CONSEIL : On augmente ici pour scanner plus de produits dans Firebase
-  const productsFetchLimit = options?.productsFetchLimit ?? 200; 
   const includeCompanies = options?.includeCompanies ?? true;
 
   const searchRaw = text.toLowerCase().trim();
-  
-  // ✅ AJOUT ICI : Filtrage des mots inutiles (Stop Words)
+
   const stopWords = ['de', 'la', 'le', 'les', 'pour', 'avec', 'une', 'des', 'dans', 'sur', 'par'];
-  
+
   const searchWords = searchRaw.split(/\s+/)
     .filter((w) => w.length > 2 && !stopWords.includes(w));
 
@@ -46,136 +59,146 @@ export async function searchGlobal(
     searchWords.push(searchRaw);
   }
 
-  // ... (garde ton code pour les requêtes Firebase catQuery, productsSnapPromise, etc.)
-
   try {
-    // 1. On cherche d'abord les catégories qui correspondent aux mots (ex: Catégorie "Homme")
     const catQuery = query(
       collection(db, "categories"),
-      where("nameLower", ">=", searchWords[searchWords.length - 1]), // On teste souvent le dernier mot (souvent le genre/catégorie)
+      where("nameLower", ">=", searchWords[searchWords.length - 1]),
       where("nameLower", "<=", searchWords[searchWords.length - 1] + "\uf8ff"),
       limit(5)
     );
 
-    const productsSnapPromise = getDocs(
-      query(collection(db, "products"), limit(productsFetchLimit))
-    );
-    const categoriesSnapPromise = getDocs(catQuery);
-    const companiesSnapPromise = includeCompanies
-      ? getDocs(
-          query(
-            collection(db, "companies"),
-            where("nameLower", ">=", searchRaw),
-            limit(5)
-          )
+    const companiesQuery = includeCompanies
+      ? query(
+          collection(db, "companies"),
+          where("nameLower", ">=", searchRaw),
+          limit(5)
         )
-      : Promise.resolve({ docs: [] } as any);
+      : null;
 
-    const [productsSnap, categoriesSnap, companiesSnap] = await Promise.all([
-      productsSnapPromise,
-      categoriesSnapPromise,
-      companiesSnapPromise,
-    ]);
+    const algoliaPromise = productsIndex
+      .search<AlgoliaHit>(text.trim(), {
+        hitsPerPage: Math.min(limitFinal, 40),
+        typoTolerance: true,
+        removeStopWords: ['fr'],
+      })
+      .then((r) => r.hits || [])
+      .catch((e) => {
+        console.warn("[searchGlobal] Algolia produits:", e);
+        return [] as AlgoliaHit[];
+      });
+
+    let categoriesDocs: { id: string; data: () => Record<string, unknown> }[] = [];
+    let companiesDocs: { id: string; data: () => Record<string, unknown> }[] = [];
+
+    try {
+      const [cats, comps] = await Promise.all([
+        getDocs(catQuery),
+        companiesQuery ? getDocs(companiesQuery) : Promise.resolve({ docs: [] } as any),
+      ]);
+      categoriesDocs = cats.docs;
+      companiesDocs = comps.docs;
+    } catch (e) {
+      if (isFirestoreResourceExhausted(e)) {
+        console.warn("[searchGlobal] Firestore quota / erreur — catégories & entreprises ignorées");
+      } else {
+        throw e;
+      }
+    }
+
+    const productHits = await algoliaPromise;
 
     const results: SearchResultItem[] = [];
-    const foundCategoryNames = categoriesSnap.docs.map(d => d.data().nameLower);
 
-    // 🔍 LOGIQUE PRODUITS : PERTINENCE ÉLARGIE
-productsSnap.forEach((doc) => {
-  const data = doc.data();
-  
-  // Normalisation pour la recherche
-  const nameLower = (data.nameLower || data.name || "").toLowerCase();
-  const categoryLower = (data.categoryName || "").toLowerCase();
-  const descriptionLower = (data.description || "").toLowerCase();
-
-  const matchesAnyWord = searchWords.some(word => 
-    nameLower.includes(word) || 
-    categoryLower.includes(word) ||
-    descriptionLower.includes(word)
-  );
-
-  if (matchesAnyWord) {
-    // ✅ CORRECTION IMAGE : On utilise 'mainImage' en priorité comme dans ton export
-    // Si mainImage est vide, on prend imageUrl, sinon la première image de l'array
-    const productImg = data.mainImage || data.imageUrl || (data.images && data.images[0]) || null;
-
-    results.push({
-      id: doc.id,
-      type: "product",
-      name: data.name || "Boucles d'oreilles",
-      imageUrl: productImg, // Cette URL Firebase s'affichera maintenant
-      price: data.price || 0,
-      currency: data.currency || "XOF",
-      supplier: data.supplier || data.companyName || "A2Express",
-      category: data.categoryName || "Mode",
-      featured: data.featured === true,
+    productHits.forEach((hit) => {
+      const img =
+        hit.mainImage || hit.imageUrl || hit.image ||
+        (Array.isArray(hit.images) ? hit.images[0] : null);
+      results.push({
+        id: String(hit.objectID),
+        type: "product",
+        name: String(hit.name || "Produit"),
+        imageUrl: img ? String(img) : null,
+        price: Number(hit.price ?? 0),
+        currency: hit.currency || "XOF",
+        supplier: String(hit.supplier || hit.companyName || "A2Express"),
+        category: String(hit.categoryName || hit.category || ""),
+        featured: hit.featured === true,
+      });
     });
-  }
-});
 
-    // 📂 AJOUT DES CATÉGORIES TROUVÉES
-    categoriesSnap.forEach((doc) => {
+    categoriesDocs.forEach((doc) => {
       const data = doc.data();
       results.push({
         id: doc.id,
         type: "category",
-        name: data.name || "Sans nom",
-        imageUrl: data.imageUrl || data.image || null,
+        name: String(data.name || "Sans nom"),
+        imageUrl: (data.imageUrl || data.image || null) as string | null,
       });
     });
 
-    // 🏢 AJOUT DES ENTREPRISES
-    companiesSnap.docs.forEach((doc: any) => {
+    companiesDocs.forEach((doc) => {
       const data = doc.data();
       results.push({
         id: doc.id,
         type: "company",
-        name: data.name || "Sans nom",
-        imageUrl: data.logo || data.imageUrl || null,
+        name: String(data.name || "Sans nom"),
+        imageUrl: (data.logo || data.imageUrl || null) as string | null,
       });
     });
 
-    // 🗄️ TRI PAR PERTINENCE
-    // On met en haut les produits qui contiennent TOUS les mots, puis ceux qui n'en contiennent qu'un
-// 🗄️ TRI PAR PERTINENCE AMÉLIORÉ
-// 🗄️ NOUVEAU SYSTÈME DE TRI PAR PERTINENCE (ULTRA PRÉCIS)
-// 🗄️ NOUVEAU SYSTÈME DE TRI PAR PERTINENCE (ULTRA PRÉCIS)
-return results.sort((a, b) => {
-    const calculateScore = (item: SearchResultItem) => {
+    return results.sort((a, b) => {
+      const calculateScore = (item: SearchResultItem) => {
         let score = 0;
         const name = (item.name || "").toLowerCase();
         const cat = (item.category || "").toLowerCase();
-        
-        // 1. On compte les mots trouvés
-        const wordsInName = searchWords.filter(word => name.includes(word));
-        const wordsInCat = searchWords.filter(word => cat.includes(word));
 
-        // 🔥 LE SECRET DU MATCH EXACT :
-        // Si le nom du produit contient TOUS les mots envoyés par l'IA, on donne un score énorme.
+        const wordsInName = searchWords.filter((word) => name.includes(word));
+        const wordsInCat = searchWords.filter((word) => cat.includes(word));
+
         if (wordsInName.length === searchWords.length) {
-            score += 2000; 
+          score += 2000;
         }
-
-        // 2. Bonus de position : Si le nom COMMENCE par le premier mot-clé (souvent le plus important)
-        if (name.startsWith(searchWords[0])) {
-            score += 500;
+        if (searchWords[0] && name.startsWith(searchWords[0])) {
+          score += 500;
         }
-
-        // 3. Bonus proportionnel
         score += wordsInName.length * 100;
         score += wordsInCat.length * 20;
-
-        // 4. Bonus "Featured" (pour tes produits premium)
         if (item.featured) score += 50;
-
+        if (item.type === "product") score += 15;
         return score;
-    };
+      };
 
-    return calculateScore(b) - calculateScore(a);
-}).slice(0, limitFinal);
-
+      return calculateScore(b) - calculateScore(a);
+    }).slice(0, limitFinal);
   } catch (error) {
+    if (isFirestoreResourceExhausted(error)) {
+      console.warn("[searchGlobal] Quota Firestore — tentative Algolia seule");
+      try {
+        const r = await productsIndex.search<AlgoliaHit>(text.trim(), {
+          hitsPerPage: Math.min(limitFinal, 40),
+          typoTolerance: true,
+          removeStopWords: ['fr'],
+        });
+        return (r.hits || []).map((hit) => {
+          const img =
+            hit.mainImage || hit.imageUrl || hit.image ||
+            (Array.isArray(hit.images) ? hit.images[0] : null);
+          return {
+            id: String(hit.objectID),
+            type: "product" as const,
+            name: String(hit.name || "Produit"),
+            imageUrl: img ? String(img) : null,
+            price: Number(hit.price ?? 0),
+            currency: hit.currency || "XOF",
+            supplier: String(hit.supplier || hit.companyName || "A2Express"),
+            category: String(hit.categoryName || hit.category || ""),
+            featured: hit.featured === true,
+          };
+        });
+      } catch {
+        return [];
+      }
+    }
     console.error("Search Error:", error);
     return [];
   }

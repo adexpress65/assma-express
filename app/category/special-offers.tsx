@@ -10,11 +10,14 @@ import {
   StatusBar 
 } from "react-native";
 import { router } from "expo-router";
+import { useTranslation } from "react-i18next";
+import { getLocalizedProductText } from "../../src/utils/productLocale";
 import { collection, getDocs, limit, query, where } from "firebase/firestore";
 import { db } from "../../src/config/firebase"; // Ã°Å¸â€Â¥ Correction: "../../src" au lieu de "../../../src"
 
 export default function SpecialOffersCategory() {
-  const [products, setProducts] = useState([]);
+  const { i18n } = useTranslation();
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,7 +57,7 @@ export default function SpecialOffersCategory() {
     }
   };
 
-  const handleProductPress = (productId) => {
+  const handleProductPress = (productId: string) => {
     router.push(`/product/${productId}`);
   };
 
@@ -100,7 +103,12 @@ export default function SpecialOffersCategory() {
               style={styles.productImage}
             />
             <Text numberOfLines={2} style={styles.productName}>
-              {item.name}
+              {getLocalizedProductText(
+                item.name,
+                "name",
+                item as unknown as Record<string, unknown>,
+                i18n.language,
+              )}
             </Text>
             <Text style={styles.productPrice}>{item.price} Fcfa</Text>
           </TouchableOpacity>

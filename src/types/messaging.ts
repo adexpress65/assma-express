@@ -43,7 +43,14 @@ export interface Message {
   senderId: string;
   senderName: string;
   senderAvatar: string;
-  type: 'text' | 'image' | 'order_update' | 'system' | 'product' | 'offer';
+  type:
+    | 'text'
+    | 'image'
+    | 'order_update'
+    | 'system'
+    | 'product'
+    | 'offer'
+    | 'product_payment';
   metadata?: {
     productId?: string;
     productImage?: string;
@@ -53,6 +60,23 @@ export interface Message {
     trackingNumber?: string;
     offerAmount?: string;
     imageUrl?: string;
+  };
+  product?: {
+    id: string;
+    name: string;
+    price: number;
+    currency: string;
+    image: string;
+    specifications?: {
+      weight?: string;
+      dimensions?: string;
+      volume?: string;
+    };
+  };
+  payment?: {
+    url: string;
+    provider: 'ngenius';
+    status: 'pending' | 'paid' | 'failed';
   };
   readBy: string[];
   createdAt: firestore.Timestamp;

@@ -1,17 +1,49 @@
 // components/search/SearchResults.tsx
-import React from 'react';
+import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../../utils/productLocale';
 import {
   View,
   Text,
   Image,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
+  FlatList,
   Dimensions,
+  type ListRenderItem,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
+
+function getTypeLabel(type: string) {
+  switch (type) {
+    case 'product':
+      return 'Produit';
+    case 'category':
+      return 'Catégorie';
+    case 'company':
+      return 'Entreprise';
+    case 'supplier':
+      return 'Fournisseur';
+    default:
+      return 'Résultat';
+  }
+}
+
+function getFallbackImage(type: string) {
+  switch (type) {
+    case 'product':
+      return 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=100&h=100&fit=crop';
+    case 'category':
+      return 'https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?w=100&h=100&fit=crop';
+    case 'company':
+    case 'supplier':
+      return 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=100&h=100&fit=crop';
+    default:
+      return 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=100&h=100&fit=crop';
+  }
+}
 
 export interface SearchResultItem {
   id: string;
@@ -39,7 +71,114 @@ export default function SearchResults({
   onSelect, 
   query = '' 
 }: SearchResultsProps) {
-  
+  const { i18n } = useTranslation();
+
+  const productLabel = useCallback(
+    (item: SearchResultItem) =>
+      item.type === 'product'
+        ? getLocalizedProductText(
+            item.name,
+            'name',
+            item as unknown as Record<string, unknown>,
+            i18n.language,
+          )
+        : item.name,
+    [i18n.language],
+  );
+
+  const renderItem: ListRenderItem<SearchResultItem> = useCallback(
+    ({ item }) => (
+      <TouchableOpacity
+        style={styles.resultItem}
+        onPress={() => onSelect(item)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.imageContainer}>
+          <Image
+            source={{
+              uri: item.imageUrl || getFallbackImage(item.type),
+            }}
+            style={styles.resultImage}
+            defaultSource={{ uri: getFallbackImage(item.type) }}
+          />
+
+          <View
+            style={[
+              styles.typeBadge,
+              item.type === 'product' && styles.typeBadgeProduct,
+              item.type === 'category' && styles.typeBadgeCategory,
+              (item.type === 'company' || item.type === 'supplier') && styles.typeBadgeCompany,
+            ]}
+          >
+            <Text style={styles.typeText}>{getTypeLabel(item.type)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.detailsContainer}>
+          <View style={styles.nameRow}>
+            <Text style={styles.resultName} numberOfLines={2}>
+              {productLabel(item)}
+            </Text>
+            {item.featured && (
+              <View style={styles.featuredBadge}>
+                <Ionicons name="star" size={12} color="#ffb800" />
+              </View>
+            )}
+          </View>
+
+          {item.type === 'product' && item.price !== undefined && (
+            <Text style={styles.resultPrice}>
+              {item.price.toLocaleString()} {item.currency || 'FCFA'}
+            </Text>
+          )}
+
+          {(item.supplier || item.companyName) && (
+            <View style={styles.supplierRow}>
+              <Ionicons name="business-outline" size={12} color="#666" />
+              <Text style={styles.supplierText} numberOfLines={1}>
+                {item.supplier || item.companyName}
+              </Text>
+            </View>
+          )}
+
+          {item.category && (
+            <View style={styles.categoryRow}>
+              <Ionicons name="folder-outline" size={12} color="#888" />
+              <Text style={styles.categoryText} numberOfLines={1}>
+                {item.category}
+              </Text>
+            </View>
+          )}
+
+          {item.rating !== undefined && item.rating > 0 && (
+            <View style={styles.ratingRow}>
+              <Ionicons name="star" size={12} color="#ffb800" />
+              <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+              {item.reviewCount !== undefined && item.reviewCount > 0 && (
+                <Text style={styles.reviewCount}>({item.reviewCount} avis)</Text>
+              )}
+            </View>
+          )}
+        </View>
+
+        <Ionicons name="chevron-forward" size={16} color="#ccc" style={styles.chevron} />
+      </TouchableOpacity>
+    ),
+    [onSelect, productLabel],
+  );
+
+  const listHeader = useCallback(
+    () => (
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>
+          {results.length} résultat{results.length > 1 ? 's' : ''}
+          {query && ` pour "${query}"`}
+        </Text>
+      </View>
+    ),
+    [results.length, query],
+  );
+
   if (!results || results.length === 0) {
     return (
       <View style={styles.emptyContainer}>
@@ -51,149 +190,21 @@ export default function SearchResults({
     );
   }
 
-  const getIconForType = (type: string) => {
-    switch(type) {
-      case 'product': return 'cube-outline';
-      case 'category': return 'list-outline';
-      case 'company':
-      case 'supplier': return 'business-outline';
-      default: return 'search-outline';
-    }
-  };
-
-  const getTypeLabel = (type: string) => {
-    switch(type) {
-      case 'product': return 'Produit';
-      case 'category': return 'Catégorie';
-      case 'company': return 'Entreprise';
-      case 'supplier': return 'Fournisseur';
-      default: return 'Résultat';
-    }
-  };
-
-  const getFallbackImage = (type: string) => {
-    switch(type) {
-      case 'product':
-        return 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=100&h=100&fit=crop';
-      case 'category':
-        return 'https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?w=100&h=100&fit=crop';
-      case 'company':
-      case 'supplier':
-        return 'https://images.unsplash.com/photo-1563013544-824ae1b704d3?w=100&h=100&fit=crop';
-      default:
-        return 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=100&h=100&fit=crop';
-    }
-  };
-
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          {results.length} résultat{results.length > 1 ? 's' : ''}
-          {query && ` pour "${query}"`}
-        </Text>
-      </View>
-      
-      <ScrollView 
-        style={styles.scrollContainer}
+      <FlatList
+        data={results}
+        keyExtractor={(item) => `${item.type}-${item.id}`}
+        renderItem={renderItem}
+        ListHeaderComponent={listHeader}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-      >
-        {results.map((item) => (
-          <TouchableOpacity
-            key={`${item.type}-${item.id}`}
-            style={styles.resultItem}
-            onPress={() => onSelect(item)}
-            activeOpacity={0.7}
-          >
-            {/* Image */}
-            <View style={styles.imageContainer}>
-              <Image
-                source={{ 
-                  uri: item.imageUrl || getFallbackImage(item.type) 
-                }}
-                style={styles.resultImage}
-                defaultSource={{ uri: getFallbackImage(item.type) }}
-              />
-              
-              <View style={[
-                styles.typeBadge,
-                item.type === 'product' && styles.typeBadgeProduct,
-                item.type === 'category' && styles.typeBadgeCategory,
-                (item.type === 'company' || item.type === 'supplier') && styles.typeBadgeCompany,
-              ]}>
-                <Text style={styles.typeText}>
-                  {getTypeLabel(item.type)}
-                </Text>
-              </View>
-            </View>
-
-            {/* Détails */}
-            <View style={styles.detailsContainer}>
-              <View style={styles.nameRow}>
-                <Text style={styles.resultName} numberOfLines={2}>
-                  {item.name}
-                </Text>
-                {item.featured && (
-                  <View style={styles.featuredBadge}>
-                    <Ionicons name="star" size={12} color="#ffb800" />
-                  </View>
-                )}
-              </View>
-
-              {/* Prix */}
-              {item.type === 'product' && item.price !== undefined && (
-                <Text style={styles.resultPrice}>
-                  {item.price.toLocaleString()} {item.currency || 'FCFA'}
-                </Text>
-              )}
-
-              {/* Fournisseur/Entreprise */}
-              {(item.supplier || item.companyName) && (
-                <View style={styles.supplierRow}>
-                  <Ionicons name="business-outline" size={12} color="#666" />
-                  <Text style={styles.supplierText} numberOfLines={1}>
-                    {item.supplier || item.companyName}
-                  </Text>
-                </View>
-              )}
-
-              {/* Catégorie */}
-              {item.category && (
-                <View style={styles.categoryRow}>
-                  <Ionicons name="folder-outline" size={12} color="#888" />
-                  <Text style={styles.categoryText} numberOfLines={1}>
-                    {item.category}
-                  </Text>
-                </View>
-              )}
-
-              {/* Rating */}
-              {item.rating !== undefined && item.rating > 0 && (
-                <View style={styles.ratingRow}>
-                  <Ionicons name="star" size={12} color="#ffb800" />
-                  <Text style={styles.ratingText}>
-                    {item.rating.toFixed(1)}
-                  </Text>
-                  {item.reviewCount !== undefined && item.reviewCount > 0 && (
-                    <Text style={styles.reviewCount}>
-                      ({item.reviewCount} avis)
-                    </Text>
-                  )}
-                </View>
-              )}
-            </View>
-
-            {/* Flèche */}
-            <Ionicons 
-              name="chevron-forward" 
-              size={16} 
-              color="#ccc" 
-              style={styles.chevron}
-            />
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+        style={styles.scrollContainer}
+        initialNumToRender={10}
+        maxToRenderPerBatch={12}
+        windowSize={10}
+        removeClippedSubviews
+      />
     </View>
   );
 }

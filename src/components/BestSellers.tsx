@@ -11,8 +11,10 @@ import {
   Alert 
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../utils/productLocale';
 import { db } from '../config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 
 interface BestSellersProps {
   sellerId: string;
@@ -20,6 +22,7 @@ interface BestSellersProps {
 
 export default function BestSellers({ sellerId }: BestSellersProps) {
   const router = useRouter();
+  const { i18n } = useTranslation();
   const [bestSellers, setBestSellers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -31,21 +34,33 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
     try {
       console.log('🛍️ Chargement bestsellers pour vendeur:', sellerId);
       
-      // Charger TOUS les produits
-      const productsRef = collection(db, 'products');
-      const querySnapshot = await getDocs(productsRef);
-      
-      const allProducts: any[] = [];
-      querySnapshot.forEach((doc) => {
-        allProducts.push({
-          id: doc.id,
-          ...doc.data()
+      const cap = 40;
+      const sameSellerSnap = await getDocs(
+        query(
+          collection(db, 'products'),
+          where('sellerId', '==', sellerId),
+          limit(cap),
+        ),
+      );
+      const allProducts: any[] = sameSellerSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+
+      if (allProducts.length < 2) {
+        const popularSnap = await getDocs(
+          query(collection(db, 'products'), limit(cap)),
+        );
+        popularSnap.forEach((doc) => {
+          allProducts.push({
+            id: doc.id,
+            ...doc.data(),
+          });
         });
-      });
+      }
       
-      // 1. D'abord essayer de trouver les produits du MÊME vendeur
       const sameSellerProducts = allProducts
-        .filter(product => product.sellerId === sellerId)
+        .filter((product) => product.sellerId === sellerId)
         .sort((a, b) => (b.orders || b.rating || 0) - (a.orders || a.rating || 0))
         .slice(0, 5);
       
@@ -55,7 +70,6 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
       if (sameSellerProducts.length >= 2) {
         setBestSellers(sameSellerProducts);
       } else {
-        // 3. Sinon, afficher les produits les plus populaires (tous vendeurs confondus)
         const popularProducts = allProducts
           .sort((a, b) => (b.orders || b.rating || 0) - (a.orders || a.rating || 0))
           .slice(0, 5);
@@ -112,8 +126,14 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
 
   const handleAddToCart = (product: any, event: any) => {
     event.stopPropagation(); // Éviter la navigation
-    console.log('🛒 Ajout au panier:', product.name);
-    Alert.alert('Succès', `${product.name} ajouté au panier`);
+    const displayName = getLocalizedProductText(
+      product.name,
+      'name',
+      product as Record<string, unknown>,
+      i18n.language,
+    );
+    console.log('🛒 Ajout au panier:', displayName);
+    Alert.alert('Succès', `${displayName} ajouté au panier`);
     // Ici tu intégreras ta logique panier réelle
   };
 
@@ -144,7 +164,14 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
         style={styles.scrollContainer}
         contentContainerStyle={styles.scrollContent}
       >
-        {bestSellers.map((product) => (
+        {bestSellers.map((product) => {
+          const displayName = getLocalizedProductText(
+            product.name,
+            'name',
+            product as Record<string, unknown>,
+            i18n.language,
+          );
+          return (
           <TouchableOpacity 
             key={product.id}
             style={styles.productCard}
@@ -163,7 +190,7 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
             
             <View style={styles.productInfo}>
               <Text style={styles.productName} numberOfLines={2}>
-                {product.name}
+                {displayName}
               </Text>
               
               <View style={styles.ratingContainer}>
@@ -187,7 +214,8 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
-        ))}
+        );
+        })}
       </ScrollView>
     </View>
   );

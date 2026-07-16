@@ -18,31 +18,31 @@ const CreateLiveScreen = () => {
 
   const handleCreateLive = async () => {
     if (!liveData.title.trim()) {
-      Alert.alert('Erreur', 'Veuillez donner un titre à votre live');
+      Alert.alert('Erreur', 'Veuillez donner un titre � votre live');
       return;
     }
 
     if (!user) {
-      Alert.alert('Erreur', 'Vous devez être connecté');
+      Alert.alert('Erreur', 'Vous devez �tre connect�');
       return;
     }
 
     setLoading(true);
     try {
       const liveId = await createLive(liveData);
-      // Navigation simplifiée
+      // Navigation simplifi�e
       navigation.navigate('BroadcastScreen' as any, { liveId });
     } catch (error) {
-      Alert.alert('Erreur', 'Impossible de créer le live');
+      Alert.alert('Erreur', 'Impossible de cr�er le live');
       console.error(error);
     } finally {
       setLoading(false);
     }
   };
 
-  return null; // CORRIG�: (
+  return (
     <View style={styles.container}>
-      <Text style={styles.title}>{/* Créer un Live */}</Text>
+      <Text style={styles.title}>Créer un Live</Text>
       
       <TextInput
         style={styles.input}
@@ -52,7 +52,7 @@ const CreateLiveScreen = () => {
         maxLength={100}
       />
 
-      <Text style={styles.label}>{/* Catégorie */}</Text>
+      <Text style={styles.label}>Catégorie</Text>
       <View style={styles.categoryContainer}>
         {['talk', 'music', 'gaming', 'education', 'entertainment'].map((category) => (
           <TouchableOpacity
@@ -73,12 +73,12 @@ const CreateLiveScreen = () => {
         ))}
       </View>
 
-      <Text style={styles.label}>{/* Confidentialité */}</Text>
+      <Text style={styles.label}>Confidentialité</Text>
       <View style={styles.privacyContainer}>
         {[
-          { value: 'public', label: '🌍 Public', desc: 'Tout le monde peut voir' },
-          { value: 'followers', label: '🔒 Abonnés', desc: 'Seulement vos abonnés' },
-          { value: 'private', label: '👤 Privé', desc: 'Sur invitation seulement' }
+          { value: 'public', label: 'Public', desc: 'Tout le monde peut voir' },
+          { value: 'followers', label: 'Abonnés', desc: 'Seulement vos abonnés' },
+          { value: 'private', label: 'Privé', desc: 'Sur invitation seulement' }
         ].map((item) => (
           <TouchableOpacity
             key={item.value}
@@ -100,11 +100,11 @@ const CreateLiveScreen = () => {
         disabled={loading}
       >
         <Text style={styles.createButtonText}>
-          {loading ? 'Création...' : '🎥 Démarrer le Live'}
+          {loading ? 'Création...' : 'Démarrer le Live'}
         </Text>
       </TouchableOpacity>
     </View>
-  )
+  );
 };
 
 const styles = StyleSheet.create({

@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../../../src/utils/productLocale';
 import { 
   View, 
   ScrollView, 
@@ -26,7 +28,9 @@ import ProductGallery from '../../../src/components/ProductGallery';
 import TrustBadges from '../../../src/components/TrustBadges';
 import { useCart } from '../../../src/contexts/CartContext';
 import { useCurrency } from '../../../src/contexts/CurrencyContext';
+import { useAuth } from '../../../src/contexts/AuthContext';
 import { isZeroDollarsShop, isZeroDollarsProduct } from '../../../src/utils/zeroDollarsShop';
+import { displaySellerName } from '../../../src/utils/companyDisplayName';
 import ZeroDollarsFreeBadge from '../../../src/components/ZeroDollarsFreeBadge';
 
 const { width } = Dimensions.get('window');
@@ -92,6 +96,11 @@ interface FirebaseProduct {
   companyId?: string;
   createdAt?: any;
   createdBy?: string;
+  uid?: string;
+  sellerId?: string;
+  sellerUid?: string;
+  vendorId?: string;
+  ownerId?: string;
   creatorId?: string;
   isActive?: boolean;
   isVerified?: boolean;
@@ -118,6 +127,8 @@ export default function ProductDetailScreen() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const router = useRouter();
+  const { i18n } = useTranslation();
+  const { user } = useAuth();
   const { addToCart } = useCart();
   const { currency } = useCurrency();
 
@@ -140,6 +151,32 @@ export default function ProductDetailScreen() {
   // --- ÉTATS POUR PRODUITS SIMILAIRES ---
   const [similarProducts, setSimilarProducts] = useState<FirebaseProduct[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
+
+  const localizedTitle = useMemo(
+    () =>
+      product
+        ? getLocalizedProductText(
+            product.name,
+            'name',
+            product as unknown as Record<string, unknown>,
+            i18n.language,
+          )
+        : '',
+    [product, i18n.language],
+  );
+
+  const localizedDescription = useMemo(
+    () =>
+      product
+        ? getLocalizedProductText(
+            product.description,
+            'description',
+            product as unknown as Record<string, unknown>,
+            i18n.language,
+          )
+        : '',
+    [product, i18n.language],
+  );
 
   // --- FONCTION DE RÉCUPÉRATION DE L'ENTREPRISE ---
   const fetchCompany = async (companyId: string) => {
@@ -464,13 +501,6 @@ export default function ProductDetailScreen() {
     return Object.values(orderMatrix).reduce((sum, item) => sum + item.quantity, 0);
   }, [orderMatrix]);
 
-  // --- CALCUL DU PRIX TOTAL ---
-  const totalPrice = useMemo(() => {
-    return Object.values(orderMatrix).reduce((sum, item) => {
-      return sum + (getEffectiveUnitPrice(item) * item.quantity);
-    }, 0);
-  }, [orderMatrix, getEffectiveUnitPrice]);
-
   // --- VÉRIFICATION SI LE MOQ EST ATTEINT ---
   const isMOQReached = useMemo(() => {
     return totalQuantity >= (product?.minOrder || 1);
@@ -480,32 +510,42 @@ export default function ProductDetailScreen() {
   const isWholesale = isMOQReached;
 
   // --- PRIX UNITAIRE EFFECTIF POUR CHAQUE LIGNE ---
-  const getEffectiveUnitPrice = (item: OrderMatrixItem) => {
-    if (!product) return item.price;
-    const isZero = isZeroDollarsProduct({
-      price: item.price,
-      basePrice: product.basePrice as any,
-      companyName: product.companyName,
-      supplier: product.supplier,
-      seller: (product as any).seller,
-      name: product.name,
-    });
-    if (isZero) return 0;
-    
-    if (isWholesale) {
-      const existingVariant = product.variants?.find(
-        v => v.color === item.color && v.size === item.size
-      );
-      
-      if (existingVariant?.wholesalePrice) {
-        return existingVariant.wholesalePrice;
+  const getEffectiveUnitPrice = useCallback(
+    (item: OrderMatrixItem) => {
+      if (!product) return item.price;
+      const isZero = isZeroDollarsProduct({
+        price: item.price,
+        basePrice: product.basePrice as any,
+        companyName: product.companyName,
+        supplier: product.supplier,
+        seller: (product as any).seller,
+        name: product.name,
+      });
+      if (isZero) return 0;
+
+      if (isWholesale) {
+        const existingVariant = product.variants?.find(
+          (v) => v.color === item.color && v.size === item.size,
+        );
+
+        if (existingVariant?.wholesalePrice) {
+          return existingVariant.wholesalePrice;
+        }
+
+        return product.wholesalePrice || item.price;
       }
-      
-      return product.wholesalePrice || item.price;
-    }
-    
-    return item.price;
-  };
+
+      return item.price;
+    },
+    [product, isWholesale],
+  );
+
+  // --- CALCUL DU PRIX TOTAL ---
+  const totalPrice = useMemo(() => {
+    return Object.values(orderMatrix).reduce((sum, item) => {
+      return sum + getEffectiveUnitPrice(item) * item.quantity;
+    }, 0);
+  }, [orderMatrix, getEffectiveUnitPrice]);
 
   // --- GESTIONNAIRE DE QUANTITÉ ---
   const handleQuantityChange = (matrixKey: string, newQuantity: number) => {
@@ -581,7 +621,11 @@ export default function ProductDetailScreen() {
         selectedSize: item.size || null,
         selectedColor: item.color || null,
         image: item.image || product.mainImage || product.images?.[0],
-        seller: product.companyName || product.supplier || "Kissgroup88",
+        seller: displaySellerName({
+          seller: product.supplier,
+          companyName: product.companyName,
+          companyId: product.companyId,
+        }),
         minOrder: Number(product.minOrder) || 1,
         inStock: product.inStock ?? true,
         originalCurrency: 'XOF'
@@ -603,11 +647,36 @@ export default function ProductDetailScreen() {
     }, 500);
   };
 
-const handleChat = () => {
-  if (!product?.uid) {
-    console.error("UID vendeur manquant");
+const handleChat = async () => {
+  if (!product) return;
+
+  if (!user?.uid) {
+    Alert.alert(
+      "Connexion requise",
+      "Connectez-vous pour écrire à la boutique ou à l’entreprise.",
+    );
     return;
   }
+
+  const sellerUid = product.sellerUid;
+  const companyDocId = product.companyId;
+
+  if (!companyDocId || !sellerUid) {
+    console.error("Produit invalide :", product);
+    Alert.alert(
+      "Contact indisponible",
+      "Produit invalide : companyId/sellerUid manquant. Impossible d'ouvrir la discussion.",
+    );
+    return;
+  }
+
+  const contactId = companyDocId;
+
+  console.log({
+    productId: product.id,
+    sellerUid,
+    companyId: companyDocId,
+  });
 
   const mainImage =
     product.images?.[0] || product.mainImage || "";
@@ -615,9 +684,11 @@ const handleChat = () => {
   router.push({
     pathname: "/conversation/[id]",
     params: {
-      id: product.uid,
-      sellerId: product.uid,
+      id: contactId,
+      sellerId: sellerUid ? String(sellerUid) : contactId,
+      companyId: companyDocId || undefined,
       productId: product.id,
+      productContext: "1",
       productName: product.name,
       productImage: mainImage,
       productPrice: `${product.price.toLocaleString()} ${
@@ -630,6 +701,8 @@ const handleChat = () => {
     },
   });
 };
+
+const isValidProductForConversation = Boolean(product?.companyId && product?.sellerUid);
 
   const handleCompanyPress = () => {
     if (company?.id) {
@@ -746,6 +819,12 @@ const handleChat = () => {
 
   // --- COMPOSANT POUR LA CARTE PRODUIT SIMILAIRE ---
   const SimilarProductCard = ({ product }: { product: FirebaseProduct }) => {
+    const similarName = getLocalizedProductText(
+      product.name,
+      'name',
+      product as unknown as Record<string, unknown>,
+      i18n.language,
+    );
     const handlePress = () => {
       router.push({
         pathname: '/product/[id]',
@@ -782,7 +861,7 @@ const handleChat = () => {
         
         <View style={styles.similarProductInfo}>
           <Text style={styles.similarProductName} numberOfLines={2}>
-            {product.name}
+            {similarName}
           </Text>
           
           <View style={styles.similarProductPriceContainer}>
@@ -893,7 +972,6 @@ const handleChat = () => {
         {/* GALERIE D'IMAGES */}
         <ProductGallery 
           images={product.images?.length ? product.images : [product.mainImage]}
-          productName={product.name}
         />
 
         {/* SECTION PRINCIPALE */}
@@ -926,8 +1004,8 @@ const handleChat = () => {
             </View>
           </View>
           
-          {/* Nom du produit */}
-          <Text style={styles.productName}>{product.name}</Text>
+          {/* Nom du produit (libellés selon langue + champs Firestore `localizedNames` / `name_en` …) */}
+          <Text style={styles.productName}>{localizedTitle}</Text>
           
           {/* Badges statut */}
           <View style={styles.badgesContainer}>
@@ -960,9 +1038,9 @@ const handleChat = () => {
           </View>
           
           {/* Description */}
-          {product.description ? (
+          {localizedDescription ? (
             <Text style={styles.description}>
-              {product.description}
+              {localizedDescription}
             </Text>
           ) : null}
 
@@ -1289,6 +1367,7 @@ const handleChat = () => {
           currency: product.currency
         }}
         onChat={handleChat}
+        chatDisabled={!isValidProductForConversation}
         onAddToCart={handleAddToCart}
         addingToCart={addingToCart}
         disabled={!product.inStock || product.status !== 'published'}
@@ -1299,7 +1378,7 @@ const handleChat = () => {
       <WholesaleQuoteForm 
         visible={isQuoteVisible}
         onClose={() => setIsQuoteVisible(false)}
-        productName={product.name}
+        productName={localizedTitle}
         productId={product.id}
         productImages={product.images || [product.mainImage]}
         currentPrice={product.price}

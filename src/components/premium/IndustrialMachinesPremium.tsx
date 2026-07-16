@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import { collection, onSnapshot, query, where, limit } from "firebase/firestore";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "react-i18next";
 import { db } from "../../config/firebase";
 import ProductCardPremium from "./ProductCardPremium";
 
@@ -134,6 +135,7 @@ const SAMPLE_PRODUCTS: Product[] = [
 ];
 
 export default function IndustrialMachinesPremium() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -268,9 +270,9 @@ export default function IndustrialMachinesPremium() {
             <Ionicons name="construct" size={28} color="#fff" />
           </LinearGradient>
           <View>
-            <Text style={styles.title}>Machines Industrielles</Text>
+            <Text style={styles.title}>{t('app.premium.industrialTitle')}</Text>
             <Text style={styles.subtitle}>
-              {products.length} équipements professionnels disponibles
+              {t('app.premium.industrialSubtitle', { count: products.length })}
             </Text>
           </View>
         </View>
@@ -280,7 +282,7 @@ export default function IndustrialMachinesPremium() {
           onPress={navigateToMachinesCategory}
           activeOpacity={0.8}
         >
-          <Text style={styles.seeAllText}>Voir tout</Text>
+          <Text style={styles.seeAllText}>{t('app.account.seeAll')}</Text>
           <Ionicons name="arrow-forward" size={18} color="#ff6a00" />
         </TouchableOpacity>
       </View>
@@ -295,13 +297,13 @@ export default function IndustrialMachinesPremium() {
         <View style={styles.statItem}>
           <Ionicons name="business" size={20} color="#2196F3" />
           <Text style={styles.statNumber}>{products.length > 0 ? Math.ceil(products.length / 2) : 6}+</Text>
-          <Text style={styles.statLabel}>Fournisseurs</Text>
+          <Text style={styles.statLabel}>{t('app.premium.statSuppliers')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Ionicons name="globe" size={20} color="#FF9800" />
           <Text style={styles.statNumber}>15+</Text>
-          <Text style={styles.statLabel}>Pays</Text>
+          <Text style={styles.statLabel}>{t('app.premium.statCountries')}</Text>
         </View>
       </View>
 
@@ -335,7 +337,7 @@ export default function IndustrialMachinesPremium() {
             {item.isVerified && (
               <View style={styles.verifiedBadge}>
                 <Ionicons name="shield-checkmark" size={10} color="#fff" />
-                <Text style={styles.verifiedText}>Vérifié</Text>
+                <Text style={styles.verifiedText}>{t('app.premium.verifiedShort')}</Text>
               </View>
             )}
 

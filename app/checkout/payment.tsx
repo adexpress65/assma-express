@@ -1,18 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
+import React, { useState, useRef, useEffect, type ComponentProps } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
   Alert,
   ScrollView,
   ActivityIndicator,
-  SafeAreaView
+  SafeAreaView,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCurrency } from '@/contexts/CurrencyContext'; 
+import { useCurrency } from '@/contexts/CurrencyContext';
+import { useCheckout } from '@/contexts/CheckoutContext';
+import type { CheckoutPaymentMethod, PaymentPayload, PaymentResult } from '@/types/payment';
+import { PAYMENT_ENDPOINTS } from '@/config/api';
+
+type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 
 const COLORS = {
   primary: '#FF6A00',
@@ -29,128 +34,142 @@ const COLORS = {
   paydunyaBlue: '#0065ff',
 };
 
-type PaymentMethodType = 'fedapay_mobile' | 'fedapay_card' | 'ngenius_card' | 'paydunya';
 
 export default function PaymentScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
   const { user } = useAuth();
-  const { formatPrice } = useCurrency(); 
+  const { formatPrice } = useCurrency();
+  const { orderData, setSummary } = useCheckout();
 
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethodType>('fedapay_mobile');
+  const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>('fedapay_mobile');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [orderData, setOrderData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const hasSubmittedRef = useRef(false);
-
-  const API_URL = 'https://ngenius-backend.onrender.com';
+  const computeItemsSubtotal = (items: Array<{ price: number; quantity: number }>) =>
+    items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
 
   useEffect(() => {
-    try {
-      if (!params.orderData) {
-        router.replace('/cart');
-        return;
-      }
-      const parsed = JSON.parse(params.orderData as string);
-      
-      const subtotal = parseFloat(parsed.summary.subtotal || 0);
-      const shipping = parseFloat(parsed.summary.shipping || 0);
-      
-      parsed.summary.total = subtotal + shipping;
-      
-      setOrderData(parsed);
-    } catch (e) {
-      console.error("Erreur parsing:", e);
+    if (!orderData) {
       router.replace('/cart');
-    } finally {
-      setLoading(false);
     }
-  }, [params.orderData]);
+  }, [orderData, router]);
+
+  useEffect(() => {
+    if (!orderData) return;
+    const subtotal = computeItemsSubtotal(orderData.items);
+    const shipping =
+      Number(orderData.shipping?.cost ?? orderData.summary.shipping) || 0;
+    const normalized = {
+      subtotal,
+      shipping,
+      discount: 0,
+      total: subtotal + shipping,
+    };
+    const gap =
+      Math.abs((Number(orderData.summary.subtotal) || 0) - normalized.subtotal) > 1 ||
+      Math.abs((Number(orderData.summary.total) || 0) - normalized.total) > 1 ||
+      (Number(orderData.summary.discount) || 0) !== 0;
+    if (gap) {
+      setSummary(normalized);
+    }
+  }, [orderData, setSummary]);
+
+  if (!orderData) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const normalizedSubtotal = computeItemsSubtotal(orderData.items);
+  const normalizedShipping =
+    Number(orderData.shipping?.cost ?? orderData.summary.shipping) || 0;
+  const normalizedSummary = {
+    subtotal: normalizedSubtotal,
+    shipping: normalizedShipping,
+    discount: 0,
+    total: normalizedSubtotal + normalizedShipping,
+  };
 
   const handlePayment = async () => {
-    if (!orderData || isProcessing || !user) return;
+    if (isProcessing) return;
+    if (!user) {
+      Alert.alert('Connexion requise', 'Veuillez vous reconnecter avant de payer.');
+      router.replace('/(tabs)/account');
+      return;
+    }
     if (hasSubmittedRef.current) return;
     hasSubmittedRef.current = true;
 
-    const finalAmount = Math.round(parseFloat(orderData.summary.total));
-    
-    // ✅ CORRECTION : On s'assure que le poids voyage bien vers le backend
-    const itemsWithSpecs = orderData.items.map((item: any) => ({
+    const finalAmount = Math.round(Number(normalizedSummary.total));
+
+    const itemsWithSpecs = orderData.items.map((item) => ({
       ...item,
       specifications: {
-        weight: item.specifications?.weight || "0",
-        volume: item.specifications?.volume || "0",
-      }
+        weight: item.specifications?.weight ?? 0,
+        volume: item.specifications?.volume ?? 0,
+      },
     }));
 
-    const payload = {
+    const payload: PaymentPayload = {
       orderId: `ORD-${Date.now()}`,
       userId: user.uid,
       amount: finalAmount,
-      currencyCode: "XOF",
-      email: user.email || `${user.uid}@a2-expres.com`,
-      firstname: user.displayName?.split(' ')[0] || 'Client',
-      lastname: user.displayName?.split(' ')[1] || 'A2Express',
+      currencyCode: 'XOF',
+      email: user.email ?? `${user.uid}@a2-expres.com`,
+      firstname: user.displayName?.split(' ')[0] ?? 'Client',
+      lastname: user.displayName?.split(' ')[1] ?? 'A2Express',
       method: selectedMethod,
-      items: itemsWithSpecs, // Utilise les items avec specs
-      summary: {
-        ...orderData.summary,
-        total: finalAmount
-      },
-      shippingAddress: orderData.shippingAddress
+      items: itemsWithSpecs,
+      summary: { ...normalizedSummary, total: finalAmount },
+      shippingAddress: orderData.shippingAddress,
     };
-
-    console.log("🚀 [A2Express] Envoi au Backend :", JSON.stringify(payload, null, 2));
 
     try {
       setIsProcessing(true);
-      
-      let endpoint = `${API_URL}/create-payment`;
-      if (selectedMethod.startsWith("fedapay")) {
-        endpoint = `${API_URL}/create-fedapay-payment`;
-      } else if (selectedMethod === "paydunya") {
-        endpoint = `${API_URL}/create-paydunya-payment`;
-      }
+
+      let endpoint: string = PAYMENT_ENDPOINTS.ngenius;
+      if (selectedMethod.startsWith('fedapay')) endpoint = PAYMENT_ENDPOINTS.fedapay;
+      else if (selectedMethod === 'paydunya') endpoint = PAYMENT_ENDPOINTS.paydunya;
 
       const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
-
-      console.log("📥 [A2Express] Réponse du Serveur :", JSON.stringify(result, null, 2));
+      const result: PaymentResult = await response.json();
 
       if (!response.ok) {
-        throw new Error(result?.error || "Erreur de configuration.");
+        throw new Error(result.error ?? 'Erreur de configuration.');
       }
 
-      if (result?.url) {
+      if (result.url) {
         router.push({
-          pathname: "/checkout/payment-webview" as any,
+          pathname: '/checkout/payment-webview' as never,
           params: {
             paymentUrl: result.url,
             orderId: payload.orderId,
             userId: user.uid,
-            orderData: JSON.stringify(orderData),
           },
         });
       } else {
-        // Backend OK, mais pas d'URL => autoriser à réessayer
         hasSubmittedRef.current = false;
-        Alert.alert("Paiement indisponible", result?.error || "URL de paiement introuvable.");
+        Alert.alert('Paiement indisponible', result.error ?? 'URL de paiement introuvable.');
       }
-    } catch (error: any) {
-      console.error("❌ [A2Express] Erreur Paiement :", error.message);
-      Alert.alert("Paiement indisponible", error.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur réseau';
+      console.error('[Payment] Erreur:', message);
+      Alert.alert('Paiement indisponible', message);
       hasSubmittedRef.current = false;
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const renderMethodCard = (id: PaymentMethodType, title: string, subtitle: string, icon: any, color: string) => (
+  const renderMethodCard = (id: CheckoutPaymentMethod, title: string, subtitle: string, icon: IoniconsName, color: string) => (
     <TouchableOpacity 
       style={[
         styles.methodCard, 
@@ -171,10 +190,6 @@ export default function PaymentScreen() {
     </TouchableOpacity>
   );
 
-  if (loading) return (
-    <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>
-  );
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
@@ -193,18 +208,18 @@ export default function PaymentScreen() {
           <Text style={styles.summaryTitle}>Résumé de la transaction</Text>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Sous-total</Text>
-            <Text style={styles.summaryValue}>{formatPrice(orderData.summary.subtotal)}</Text>
+            <Text style={styles.summaryValue}>{formatPrice(normalizedSummary.subtotal)}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Frais de livraison</Text>
-            <Text style={styles.summaryValue}>{formatPrice(orderData.summary.shipping)}</Text>
+            <Text style={styles.summaryValue}>{formatPrice(normalizedSummary.shipping)}</Text>
           </View>
           
           <View style={styles.divider} />
           
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total à payer</Text>
-            <Text style={styles.totalValue}>{formatPrice(orderData.summary.total)}</Text>
+            <Text style={styles.totalValue}>{formatPrice(normalizedSummary.total)}</Text>
           </View>
         </View>
 

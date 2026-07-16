@@ -1,9 +1,19 @@
-export default {
+/** * Clé Gemini injectée au build (EAS / local) — voir commentaire dans `extra.geminiApiKey`. 
+ */
+function readGeminiApiKeyForBuild() {
+  return String(
+    process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      "",
+  ).trim();
+}
+
+const expoConfig = {
   expo: {
     name: "A2Express",
     slug: "assma-express",
-    // ✅ PASSAGE EN 1.0.5 (La 1.0.4 existe déjà sur ton store)
-    version: "1.0.5",
+    // ✅ PASSAGE EN 1.0.8 (Correction de la clé Gemini pour les clients)
+    version: "1.0.8",
     orientation: "portrait",
     userInterfaceStyle: "light",
     jsEngine: "hermes",
@@ -28,15 +38,35 @@ export default {
     // ✅ PLUGINS REQUIS POUR NOTIFICATIONS ET ROUTAGE
     plugins: [
       "expo-router",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-location",
+        {
+          locationWhenInUsePermission:
+            "A2Express utilise votre position pour préremplir votre adresse (livraison ou boutique).",
+        },
+      ],
+      /**
+       * Sentry : upload des source maps / symboles au build EAS natif.
+       * Sur expo.dev → Project secrets : SENTRY_AUTH_TOKEN
+       * Variables de build : SENTRY_ORG, SENTRY_PROJECT (slug Sentry.io)
+       */
+      [
+        "@sentry/react-native/expo",
+        {
+          url: "https://sentry.io/",
+          organization: process.env.SENTRY_ORG ?? "",
+          project: process.env.SENTRY_PROJECT ?? "",
+        },
+      ],
     ],
 
     android: {
       package: "com.askia1.assmaexpress",
       // ✅ LIEN NATIF VERS FIREBASE
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON,
-      // ✅ VERSION 6 (Supérieure à la version 5 vue sur ta capture)
-      versionCode: 6,
+      // ✅ VERSION 10 (Indispensable pour écraser la version 9 envoyée précédemment)
+      versionCode: 15,
       softwareKeyboardLayoutMode: "pan",
       supportsRtl: false,
       adaptiveIcon: {
@@ -52,7 +82,9 @@ export default {
         "ACCESS_WIFI_STATE",
         "WAKE_LOCK",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "VIBRATE",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
       ],
       intentFilters: [
         {
@@ -66,13 +98,20 @@ export default {
     ios: {
       supportsTablet: false,
       bundleIdentifier: "com.askia1.assmaexpress",
-      // ✅ ALIGNÉ SUR ANDROID
-      buildNumber: "6",
+      // ✅ ALIGNÉ SUR LE CODE ANDROID
+      buildNumber: "16",
       supportsRtl: false,
+	  googleServicesFile: "./google-services-ios.json",
+	  // 🔴 AJOUT CRUCIAL DES ENTITLEMENTS POUR APPLE SIGN-IN
+      entitlements: {
+        "com.apple.developer.applesignin": ["Default"]
+      },
       infoPlist: {
-        NSPhotoLibraryUsageDescription: "L'application a besoin d'accéder à vos photos.",
-        NSCameraUsageDescription: "L'application a besoin d'accéder à votre caméra.",
-        NSMicrophoneUsageDescription: "L'application a besoin d'accéder à votre microphone.",
+        NSPhotoLibraryUsageDescription: "A2Express nécessite l'accès à votre galerie pour vous permettre de choisir une photo de profil ou d'importer des images de vos colis.",
+        NSCameraUsageDescription: "A2Express nécessite l'accès à votre appareil photo pour vous permettre de prendre en photo vos colis ou de scanner des codes-barres.",
+        NSMicrophoneUsageDescription: "A2Express nécessite l'accès à votre microphone pour vous permettre d'enregistrer des notes vocales destinées au support client.",
+        NSLocationWhenInUseUsageDescription:
+          "A2Express utilise votre position pour préremplir votre adresse de livraison ou boutique.",
         CFBundleURLTypes: [{ CFBundleURLSchemes: ["assmaexpress"] }]
       }
     },
@@ -80,9 +119,28 @@ export default {
     extra: {
       API_BASE_URL: "https://ngenius-backend.onrender.com",
       REALTIME_URL: "https://ngenius-backend.onrender.com",
-      /** Optionnel : recherche par image (PremiumHeader). Sinon utiliser EXPO_PUBLIC_GEMINI_API_KEY */
-      geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY || "",
-      eas: { projectId: "bb3399ba-97b7-4707-80eb-b524775df88a" }
+      /**
+       * Clé Gemini embarquée au moment du build.
+       * Lu depuis les variables d'environnement Expo (Plain text) que tu viens de configurer.
+       */
+      geminiApiKey: readGeminiApiKeyForBuild(),
+      visualImageSearchUrl:
+        process.env.EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL ||
+        "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+      eas: { projectId: "bb3399ba-97b7-4707-80eb-b524775df88a" },
+      /** DSN public Sentry — aussi disponible via process.env.EXPO_PUBLIC_SENTRY_DSN au runtime */
+      sentryDsn:
+        process.env.EXPO_PUBLIC_SENTRY_DSN ??
+        process.env.SENTRY_DSN ??
+        ""
     }
   }
 };
+
+if (process.env.EAS_BUILD === "true" && !readGeminiApiKeyForBuild()) {
+  console.warn(
+    "[EAS Build] Clé Gemini absente : vérifiez vos variables d'environnement sur expo.dev",
+  );
+}
+
+export default expoConfig;

@@ -1,5 +1,7 @@
 // apps/mobile/src/components/common/ProductCard.tsx
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../../utils/productLocale';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,6 +25,18 @@ interface Props {
 }
 
 export default function ProductCard({ product, variant, onPress }: Props) {
+  const { i18n } = useTranslation();
+  const displayName = useMemo(
+    () =>
+      getLocalizedProductText(
+        product.name,
+        'name',
+        product as unknown as Record<string, unknown>,
+        i18n.language,
+      ),
+    [product, i18n.language],
+  );
+
   const formatPrice = (price: number) => {
     return `${price.toLocaleString('fr-FR')} FCFA`;
   };
@@ -66,7 +80,7 @@ export default function ProductCard({ product, variant, onPress }: Props) {
       {/* Informations produit */}
       <View style={styles.infoContainer}>
         <Text style={styles.productName} numberOfLines={2}>
-          {product.name}
+          {displayName}
         </Text>
         
         {/* Prix */}

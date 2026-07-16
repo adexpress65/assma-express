@@ -1,45 +1,129 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, 
-  Dimensions, ScrollView
+  ScrollView
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '@/utils/productLocale';
+import { useCurrency } from '@/contexts/CurrencyContext';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+type Normalized = {
+  id: string;
+  name?: string;
+  mainImage: string;
+  imageUrl?: string | null;
+  images?: string[];
+  [key: string]: unknown;
+};
 
-export default function FreeProductsSection({ products = [] }) {
+type FreeProduct = {
+  id: string;
+  name?: string;
+  mainImage?: string | null;
+  imageUrl?: string | null;
+  images?: string[];
+  price?: number;
+  originalPrice?: number;
+  supplier?: string;
+  categoryId?: string;
+};
+
+interface FreeProductsSectionProps {
+  products?: FreeProduct[];
+}
+
+/** Un seul produit par image (évite la même photo en plusieurs cases). */
+function dedupeByIdAndImage(products: Normalized[]): Normalized[] {
+  const seenId = new Set<string>();
+  const seenImg = new Set<string>();
+  const out: Normalized[] = [];
+  for (const p of products) {
+    if (!p?.id || seenId.has(p.id)) continue;
+    const img = String(p.mainImage || p.imageUrl || "").trim().toLowerCase();
+    if (img && seenImg.has(img)) continue;
+    seenId.add(p.id);
+    if (img) seenImg.add(img);
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Grande carte = hero ; colonne droite = 2 produits suivants ; bandeau = suivants,
+ * sans réutiliser le même id ni la même image sur l’écran.
+ */
+function layoutSlots(heroIndex: number, pool: Normalized[]) {
+  const n = pool.length;
+  if (n === 0) {
+    return { hero: undefined as Normalized | undefined, side: [] as Normalized[], bottom: [] as Normalized[] };
+  }
+  const hi = ((heroIndex % n) + n) % n;
+  const hero = pool[hi];
+  const others = pool.filter((_, idx) => idx !== hi);
+  const side = others.slice(0, 2);
+  const used = new Set<string>([hero.id, ...side.map((s) => s.id)]);
+  const bottom = pool.filter((p) => !used.has(p.id)).slice(0, 6);
+  return { hero, side, bottom };
+}
+
+export default function FreeProductsSection({ products = [] }: FreeProductsSectionProps) {
+  const { t, i18n } = useTranslation();
+  const { formatPrice } = useCurrency();
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
-  const autoScrollRef = useRef<ScrollView>(null);
 
-  const normalizedProducts = useMemo(
-    () =>
-      products.map((item) => ({
-        ...item,
-        mainImage: item?.mainImage || item?.imageUrl || (Array.isArray(item?.images) ? item.images[0] : ''),
-      })),
-    [products]
+  const normalizedProducts = useMemo(() => {
+    const raw = products.map((item) => ({
+      ...item,
+      mainImage:
+        item?.mainImage ||
+        item?.imageUrl ||
+        (Array.isArray(item?.images) ? item.images[0] : ""),
+    })) as Normalized[];
+    return dedupeByIdAndImage(raw);
+  }, [products]);
+
+  const hasProducts = normalizedProducts.length > 0;
+
+  const { hero: heroProduct, side: sideProducts, bottom: bottomProducts } = useMemo(
+    () => layoutSlots(activeIndex, normalizedProducts),
+    [activeIndex, normalizedProducts],
   );
-
-  const sideProducts = useMemo(() => normalizedProducts.slice(1, 3), [normalizedProducts]);
-  const bottomProducts = useMemo(() => normalizedProducts.slice(3, 6), [normalizedProducts]);
 
   useEffect(() => {
     if (normalizedProducts.length <= 1) return;
-    
-    const interval = setInterval(() => {
-      const nextIndex = (activeIndex + 1) % Math.min(normalizedProducts.length, 5);
-      setActiveIndex(nextIndex);
-      autoScrollRef.current?.scrollTo({ 
-        x: nextIndex * (SCREEN_WIDTH * 0.6),
-        animated: true 
-      });
-    }, 3500);
 
-    return () => clearInterval(interval);
-  }, [activeIndex, normalizedProducts.length]);
+    let timer: NodeJS.Timeout | null = null;
+
+    const scheduleNext = () => {
+      const delay = 30_000 + Math.random() * 15_000;
+      timer = setTimeout(() => {
+        setActiveIndex((prev) => {
+          const n = normalizedProducts.length;
+          if (n <= 1) return 0;
+          return (prev + 1) % n;
+        });
+        scheduleNext();
+      }, delay);
+    };
+
+    scheduleNext();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [normalizedProducts.length]);
+
+  useEffect(() => {
+    setActiveIndex((prev) => {
+      const n = normalizedProducts.length;
+      if (n === 0) return 0;
+      return prev >= n ? 0 : prev;
+    });
+  }, [normalizedProducts.length]);
 
   useEffect(() => {
     const imageUris = normalizedProducts
@@ -55,14 +139,12 @@ export default function FreeProductsSection({ products = [] }) {
     Image.prefetch(imageUris, 'memory-disk').catch(() => {});
   }, [normalizedProducts]);
 
-  const hasProducts = normalizedProducts.length > 0;
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.titleContainer}>
           <View style={styles.verticalBar} />
-          <Text style={styles.title}>Zéro Dollars</Text>
+          <Text style={styles.title}>{t('app.premium.zeroDollarsTitle')}</Text>
         </View>
         <TouchableOpacity 
           style={styles.seeAllBtn}
@@ -75,29 +157,34 @@ export default function FreeProductsSection({ products = [] }) {
 
       <View style={styles.gridContainer}>
         <View style={styles.bigCardContainer}>
-          {hasProducts ? (
+          {hasProducts && heroProduct ? (
             <TouchableOpacity 
               activeOpacity={0.9}
               style={styles.bigCard}
-              onPress={() => router.push(`/product/${normalizedProducts[activeIndex]?.id}`)}
+              onPress={() => router.push(`/product/${heroProduct.id}`)}
             >
               <Image 
-                source={normalizedProducts[activeIndex]?.mainImage} 
+                source={heroProduct.mainImage} 
                 style={styles.image} 
                 contentFit="cover"
                 cachePolicy="memory-disk"
-                transition={220}
+                transition={0}
               />
               <View style={styles.badgeGratuit}>
-                <Text style={styles.badgeText}>GRATUIT</Text>
+                <Text style={styles.badgeText}>{t('app.premium.badgeFree')}</Text>
               </View>
               <View style={styles.overlay}>
                  <Text style={styles.productName} numberOfLines={1}>
-                   {normalizedProducts[activeIndex]?.name}
+                   {getLocalizedProductText(
+                     String(heroProduct.name ?? ''),
+                     'name',
+                     heroProduct as Record<string, unknown>,
+                     i18n.language,
+                   )}
                  </Text>
               </View>
             </TouchableOpacity>
-          ) : (
+          ) : !hasProducts ? (
             <TouchableOpacity 
               activeOpacity={0.9}
               style={[styles.bigCard, styles.bigCardEmpty]}
@@ -107,13 +194,13 @@ export default function FreeProductsSection({ products = [] }) {
               <Text style={styles.emptyTitle}>Offres 0 CFA bientôt disponibles</Text>
               <Text style={styles.emptySubtitle}>Touchez ici pour explorer la boutique Zéro Dollars</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
 
         <View style={styles.rightColumn}>
           {sideProducts.map((item) => (
             <TouchableOpacity 
-              key={item.id} 
+              key={`side-${item.id}`} 
               style={styles.smallCard}
               onPress={() => router.push(`/product/${item.id}`)}
             >
@@ -122,7 +209,7 @@ export default function FreeProductsSection({ products = [] }) {
                 style={styles.image}
                 contentFit="cover"
                 cachePolicy="memory-disk"
-                transition={120}
+                transition={0}
               />
             </TouchableOpacity>
           ))}
@@ -134,23 +221,23 @@ export default function FreeProductsSection({ products = [] }) {
             >
               <View style={styles.infoCardContent}>
                 <Ionicons name="gift-outline" size={24} color="#00B050" />
-                <Text style={styles.infoCardTitle}>Plus de gratuités</Text>
-                <Text style={styles.infoCardText}>Offres 0 CFA prêtes à explorer</Text>
+                <Text style={styles.infoCardTitle}>{t('app.premium.zeroDollarsMoreTitle')}</Text>
+                <Text style={styles.infoCardText}>{t('app.premium.zeroDollarsMoreText')}</Text>
               </View>
             </TouchableOpacity>
           )}
         </View>
       </View>
 
-      <Text style={styles.subtitle}>Nouveautés gratuites</Text>
+      <Text style={styles.subtitle}>{t('app.premium.zeroDollarsSubtitle')}</Text>
       <ScrollView 
         horizontal 
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {bottomProducts.map((item) => (
+        {bottomProducts.map((item, idx) => (
           <TouchableOpacity 
-            key={item.id} 
+            key={`bottom-${item.id}-${idx}`} 
             style={styles.bottomCard}
             onPress={() => router.push(`/product/${item.id}`)}
           >
@@ -159,9 +246,9 @@ export default function FreeProductsSection({ products = [] }) {
               style={styles.bottomImage}
               contentFit="cover"
               cachePolicy="memory-disk"
-              transition={120}
+              transition={0}
             />
-            <Text style={styles.bottomPrice}>0 CFA</Text>
+            <Text style={styles.bottomPrice}>{formatPrice(0)}</Text>
           </TouchableOpacity>
         ))}
         {bottomProducts.length < 3 && (
@@ -246,7 +333,11 @@ const styles = StyleSheet.create({
   infoCardContent: { alignItems: 'center' },
   infoCardTitle: { marginTop: 8, color: '#0b7c39', fontSize: 13, fontWeight: '800', textAlign: 'center' },
   infoCardText: { marginTop: 4, color: '#5d7a64', fontSize: 11, textAlign: 'center', lineHeight: 15 },
-  image: { width: '100%', height: '100%' },
+  image: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f0f0f0',
+  },
   badgeGratuit: {
     position: 'absolute',
     top: 10,

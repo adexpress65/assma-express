@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 
 interface Supplier {
   id: string;
@@ -22,10 +23,13 @@ interface SupplierShowcaseProps {
 
 const SupplierShowcase: React.FC<SupplierShowcaseProps> = ({ 
   suppliers, 
-  title = "Fournisseurs Vérifiés",
-  subtitle = "Découvrez nos partenaires de confiance"
+  title,
+  subtitle,
 }) => {
+  const { t } = useTranslation();
   const router = useRouter();
+  const resolvedTitle = title ?? t('app.premium.supplierShowcaseTitle');
+  const resolvedSubtitle = subtitle ?? t('app.premium.supplierShowcaseSubtitle');
 
   const handleSupplierPress = (supplier: Supplier) => {
     router.push(`/company/${supplier.id}`);
@@ -72,10 +76,10 @@ const SupplierShowcase: React.FC<SupplierShowcaseProps> = ({
                     {supplier.name}
                   </Text>
                   <Text style={styles.supplierLocation} numberOfLines={1}>
-                    📍 {supplier.location || 'Localisation non spécifiée'}
+                    📍 {supplier.location || t('app.premium.locationUnknown')}
                   </Text>
                   {supplier.verified && (
-                    <Text style={styles.verifiedBadge}>✅ Vérifié</Text>
+                    <Text style={styles.verifiedBadge}>✅ {t('app.premium.verifiedShort')}</Text>
                   )}
                 </View>
               </View>
@@ -83,7 +87,7 @@ const SupplierShowcase: React.FC<SupplierShowcaseProps> = ({
               {/* Produits du fournisseur */}
               <View style={styles.productsSection}>
                 <Text style={styles.productsLabel}>
-                  {supplier.productCount} produit{supplier.productCount > 1 ? 's' : ''}
+                  {t('app.premium.productsCount', { count: supplier.productCount })}
                 </Text>
                 
                 <ScrollView 

@@ -11,8 +11,6 @@ import {
 import { WebView, WebViewNavigation } from "react-native-webview";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "@/config/firebase";
 
 export default function PaymentWebView() {
   const router = useRouter();
@@ -40,27 +38,13 @@ export default function PaymentWebView() {
 
     const lower = url.toLowerCase();
 
-    const markOrderConfirmed = () => {
-      if (!orderId || typeof orderId !== "string") return;
-      // On marque côté base dès que la passerelle signale "success".
-      // Même si le backend met déjà "paid", on force "confirmed" pour l’UI.
-      void updateDoc(doc(db, "orders", orderId), {
-        status: "confirmed",
-        paidAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }).catch((e) => {
-        console.error("[payment-webview] update order confirmed error:", e);
-      });
-    };
-
     // CAS : Succès
     if (lower.includes("payment/success")) {
       handledRef.current = true;
       closedRef.current = true;
-      markOrderConfirmed();
       router.replace({
-        pathname: "/checkout/confirmation" as any,
-        params: { status: "success", orderId },
+        pathname: "/checkout/pending" as any,
+        params: { orderId },
       });
       return false;
     }
@@ -145,9 +129,11 @@ export default function PaymentWebView() {
           onPress={() => {
             if (closedRef.current) return;
             closedRef.current = true;
+            // Ne pas aller sur /checkout/pending : la commande reste souvent en
+            // pending_payment et l’écran attend indéfiniment une transition paid/failed.
             router.replace({
-              pathname: "/checkout/pending" as any,
-              params: { orderId },
+              pathname: "/checkout/confirmation" as any,
+              params: { status: "cancel", orderId: orderId ?? "" },
             });
           }}
         >

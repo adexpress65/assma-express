@@ -9,17 +9,338 @@ import {
   StatusBar,
   Animated,
   PanResponder,
-  ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LottieView from 'lottie-react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import LoginModal from '../../src/components/account/LoginModal';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { db } from '@/config/firebase';
+import { COLORS } from '@/constants/Theme';
 
 const { width, height } = Dimensions.get('window');
+
+/** Images B2B (secours) — remplacées par de vrais visuels produits si Firestore répond. */
+const FALLBACK_SHOWCASE: { uri: string; caption: string }[] = [
+  {
+    uri: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=1200&q=80',
+    caption: 'Logistique & entrepôts',
+  },
+  {
+    uri: 'https://images.unsplash.com/photo-1565514021063-600440df7e8a?w=1200&q=80',
+    caption: 'Équipements professionnels',
+  },
+  {
+    uri: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=1200&q=80',
+    caption: 'Grossistes & stocks',
+  },
+  {
+    uri: 'https://images.unsplash.com/photo-1563771910408-296953d7a1c0?w=1200&q=80',
+    caption: 'Industrie & matériaux',
+  },
+];
+
+const SPLASH_TAGLINES = [
+  'Fournisseurs vérifiés',
+  'Achats B2B simplifiés',
+  'Livraison & suivi centralisés',
+  'Votre marketplace pro',
+];
+
+function SplashLoadingScreen() {
+  const insets = useSafeAreaInsets();
+  const [items, setItems] = useState(FALLBACK_SHOWCASE);
+  const [slideIndex, setSlideIndex] = useState(0);
+  const [taglineIndex, setTaglineIndex] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  const kenBurns = useRef(new Animated.Value(1)).current;
+  const logoScale = useRef(new Animated.Value(0.92)).current;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const q = query(
+          collection(db, 'products'),
+          where('status', '==', 'published'),
+          limit(8)
+        );
+        const snap = await getDocs(q);
+        const fromDb: { uri: string; caption: string }[] = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data() as Record<string, unknown>;
+          const uri =
+            (typeof d.mainImage === 'string' && d.mainImage) ||
+            (typeof d.imageUrl === 'string' && d.imageUrl) ||
+            (Array.isArray(d.images) && typeof d.images[0] === 'string' && d.images[0]);
+          if (uri && fromDb.length < 6) {
+            fromDb.push({
+              uri,
+              caption:
+                (typeof d.name === 'string' && d.name.slice(0, 42)) || 'Produit partenaire',
+            });
+          }
+        });
+        if (!cancelled && fromDb.length >= 2) setItems(fromDb.slice(0, 7));
+      } catch {
+        /* Firestore indisponible ou index : on garde le fallback */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    Animated.spring(logoScale, {
+      toValue: 1,
+      friction: 6,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+  }, [logoScale]);
+
+  useEffect(() => {
+    const kb = Animated.loop(
+      Animated.sequence([
+        Animated.timing(kenBurns, {
+          toValue: 1.09,
+          duration: 14000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(kenBurns, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    kb.start();
+    return () => kb.stop();
+  }, [kenBurns]);
+
+  useEffect(() => {
+    if (items.length === 0) return;
+    const id = setInterval(() => {
+      Animated.timing(fade, {
+        toValue: 0,
+        duration: 420,
+        useNativeDriver: true,
+      }).start(() => {
+        setSlideIndex((i) => (i + 1) % items.length);
+        setTaglineIndex((i) => (i + 1) % SPLASH_TAGLINES.length);
+        Animated.timing(fade, {
+          toValue: 1,
+          duration: 520,
+          useNativeDriver: true,
+        }).start();
+      });
+    }, 3800);
+    return () => clearInterval(id);
+  }, [fade, items.length]);
+
+  const current = items[slideIndex % Math.max(items.length, 1)] ?? items[0];
+
+  return (
+    <View style={splashStyles.root}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <Animated.View
+        style={[
+          splashStyles.imageWrap,
+          {
+            opacity: fade,
+            transform: [{ scale: kenBurns }],
+          },
+        ]}
+      >
+        {current ? (
+          <Image
+            source={{ uri: current.uri }}
+            style={splashStyles.bgImage}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={400}
+          />
+        ) : null}
+      </Animated.View>
+
+      <LinearGradient
+        colors={['rgba(15,23,42,0.25)', 'rgba(15,23,42,0.75)', 'rgba(10,15,30,0.92)']}
+        locations={[0, 0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        colors={[`${COLORS.primary}55`, 'transparent']}
+        start={{ x: 0.5, y: 1 }}
+        end={{ x: 0.5, y: 0 }}
+        style={splashStyles.orangeGlow}
+      />
+
+      <View style={[splashStyles.safeTop, { paddingTop: Math.max(insets.top, 16) }]}>
+        <Animated.Text style={[splashStyles.brandSmall, { transform: [{ scale: logoScale }] }]}>
+          A2EXPRESS
+        </Animated.Text>
+        <Text style={splashStyles.brandTag}>Marketplace B2B</Text>
+      </View>
+
+      <View style={splashStyles.centerBlock}>
+        <View style={splashStyles.lottieRing}>
+          <View style={splashStyles.lottieRingBorder}>
+            <LottieView
+              source={require('../../assets/animations/loading-pulse.json')}
+              autoPlay
+              loop
+              style={splashStyles.lottie}
+            />
+          </View>
+        </View>
+        <Text style={splashStyles.loadingTitle}>Chargement de votre espace…</Text>
+        <Text style={splashStyles.caption} numberOfLines={2}>
+          {current?.caption ?? ' '}
+        </Text>
+        <Animated.Text style={splashStyles.tagline}>
+          {SPLASH_TAGLINES[taglineIndex]}
+        </Animated.Text>
+      </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={[
+          splashStyles.thumbRow,
+          { paddingBottom: Math.max(insets.bottom, 20) },
+        ]}
+      >
+        {items.map((it, i) => (
+          <View
+            key={`${it.uri}-${i}`}
+            style={[
+              splashStyles.thumb,
+              i === slideIndex % items.length && splashStyles.thumbActive,
+            ]}
+          >
+            <Image source={{ uri: it.uri }} style={splashStyles.thumbImg} contentFit="cover" />
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+const splashStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    overflow: 'hidden',
+  },
+  imageWrap: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bgImage: {
+    width,
+    height: height * 1.15,
+  },
+  orangeGlow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: height * 0.45,
+  },
+  safeTop: {
+    paddingHorizontal: 24,
+    zIndex: 2,
+  },
+  brandSmall: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 4,
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+  brandTag: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+    letterSpacing: 0.8,
+  },
+  centerBlock: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+    zIndex: 2,
+  },
+  lottieRing: {
+    marginBottom: 20,
+  },
+  lottieRingBorder: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  lottie: {
+    width: 96,
+    height: 96,
+  },
+  loadingTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  caption: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 10,
+    minHeight: 40,
+    paddingHorizontal: 8,
+  },
+  tagline: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  thumbRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    zIndex: 2,
+    minHeight: 56,
+    justifyContent: 'center',
+  },
+  thumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    overflow: 'hidden',
+    opacity: 0.45,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  thumbActive: {
+    opacity: 1,
+    borderColor: COLORS.primary,
+  },
+  thumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+});
 const SWIPE_THRESHOLD = 50;
 const INTRO_SEEN_KEY = '@a2express_intro_seen';
 
@@ -466,20 +787,7 @@ export default function IntroScreen() {
 
   // Écran de chargement pendant la vérification
   if (isChecking || isLoading) {
-    return (
-      <LinearGradient
-        colors={['#000428', '#004e92']}
-        style={styles.loadingContainer}
-      >
-        <LottieView
-          source={require('../../assets/animations/loading-pulse.json')}
-          autoPlay
-          loop
-          style={styles.loadingAnimation}
-        />
-        <Text style={styles.loadingText}>Initialisation A2Express...</Text>
-      </LinearGradient>
-    );
+    return <SplashLoadingScreen />;
   }
 
   // Si on arrive ici, c'est qu'on doit afficher l'intro
@@ -681,23 +989,6 @@ export default function IntroScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingAnimation: {
-    width: 150,
-    height: 150,
-  },
-  loadingText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: 20,
-    textAlign: 'center',
-    opacity: 0.9,
   },
   header: {
     flexDirection: 'row',

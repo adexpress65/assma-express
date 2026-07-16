@@ -1,12 +1,8 @@
-// 📁 apps/mobile/app/checkout/_layout.tsx - VERSION CORRIGÉE
 import React from 'react';
 import { Stack } from 'expo-router';
 
+/** CheckoutProvider est monté dans app/_layout.tsx (panier + flux checkout partagent le même contexte). */
 export default function CheckoutLayout() {
-  // ============ AUCUN HOOK ICI ============
-  // Si vous n'avez pas besoin de useCart(), supprimez-le
-  
-  // ============ RENDU DIRECT ============
   return (
     <Stack
       screenOptions={{
@@ -44,15 +40,29 @@ export default function CheckoutLayout() {
         name="payment" 
         options={{ 
           title: 'Paiement sécurisé',
-          headerBackTitle: 'Livraison', 
+          headerBackTitle: 'À confirmer', 
           headerBackVisible: true,
         }} 
+      />
+      <Stack.Screen
+        name="payment-webview"
+        options={{
+          title: 'Paiement sécurisé',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="pending"
+        options={{
+          title: 'Vérification du paiement',
+          headerBackTitle: 'Retour',
+        }}
       />
       <Stack.Screen 
         name="confirmation" 
         options={{ 
           title: 'Confirmation',
-          headerShown: false, // Cache le header pour l'écran de confirmation
+          headerShown: false,
           headerBackVisible: false,
         }} 
       />

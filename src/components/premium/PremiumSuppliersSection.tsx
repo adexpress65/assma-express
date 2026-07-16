@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, getDocs, query, where, limit } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { useTranslation } from 'react-i18next';
 
 const { width } = Dimensions.get('window');
 
@@ -159,6 +160,7 @@ const getMockSuppliers = (): Supplier[] => [
 ];
 
 export default function PremiumSuppliersSection({ products, suppliers }: PremiumSuppliersSectionProps) {
+  const { t } = useTranslation();
   const router = useRouter();
   const [selectedSupplier, setSelectedSupplier] = useState(0);
   const [realSuppliers, setRealSuppliers] = useState<Supplier[]>([]);
@@ -262,11 +264,11 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
             style={styles.premiumBadge}
           >
             <Ionicons name="diamond" size={20} color="#fff" />
-            <Text style={styles.premiumText}>PREMIUM</Text>
+            <Text style={styles.premiumText}>{t('app.premium.badgePremium')}</Text>
           </LinearGradient>
           <View>
-            <Text style={styles.title}>Fournisseurs Vérifiés</Text>
-            <Text style={styles.subtitle}>Partenaire d'affaires certifiés A2Express</Text>
+            <Text style={styles.title}>{t('app.premium.suppliersVerifiedTitle')}</Text>
+            <Text style={styles.subtitle}>{t('app.premium.suppliersVerifiedSubtitle')}</Text>
           </View>
         </View>
         
@@ -275,7 +277,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
           style={styles.exploreButton}
           onPress={navigateToSuppliers}
         >
-          <Text style={styles.exploreText}>Explorer</Text>
+          <Text style={styles.exploreText}>{t('app.premium.explore')}</Text>
           <Ionicons name="arrow-forward" size={16} color="#ff6a00" />
         </TouchableOpacity>
       </View>
@@ -284,22 +286,22 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
       <View style={styles.statsContainer}>
         <View style={styles.statItem}>
           <Text style={styles.statNumber}>{displaySuppliers.length}+</Text>
-          <Text style={styles.statLabel}>Fournisseurs</Text>
+          <Text style={styles.statLabel}>{t('app.premium.statSuppliers')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statNumber}>98%</Text>
-          <Text style={styles.statLabel}>Taux Réponse</Text>
+          <Text style={styles.statLabel}>{t('app.premium.statResponseRate')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statNumber}>24h</Text>
-          <Text style={styles.statLabel}>Livraison Express</Text>
+          <Text style={styles.statLabel}>{t('app.premium.expressDeliveryTitle')}</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statNumber}>100%</Text>
-          <Text style={styles.statLabel}>Garantie Qualité</Text>
+          <Text style={styles.statLabel}>{t('app.premium.statQualityGuarantee')}</Text>
         </View>
       </View>
 
@@ -373,7 +375,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
                       {displaySuppliers[selectedSupplier].rating || 'Nouveau'}
                     </Text>
                     <Text style={styles.memberSince}>
-                      Membre depuis {displaySuppliers[selectedSupplier].memberSince}
+                      {t('app.premium.memberSince', { date: displaySuppliers[selectedSupplier].memberSince })}
                     </Text>
                   </View>
                 </View>
@@ -384,13 +386,13 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
                   <Text style={styles.statMiniNumber}>
                     {displaySuppliers[selectedSupplier].totalProducts}
                   </Text>
-                  <Text style={styles.statMiniLabel}>Produits</Text>
+                  <Text style={styles.statMiniLabel}>{t('app.premium.statProducts')}</Text>
                 </View>
                 <View style={styles.statMini}>
                   <Text style={styles.statMiniNumber}>
                     {displaySuppliers[selectedSupplier].responseRate}%
                   </Text>
-                  <Text style={styles.statMiniLabel}>Réponse</Text>
+                  <Text style={styles.statMiniLabel}>{t('app.premium.miniResponse')}</Text>
                 </View>
               </View>
             </View>
@@ -403,7 +405,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
                 </Text>
                 {displaySuppliers[selectedSupplier].employees && (
                   <Text style={styles.employees}>
-                    👥 {displaySuppliers[selectedSupplier].employees} employés
+                    👥 {t('app.premium.employees', { count: displaySuppliers[selectedSupplier].employees })}
                   </Text>
                 )}
               </View>
@@ -414,7 +416,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
               {displaySuppliers[selectedSupplier].isVerified && (
                 <View style={styles.verifiedBadge}>
                   <Ionicons name="shield-checkmark" size={12} color="#4CAF50" />
-                  <Text style={styles.verifiedText}>Vérifié Assma</Text>
+                  <Text style={styles.verifiedText}>{t('app.premium.verifiedAssma')}</Text>
                 </View>
               )}
               <View style={styles.levelBadge}>
@@ -432,7 +434,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
 
             {/* PRODUITS PRINCIPAUX */}
             <View style={styles.productsSection}>
-              <Text style={styles.productsTitle}>Produits Principaux</Text>
+              <Text style={styles.productsTitle}>{t('app.premium.mainProductsTitle')}</Text>
               <View style={styles.productsGrid}>
                 {displaySuppliers[selectedSupplier].mainProducts.map((product, index) => (
                   <View key={index} style={styles.productTag}>
@@ -453,7 +455,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
                   style={styles.contactGradient}
                 >
                   <Ionicons name="chatbubble-ellipses" size={16} color="#fff" />
-                  <Text style={styles.contactText}>Contacter</Text>
+                  <Text style={styles.contactText}>{t('app.premium.contact')}</Text>
                 </LinearGradient>
               </TouchableOpacity>
               
@@ -462,7 +464,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
                 onPress={() => navigateToCompanyProfile(displaySuppliers[selectedSupplier])}
               >
                 <Ionicons name="storefront" size={16} color="#ff6a00" />
-                <Text style={styles.visitStoreText}>Visiter la Boutique</Text>
+                <Text style={styles.visitStoreText}>{t('app.premium.visitStore')}</Text>
               </TouchableOpacity>
             </View>
           </LinearGradient>
@@ -471,7 +473,7 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
 
       {/* GARANTIES ASSMA */}
       <View style={styles.guaranteesContainer}>
-        <Text style={styles.guaranteesTitle}>Garanties A2Express</Text>
+        <Text style={styles.guaranteesTitle}>{t('app.premium.guaranteesTitle')}</Text>
         <View style={styles.guaranteesGrid}>
           <View style={styles.guaranteeItem}>
             <LinearGradient
@@ -480,8 +482,8 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
             >
               <Ionicons name="shield-checkmark" size={20} color="#fff" />
             </LinearGradient>
-            <Text style={styles.guaranteeTitle}>Qualité Vérifiée</Text>
-            <Text style={styles.guaranteeDesc}>Inspection avant expédition</Text>
+            <Text style={styles.guaranteeTitle}>{t('app.premium.guaranteeQualityTitle')}</Text>
+            <Text style={styles.guaranteeDesc}>{t('app.premium.guaranteeQualityDesc')}</Text>
           </View>
           
           <View style={styles.guaranteeItem}>
@@ -491,8 +493,8 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
             >
               <Ionicons name="rocket" size={20} color="#fff" />
             </LinearGradient>
-            <Text style={styles.guaranteeTitle}>Livraison Express</Text>
-            <Text style={styles.guaranteeDesc}>Délais garantis</Text>
+            <Text style={styles.guaranteeTitle}>{t('app.premium.expressDeliveryTitle')}</Text>
+            <Text style={styles.guaranteeDesc}>{t('app.premium.guaranteeDeliveryDesc')}</Text>
           </View>
         </View>
       </View>

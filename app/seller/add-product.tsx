@@ -12,6 +12,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import AddAttributeModal from "@/components/AddAttributeModal"; // Changé ici : import default
 import { db, storage } from '@/config/firebase';
+import { computeImageHashes } from '@/utils/imageHash';
+import { buildFirestoreProductI18nFields } from '@/utils/productLocale';
 
 // Types pour les attributs dynamiques
 type Attribute = {
@@ -109,6 +111,45 @@ const generateSku = (productName: string, combination: { [key: string]: string }
   const base = productName.trim().toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9-]/g, '').substring(0, 5);
   const values = Object.values(combination).map(v => v.trim().toUpperCase().substring(0, 3)).join('-');
   return `${base}-${values}-${Date.now().toString().slice(-4)}`;
+};
+
+const normalizeWeightInput = (rawWeight: string): { raw: string; numeric: number } => {
+  const raw = rawWeight.trim();
+  if (!raw) {
+    return { raw: '', numeric: 0 };
+  }
+
+  const normalized = raw
+    .replace(/\s*kg\s*$/i, '')
+    .replace(',', '.')
+    .trim();
+  const parsed = Number.parseFloat(normalized);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { raw, numeric: 0 };
+  }
+
+  return { raw, numeric: parsed };
+};
+
+const normalizeVolumeInput = (rawVolume: string): { raw: string; numeric: number } => {
+  const raw = rawVolume.trim();
+  if (!raw) {
+    return { raw: '0', numeric: 0 };
+  }
+
+  const normalized = raw
+    .replace(/\s*cbm\s*$/i, '')
+    .replace(/\s*m3\s*$/i, '')
+    .replace(',', '.')
+    .trim();
+  const parsed = Number.parseFloat(normalized);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return { raw, numeric: 0 };
+  }
+
+  return { raw: normalized, numeric: parsed };
 };
 
 export default function AddProductScreen() {
@@ -313,8 +354,15 @@ export default function AddProductScreen() {
         category: productData.categoryName || '',
         stock: productData.stockQuantity?.toString() || '10',
         sku: productData.specifications?.modelNumber || '',
-        weight: productData.specifications?.weight || '',
+        weight:
+          productData.specifications?.weight?.toString?.() ||
+          productData.weight?.toString?.() ||
+          '',
         dimensions: productData.specifications?.dimensions || '',
+        volume:
+          productData.specifications?.volume?.toString?.() ||
+          productData.volume?.toString?.() ||
+          '0',
         isActive: productData.isActive ?? true,
         deliveryTime: productData.deliveryTime || '3-5 jours',
         minOrder: productData.minOrder?.toString() || '1',
@@ -420,7 +468,7 @@ export default function AddProductScreen() {
         setCompanies(companiesList);
       } catch (error) {
         console.error("❌ Erreur lors de la récupération des entreprises:", error);
-        Alert.alert('Erreur', 'Impossible de charger la liste des entreprises');
+        Alert.alert('Erreur', 'Impossible de charger la liste des fournisseurs');
       }
     };
     
@@ -591,7 +639,7 @@ export default function AddProductScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
         allowsMultipleSelection: true,
@@ -639,7 +687,7 @@ export default function AddProductScreen() {
     }
 
     if (!selectedCompany) {
-      Alert.alert('Erreur', 'Veuillez sélectionner l\'entreprise propriétaire de ce produit');
+      Alert.alert('Erreur', 'Veuillez sélectionner le fournisseur propriétaire de ce produit');
       return;
     }
 
@@ -671,6 +719,7 @@ export default function AddProductScreen() {
 
       console.log(`🔥 Upload ${images.length} image(s)...`);
       const uploadedImageUrls = await uploadImagesToFirebase(images, user.uid);
+      const imageHashes = await computeImageHashes(images);
       
       clearInterval(progressInterval);
       setUploadProgress(100);
@@ -699,20 +748,35 @@ export default function AddProductScreen() {
           values: attr.values,
         }));
 
-      if (!selectedCompany?.id) {
+      const resolvedSellerUid =
+        userRole === 'admin' ? selectedCompany?.uid : user?.uid;
+
+      if (!selectedCompany?.id || !resolvedSellerUid) {
         Alert.alert("Erreur", "Impossible de déterminer le vendeur");
         return;
       }
       
       // ✅ PRÉPARATION DES DONNÉES DU PRODUIT
+      const titleTrim = form.title.trim();
+      const descriptionTrim =
+        form.description.trim() || `Découvrez notre produit ${titleTrim}`;
+      const normalizedWeight = normalizeWeightInput(form.weight);
+      const normalizedVolume = normalizeVolumeInput(form.volume);
+
       const productData = {
         id: isEditMode ? productId : "", 
         
-        name: form.title.trim(),
-        nameLower: form.title.trim().toLowerCase(),
+        name: titleTrim,
+        nameLower: titleTrim.toLowerCase(),
         supplier: selectedCompany.name,
         supplierLower: selectedCompany.name.toLowerCase(),
-        description: form.description.trim() || `Découvrez notre produit ${form.title.trim()}`,
+        description: descriptionTrim,
+        /** Cartes + defaultLocale : l’app affiche `localizedNames[lang]` via `getLocalizedProductText`. */
+        ...buildFirestoreProductI18nFields({
+          sourceLocale: 'fr',
+          name: titleTrim,
+          description: descriptionTrim,
+        }),
         price: finalPrice,
         basePrice: basePrice,
         originalPrice: form.originalPrice ? Number(form.originalPrice) : null,
@@ -722,6 +786,8 @@ export default function AddProductScreen() {
         images: uploadedImageUrls,
         mainImage: uploadedImageUrls[0],
         imageUrl: uploadedImageUrls[0],
+        imageHashes,
+        mainImageHash: imageHashes[0] || null,
         
         categoryId: await getCategoryId(form.category),
         categoryName: form.category,
@@ -729,7 +795,7 @@ export default function AddProductScreen() {
         companyId: selectedCompany.id,
         companyName: selectedCompany.name,
 
-        sellerUid: user.uid,
+        sellerUid: resolvedSellerUid,
         creatorId: user.uid,
         sellerId: selectedCompany.id,
         creatorCompanyId: selectedCompany.id,
@@ -743,8 +809,8 @@ export default function AddProductScreen() {
         },
 
         // 🚚 LOGISTIQUE & LIVRAISON (Utilisé par le système de calcul A2Express)
-        weight: Number(form.weight) || 0,
-        volume: Number(form.volume) || 0,
+        weight: normalizedWeight.numeric,
+        volume: normalizedVolume.numeric,
         dimensions: form.dimensions.trim(),
         hasFreeShipping: hasFreeShipping,
         freeShippingBadge: hasFreeShipping ? 'Livraison gratuite' : null,
@@ -774,9 +840,9 @@ export default function AddProductScreen() {
 
         specifications: {
           modelNumber: form.sku.trim() || `MODEL-${Date.now()}`,
-          weight: form.weight.trim() || '',
+          weight: normalizedWeight.raw || '',
           dimensions: form.dimensions.trim() || '',
-          volume: form.volume || '0',
+          volume: normalizedVolume.raw || '0',
         },
 
         personalization: {
@@ -831,14 +897,10 @@ export default function AddProductScreen() {
 
       } else {
         // --- MODE CRÉATION ---
-        const sellerUid = userRole === 'admin' 
-          ? selectedCompany.uid
-          : user.uid;
-
         const docRef = await addDoc(collection(db, 'products'), {
           ...productData,
           createdAt: new Date(),
-          sellerUid: sellerUid,
+          sellerUid: resolvedSellerUid,
           creatorId: user.uid,
           createdBy: userRole === 'admin' ? 'admin' : 'company'
         });
@@ -1108,7 +1170,7 @@ export default function AddProductScreen() {
         {/* SECTION ENTREPRISE */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>🏢 Entreprise / Boutique</Text>
+            <Text style={styles.sectionTitle}>🏢 Fournisseur / Boutique</Text>
             <Text style={styles.requiredLabel}>(Obligatoire)</Text>
           </View>
           
@@ -1121,7 +1183,7 @@ export default function AddProductScreen() {
             onPress={() => setShowCompanyDropdown(!showCompanyDropdown)}
           >
             <Text style={selectedCompany ? styles.pickerTextSelected : styles.pickerText}>
-              {selectedCompany ? selectedCompany.name : 'Sélectionner une entreprise'}
+              {selectedCompany ? selectedCompany.name : 'Sélectionner un fournisseur'}
             </Text>
             <Ionicons name="business" size={20} color="#FF6B00" />
           </TouchableOpacity>
@@ -1857,7 +1919,7 @@ export default function AddProductScreen() {
           </View>
 
           {/* Affichage dynamique du volume calculé */}
-          {parseFloat(form.volume || '0') > 0 && (
+          {normalizeVolumeInput(form.volume).numeric > 0 && (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, marginLeft: 4 }}>
               <Ionicons name="cube-outline" size={14} color="#FF6A00" />
               <Text style={{ fontSize: 12, color: '#FF6A00', fontWeight: '600', marginLeft: 4 }}>
@@ -1914,7 +1976,7 @@ export default function AddProductScreen() {
             <Text style={styles.summaryValue}>{form.title || 'Non défini'}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Entreprise:</Text>
+            <Text style={styles.summaryLabel}>Fournisseur :</Text>
             <Text style={styles.summaryValue}>{selectedCompany?.name || 'Non sélectionnée'}</Text>
           </View>
           <View style={styles.summaryRow}>

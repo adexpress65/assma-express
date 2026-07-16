@@ -1,7 +1,7 @@
 ﻿{
   "homeScreen": {
-    "defaultProductName": "Assma Express 商品",
-    "defaultSupplier": "Assma Express",
+    "defaultProductName": "A2Express 商品",
+    "defaultSupplier": "A2Express",
     "defaultDeliveryTime": "3-5日",
     "defaultCategory": "ファッション＆アクセサリー",
     "searchLog": "🔍 検索:",
@@ -14,7 +14,7 @@
     "totalProducts": "📊 Firestoreの商品総数: {{count}}",
     "results": "📈 結果:\n- 注目商品: {{featured}}\n- トレンド商品: {{trending}}\n- 特別オファー: {{specialOffers}}\n- 新着商品: {{newArrivals}}\n- 産業機械: {{industrial}}\n- プレミアムサプライヤー: {{premium}}\n- 人気商品: {{popular}}\n- 全商品: {{all}}\n- 商品を持つサプライヤー: {{suppliers}}",
     "fallbackProductName": "シューズモデル{{number}}",
-    "fallbackSupplier": "Assma Express",
+    "fallbackSupplier": "A2Express",
     "firestoreError": "❌ FIRESTOREエラー:",
     "productNavigationLog": "👉 商品へのナビゲーション:",
     "featuredProductsTitle": "注目商品",
@@ -141,7 +141,9 @@
     "gardening": "園芸"
   },
   "footer": {
-    "email": "info@assma-expresse.com",
-    "copyright": "© {{year}} Assma Express"
+    "email": "adexpress65.app@gmail.com",
+    "phonePrimary": "+22370030384",
+    "phoneSecondary": "+22360030384",
+    "copyright": "© {{year}} A2Express"
   }
 }

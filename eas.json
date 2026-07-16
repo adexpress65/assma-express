@@ -7,19 +7,37 @@
       "developmentClient": true,
       "distribution": "internal",
       "resourceClass": "default",
-      "channel": "development"
+      "channel": "development",
+      "environment": "development",
+      "env": {
+        "EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL": "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     },
     "preview": {
       "android": {
         "buildType": "apk"
       },
-      "channel": "preview"
+      "channel": "preview",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL": "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
       },
-      "channel": "production"
+      "channel": "production",
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL": "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

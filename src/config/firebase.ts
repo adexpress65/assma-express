@@ -37,9 +37,20 @@ let firestoreDb;
 try {
   // On tente d'initialiser avec les options d'optimisation réseau
   firestoreDb = initializeFirestore(app, {
-    // Force HTTP au lieu de WebSockets (beaucoup plus stable sur les réseaux 3G/4G instables)
+    // Force long polling (souvent plus fiable que WebChannel sur RN / réseaux instables).
+    // Un log "WebChannelConnection ... transport errored" peut encore apparaître une fois :
+    // le SDK retente automatiquement ; ce n’est en général pas une panne définitive.
     experimentalForceLongPolling: true,
-    
+
+    // Délai max d’une requête long-polling (SDK : 5–30 s). Sur 4G / réseaux lents, la valeur
+    // par défaut peut couper trop tôt ; 30 s limite les faux « offline » côté transport.
+    // NB : le message « Backend didn't respond within 10 seconds » vient d’un autre minuteur
+    // interne (état « en ligne ») : il n’est pas exposé dans l’API ; si le réseau est vraiment
+    // coupé ou filtré (firewall, DNS), le client passe en mode hors ligne puis se resynchronise.
+    experimentalLongPollingOptions: {
+      timeoutSeconds: 30,
+    },
+
     // Désactive les flux de lecture qui peuvent causer des erreurs sur certains Android
     useFetchStreams: false,
     

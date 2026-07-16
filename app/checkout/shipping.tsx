@@ -9,9 +9,31 @@ import {
   SafeAreaView,
   ActivityIndicator
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
+import { isZeroDollarsProduct } from '../../src/utils/zeroDollarsShop';
+import { useCheckout } from '../../src/contexts/CheckoutContext';
+import type { CartSummary } from '../../src/types/cart';
+import type { ProductSpecifications } from '../../src/types/product';
+
+/** Poids unitaire (kg) depuis la fiche / panier — chaîne ou nombre. */
+function parseSpecKg(raw: unknown): number {
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw >= 0 ? raw : 0;
+  const s = String(raw).trim().replace(/\s*kg\s*$/i, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/** Volume (CBM) — chaîne ou nombre. */
+function parseSpecM3(raw: unknown): number {
+  if (raw == null || raw === '') return 0;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw >= 0 ? raw : 0;
+  const s = String(raw).trim().replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
 
 const COLORS = {
   primary: '#FF6A00',
@@ -35,12 +57,7 @@ interface OrderItem {
   imageUrl?: string;
   companyName?: string;
   hasFreeShipping?: boolean;
-  // Ajoute cette section :
-  specifications?: {
-    weight?: number;
-    volume?: number;
-    modelNumber?: string;
-  };
+  specifications?: ProductSpecifications;
 }
 
 interface ShippingOption {
@@ -63,18 +80,17 @@ interface OrderSummary {
 
 export default function CheckoutShipping() {
   const router = useRouter();
-  const params = useLocalSearchParams();
   const { formatPrice } = useCurrency();
+  const { orderData, setShipping, setSummary } = useCheckout();
 
   const [selectedShipping, setSelectedShipping] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [orderData, setOrderData] = useState<any>(null);
   const [selectedItems, setSelectedItems] = useState<OrderItem[]>([]);
   const [totalQuantity, setTotalQuantity] = useState(0);
   const [totalWeight, setTotalWeight] = useState(0);
   const [totalVolume, setTotalVolume] = useState(0);
   const [isWholesaleOrder, setIsWholesaleOrder] = useState(false);
-  const [summary, setSummary] = useState<OrderSummary>({
+  const [summary, setSummaryLocal] = useState<CartSummary>({
     subtotal: 0,
     shipping: 0,
     discount: 0,
@@ -82,61 +98,74 @@ export default function CheckoutShipping() {
   });
   const [hasFreeShippingEligible, setHasFreeShippingEligible] = useState(false);
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
+  const computeItemsSubtotal = (items: OrderItem[]) =>
+    items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
 
-  // Chargement et calcul des données
   useEffect(() => {
     const loadOrderData = async () => {
       try {
-        if (!params.orderData) {
+        if (!orderData) {
           Alert.alert('Erreur', 'Aucune donnée de commande reçue. Retour au panier.');
           router.replace('/cart');
           return;
         }
 
-        const parsedData = JSON.parse(params.orderData as string);
-
-        if (!parsedData.items || parsedData.items.length === 0) {
+        if (!orderData.items || orderData.items.length === 0) {
           Alert.alert('Panier vide', 'Aucun article sélectionné');
           router.replace('/cart');
           return;
         }
 
-        setOrderData(parsedData);
-        setSelectedItems(parsedData.items || []);
-        setSummary(parsedData.summary || {
+        setSelectedItems(orderData.items);
+        const computedSubtotal = computeItemsSubtotal(orderData.items);
+        const incomingSummary = orderData.summary ?? {
           subtotal: 0,
           shipping: 0,
           discount: 0,
           total: 0
-        });
+        };
+        const normalizedSummary: CartSummary = {
+          subtotal: computedSubtotal,
+          shipping: Number(incomingSummary.shipping) || 0,
+          discount: 0,
+          total: computedSubtotal + (Number(incomingSummary.shipping) || 0),
+        };
+        setSummaryLocal(normalizedSummary);
 
-        // Calculs généraux
-        const quantity = parsedData.items.reduce((total: number, item: OrderItem) =>
-          total + item.quantity, 0);
+        const hasGap =
+          Math.abs((Number(incomingSummary.subtotal) || 0) - normalizedSummary.subtotal) > 1 ||
+          Math.abs((Number(incomingSummary.total) || 0) - normalizedSummary.total) > 1 ||
+          (Number(incomingSummary.discount) || 0) !== 0;
+        if (hasGap) {
+          setSummary(normalizedSummary);
+        }
+
+        const quantity = orderData.items.reduce((total, item) => total + item.quantity, 0);
         setTotalQuantity(quantity);
+        setIsWholesaleOrder(quantity >= 10 || orderData.items.some((item) => item.quantity >= 10));
 
-        setIsWholesaleOrder(quantity >= 10 ||
-          parsedData.items.some((item: OrderItem) => item.quantity >= 10));
+        const weight = orderData.items.reduce((total, item) => {
+          const itemWeight = parseSpecKg(item.specifications?.weight);
+          return total + item.quantity * itemWeight;
+        }, 0);
+        setTotalWeight(weight);
 
-// Remplace cette partie dans ton premier useEffect :
-const weight = parsedData.items.reduce((total: number, item: OrderItem) => {
-  // On vérifie d'abord dans specifications, puis à la racine, sinon 0
-  const itemWeight = item.specifications?.weight ?? (item as any).weight ?? 0;
-  return total + (item.quantity * Number(itemWeight));
-}, 0);
-setTotalWeight(weight);
+        const volume = orderData.items.reduce((total, item) => {
+          const itemVolume = parseSpecM3(item.specifications?.volume);
+          return total + item.quantity * itemVolume;
+        }, 0);
+        setTotalVolume(volume);
 
-const volume = parsedData.items.reduce((total: number, item: OrderItem) => {
-  // Idem pour le volume
-  const itemVolume = item.specifications?.volume ?? (item as any).volume ?? 0;
-  return total + (item.quantity * Number(itemVolume));
-}, 0);
-setTotalVolume(volume);
-
-        // ✅ Détection correcte du champ Firestore "hasFreeShipping"
-        const freeEligible = parsedData.items.some(
-          (item: OrderItem) => item.hasFreeShipping === true || item.price === 0
-        );
+        const freeEligible = orderData.items.some((item) => {
+          const isZero = isZeroDollarsProduct({
+            price: item.price,
+            companyName: item.companyName,
+            supplier: item.seller,
+            seller: item.seller,
+            name: item.name,
+          });
+          return item.hasFreeShipping === true && !isZero;
+        });
         setHasFreeShippingEligible(freeEligible);
 
       } catch (error) {
@@ -148,7 +177,7 @@ setTotalVolume(volume);
     };
 
     loadOrderData();
-  }, [params.orderData]);
+  }, [orderData]);
 
   // Construction dynamique des options de livraison
 // Dans le useEffect qui construit shippingOptions
@@ -231,32 +260,24 @@ setTotalVolume(volume);
       return;
     }
 
-    const newTotal = summary.subtotal + selectedOption.price - summary.discount;
-
-    const completeOrderData = {
-      ...orderData,
-      items: selectedItems,
-      shipping: {
-        method: selectedShipping,
-        option: selectedOption,
-        cost: selectedOption.price,
-        details: `${selectedOption.name} - ${selectedOption.deliveryTime}`
-      },
-      summary: {
-        ...summary,
-        shipping: selectedOption.price,
-        total: newTotal
-      },
-      selectedItems,
-      timestamp: new Date().toISOString()
+    const subtotal = computeItemsSubtotal(selectedItems);
+    const normalizedSummary: CartSummary = {
+      subtotal,
+      shipping: Number(selectedOption.price) || 0,
+      discount: 0,
+      total: subtotal + (Number(selectedOption.price) || 0),
     };
+    setSummary(normalizedSummary);
+    setSummaryLocal(normalizedSummary);
 
-    router.push({
-      pathname: '/checkout/payment',
-      params: {
-        orderData: JSON.stringify(completeOrderData)
-      }
+    setShipping({
+      method: selectedShipping,
+      option: selectedOption,
+      cost: selectedOption.price,
+      details: `${selectedOption.name} - ${selectedOption.deliveryTime}`,
     });
+
+    router.push({ pathname: '/checkout/payment' });
   };
 
   const renderShippingCalculations = () => (
@@ -375,7 +396,7 @@ setTotalVolume(volume);
             <View style={[styles.stepIndicator, styles.stepActive]}>
               <Text style={styles.stepNumber}>2</Text>
             </View>
-            <Text style={styles.stepTextActive}>Livraison</Text>
+            <Text style={styles.stepTextActive}>À confirmer</Text>
           </View>
           <View style={styles.progressLine} />
           <View style={styles.progressStep}>
@@ -455,8 +476,6 @@ setTotalVolume(volume);
                   {isFree && option.explanation && (
                     <Text style={styles.freeExplanation}>{option.explanation}</Text>
                   )}
-
-                  <Text style={styles.shippingDetails}>{option.details}</Text>
                 </View>
 
                 <View style={styles.shippingPriceContainer}>
@@ -595,7 +614,6 @@ const styles = StyleSheet.create({
   typeBadgeText: { fontSize: 10, fontWeight: '700' },
   shippingTime: { fontSize: 14, color: COLORS.textLight, marginBottom: 4 },
   shippingDescription: { fontSize: 12, color: COLORS.textLight, lineHeight: 16 },
-  shippingDetails: { fontSize: 11, color: COLORS.primary, fontWeight: '600' },
   freeExplanation: { fontSize: 12, color: COLORS.success, marginTop: 4, fontStyle: 'italic' },
   shippingPriceContainer: { alignItems: 'flex-end', justifyContent: 'center' },
   shippingPrice: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary },

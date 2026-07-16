@@ -2,19 +2,28 @@ import React, { useState, useEffect, useRef } from "react";
 import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { 
-  Platform, Modal, View, Text, Animated, StyleSheet, 
-  Dimensions, TouchableOpacity, Alert
+import {
+  Platform,
+  Modal,
+  View,
+  Text,
+  Animated,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+  InteractionManager,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, query, where, getDocs, limit, doc, updateDoc } from 'firebase/firestore';
-import { db, auth } from '../../src/config/firebase'; // Assure-toi d'importer auth
-import * as Notifications from 'expo-notifications'; // Import indispensable
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { db } from '../../src/config/firebase';
+import { getCategories } from '../../src/services/firebase/categoriesService';
+import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function TabsLayout() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -26,46 +35,8 @@ export default function TabsLayout() {
   const scaleAnim = useRef(new Animated.Value(0.8)).current; 
 
 useEffect(() => {
-    // --- 1. LOGIQUE DE NOTIFICATION ---
-    const setupNotifications = async () => {
-      try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        if (finalStatus !== 'granted') return;
+    // Push token : uniquement dans app/_layout.tsx (AppInitializer) pour éviter doublons et Alert dev.
 
-        // Récupération du token Expo
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-  projectId: "bb3399ba-97b7-4707-80eb-b524775df88a" 
-});
-        const token = tokenData.data;
-
-        // On affiche le token dans le terminal de ton PC (VS Code)
-        console.log("******************************************");
-        console.log("TON TOKEN EXPO :", token);
-        console.log("******************************************");
-
-        // Démo uniquement : une Alert bloque l’UI et décourage les utilisateurs
-        if (__DEV__) {
-          Alert.alert("Token généré (dev)", token, [{ text: "OK" }]);
-        }
-
-        // Sauvegarde automatique dans Firestore
-        const user = auth.currentUser;
-        if (user) {
-          await updateDoc(doc(db, "users", user.uid), {
-            pushToken: token
-          });
-        }
-      } catch (error) {
-        console.log("Erreur setup notifications:", error);
-      }
-    };
-
-    // --- 2. LOGIQUE VENTE FLASH (Ton code existant) ---
     const prepareFlashSale = async () => {
       try {
         const q = query(
@@ -107,8 +78,10 @@ useEffect(() => {
       }
     };
 
-    setupNotifications();
-    prepareFlashSale();
+    /** Ne pas concurrencer la première ouverture d’onglet / transition (style apps type marketplace). */
+    const task = InteractionManager.runAfterInteractions(() => {
+      void prepareFlashSale();
+    });
 
     Animated.loop(
       Animated.sequence([
@@ -117,6 +90,15 @@ useEffect(() => {
       ])
     ).start();
 
+    return () => task.cancel();
+  }, []);
+
+  /** Précharge la liste des catégories en mémoire pour que l’onglet Catégories réponde au 1er tap. */
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      void getCategories().catch(() => {});
+    });
+    return () => task.cancel();
   }, []);
 
   const handleClose = () => {
@@ -136,8 +118,8 @@ useEffect(() => {
             <LinearGradient colors={['#FF4444', '#CC0000']} style={styles.modalContent}>
               <Animated.View style={{ opacity: blinkAnim, alignItems: 'center' }}>
                 <Ionicons name="flash" size={50} color="#FFD700" />
-                <Text style={styles.megaTitle}>VENTE FLASH !</Text>
-                <Text style={styles.megaSubtitle}>EXCLUSIVITÉS À MOINS DE 1000F</Text>
+                <Text style={styles.megaTitle}>{t('app.flashModal.title')}</Text>
+                <Text style={styles.megaSubtitle}>{t('app.flashModal.subtitle')}</Text>
               </Animated.View>
               <View style={styles.productRow}>
                 {products.map((p, i) => (
@@ -159,10 +141,10 @@ useEffect(() => {
                 style={styles.actionButton}
                 onPress={() => { handleClose(); router.push("/flash-deals"); }}
               >
-                <Text style={styles.actionText}>EN PROFITER</Text>
+                <Text style={styles.actionText}>{t('app.flashModal.cta')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.skipBtn} onPress={handleClose}>
-                <Text style={styles.skipText}>Plus tard</Text>
+                <Text style={styles.skipText}>{t('app.flashModal.later')}</Text>
               </TouchableOpacity>
             </LinearGradient>
           </Animated.View>
@@ -181,11 +163,46 @@ useEffect(() => {
           },
         }}
       >
-        <Tabs.Screen name="index" options={{ title: "Accueil", tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} /> }} />
-        <Tabs.Screen name="categories" options={{ title: "Catégories", tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} /> }} />
-        <Tabs.Screen name="cart" options={{ title: "Panier", tabBarIcon: ({ color, size }) => <Ionicons name="cart" size={size} color={color} /> }} />
-        <Tabs.Screen name="messages" options={{ title: "Messages", tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" size={size} color={color} /> }} />
-        <Tabs.Screen name="account" options={{ title: "Compte", tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} /> }} />
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: t('app.tabs.home'),
+            tabBarLabel: t('app.tabs.home'),
+            tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="categories"
+          options={{
+            title: t('app.tabs.categories'),
+            tabBarLabel: t('app.tabs.categories'),
+            tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="cart"
+          options={{
+            title: t('app.tabs.cart'),
+            tabBarLabel: t('app.tabs.cart'),
+            tabBarIcon: ({ color, size }) => <Ionicons name="cart" size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="messages"
+          options={{
+            title: t('app.tabs.messages'),
+            tabBarLabel: t('app.tabs.messages'),
+            tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" size={size} color={color} />,
+          }}
+        />
+        <Tabs.Screen
+          name="account"
+          options={{
+            title: t('app.tabs.account'),
+            tabBarLabel: t('app.tabs.account'),
+            tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
+          }}
+        />
       </Tabs>
     </>
   );

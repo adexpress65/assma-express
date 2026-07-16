@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 export default function TrustBadges() {
   const badges = [
-    { icon: 'shield-check-outline', text: 'Paiement Sécurisé' },
+    { icon: 'shield-checkmark-outline', text: 'Paiement Sécurisé' },
     { icon: 'airplane-outline', text: 'Fret Assuré' },
     { icon: 'business-outline', text: 'Vendeur Vérifié' },
   ];

@@ -378,7 +378,10 @@ const statusInfo = statusConfig[order.status] || statusConfig.pending;
               <View style={styles.addressRow}>
                 <Ionicons name="location-outline" size={20} color="#6B7280" />
                 <Text style={styles.addressText}>
-                  {order.shippingAddress.street}, {order.shippingAddress.postalCode}{' '}
+                  {order.shippingAddress.street}
+                  {order.shippingAddress.postalCode
+                    ? `, ${order.shippingAddress.postalCode}`
+                    : ''}{' '}
                   {order.shippingAddress.city}, {order.shippingAddress.country}
                 </Text>
               </View>

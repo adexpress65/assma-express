@@ -65,7 +65,7 @@ interface CompanyData {
   fullAddress?: string;
   location?: string;
   
-  // Informations entreprise
+  // Profil boutique / fournisseur
   type: string;
   businessType?: string;
   description?: string;
@@ -142,7 +142,7 @@ export default function SellerDashboard() {
   });
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [recentMessages, setRecentMessages] = useState<RecentMessage[]>([]);
-  /** Bloque l’écran uniquement le temps de charger le profil entreprise (léger). */
+  /** Bloque l’écran uniquement le temps de charger le profil (léger). */
   const [loading, setLoading] = useState(true);
   /** Stats / listes : chargées après, sans bloquer tout l’écran. */
   const [statsLoading, setStatsLoading] = useState(true);
@@ -174,7 +174,7 @@ export default function SellerDashboard() {
       if (companySnap.exists()) {
         const data = companySnap.data();
         const companyData: CompanyData = {
-          name: data.name || "Mon Entreprise",
+          name: data.name || "Ma boutique",
           nameLower: data.nameLower,
           name_lower: data.name_lower,
           uid: data.uid || user.uid,
@@ -230,8 +230,8 @@ export default function SellerDashboard() {
         });
       }
     } catch (error) {
-      console.error("Erreur chargement entreprise:", error);
-      Alert.alert("Erreur", "Impossible de charger le profil entreprise");
+      console.error("Erreur chargement profil fournisseur:", error);
+      Alert.alert("Erreur", "Impossible de charger le profil fournisseur");
     } finally {
       setLoading(false);
     }
@@ -452,7 +452,7 @@ export default function SellerDashboard() {
           )}
         </TouchableOpacity>
 
-        {/* Section profil entreprise - redirige vers /suppliers/dashboard */}
+        {/* Section profil boutique / fournisseur */}
         <TouchableOpacity 
           style={styles.profileSection}
           onPress={() => router.push('/suppliers/dashboard')}
@@ -490,7 +490,7 @@ export default function SellerDashboard() {
                   </View>
                 )}
                 
-                {/* Type d'entreprise */}
+                {/* Type d’activité */}
                 {company?.type && (
                   <View style={styles.metaItem}>
                     <Ionicons name="business-outline" size={14} color="#6B7280" />
@@ -782,14 +782,14 @@ export default function SellerDashboard() {
           )}
         </View>
 
-        {/* Informations entreprise supplémentaires */}
+        {/* Informations fournisseur */}
         <View style={styles.companyDetails}>
-          <Text style={styles.companyDetailsTitle}>Informations entreprise</Text>
+          <Text style={styles.companyDetailsTitle}>Informations fournisseur</Text>
           
           {company?.businessType && (
             <View style={styles.detailRow}>
               <Ionicons name="briefcase-outline" size={18} color="#6B7280" />
-              <Text style={styles.detailLabel}>Type d'entreprise :</Text>
+              <Text style={styles.detailLabel}>Type d’activité :</Text>
               <Text style={styles.detailValue}>{company.businessType}</Text>
             </View>
           )}
@@ -823,7 +823,7 @@ export default function SellerDashboard() {
         <View style={styles.extraActions}>
           <TouchableOpacity 
             style={styles.extraActionItem}
-            onPress={() => router.push('/supplier/analytics')}
+            onPress={() => router.push('/seller/analytics')}
           >
             <Ionicons name="stats-chart" size={20} color="#3B82F6" />
             <Text style={styles.extraActionText}>Analytiques</Text>

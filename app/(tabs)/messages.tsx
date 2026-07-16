@@ -1,795 +1,1073 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
-  Image,
-  SafeAreaView,
-  ScrollView,
+  Platform,
+  Pressable,
+  RefreshControl,
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '../../src/contexts/AuthContext';
-import { useMessages } from '../../src/contexts/MessagesContext';
+} from "react-native";
+import { Image } from "expo-image";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "../../src/contexts/AuthContext";
+import {
+  useMessages,
+  type Conversation,
+} from "../../src/contexts/MessagesContext";
 
-type TabType = 'social' | 'business' | 'shopping';
+type FilterKey = "all" | "commerce" | "professional" | "social";
 
-const stories = [
-  { id: '1', name: 'Tech News', avatar: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=150', hasNewStories: true, live: true },
-  { id: '2', name: 'Gaming', avatar: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=150', hasNewStories: true, live: false },
-  { id: '3', name: 'Design', avatar: 'https://images.unsplash.com/photo-1563089145-599997674d42?w=150', hasNewStories: false, live: true },
-];
+function resolveDateLocale(lang: string | undefined): string {
+  const base = (lang || "en").split("-")[0]?.toLowerCase() || "en";
+  if (base === "fr") return "fr-FR";
+  if (base === "zh") return "zh-CN";
+  if (base === "ar") return "ar-SA";
+  return "en-US";
+}
 
-export default function HybridMessagesScreen() {
+function initialsFromTitle(title: string): string {
+  const parts = title.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+  }
+  if (parts.length === 1 && parts[0].length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return (title.slice(0, 2) || "?").toUpperCase();
+}
+
+function toDate(timestamp: unknown): Date | null {
+  if (!timestamp) return null;
+  try {
+    if (
+      typeof timestamp === "object" &&
+      timestamp !== null &&
+      "toDate" in timestamp &&
+      typeof (timestamp as { toDate: () => Date }).toDate === "function"
+    ) {
+      return (timestamp as { toDate: () => Date }).toDate();
+    }
+    return new Date(timestamp as string | number);
+  } catch {
+    return null;
+  }
+}
+
+function formatMessageTime(
+  timestamp: unknown,
+  locale: string,
+  t: TFunction,
+): string {
+  const date = toDate(timestamp);
+  if (!date) return "";
+  try {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    if (diff < 60_000) return t("app.messages.justNow");
+    if (diff < 3_600_000) {
+      return t("app.messages.minsAgo", { count: Math.floor(diff / 60_000) });
+    }
+    if (diff < 86_400_000) {
+      return date.toLocaleTimeString(locale, {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+    return date.toLocaleDateString(locale, {
+      day: "numeric",
+      month: "short",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function timeMs(timestamp: unknown): number {
+  const d = toDate(timestamp);
+  return d ? d.getTime() : 0;
+}
+
+function iconForType(type: Conversation["type"]): keyof typeof Ionicons.glyphMap {
+  switch (type) {
+    case "group":
+      return "people";
+    case "support":
+      return "headset";
+    case "order":
+    case "return":
+      return "bag-handle";
+    case "seller":
+    case "entrepreneur":
+      return "storefront";
+    case "delivery":
+      return "car";
+    case "promo":
+      return "pricetag";
+    case "channel":
+      return "radio";
+    case "premium":
+      return "diamond";
+    case "subscription":
+      return "repeat";
+    case "direct":
+    default:
+      return "chatbubble-ellipses";
+  }
+}
+
+function peerUserId(conv: Conversation, uid: string | undefined): string | null {
+  if (!uid || !conv.participants?.length) return null;
+  const other = conv.participants.find((p) => p !== uid);
+  return other ?? null;
+}
+
+function peerAvatarUrl(
+  conv: Conversation,
+  uid: string | undefined,
+): string | null {
+  const pid = peerUserId(conv, uid);
+  if (!pid || !conv.participantAvatars) return null;
+  const u = conv.participantAvatars[pid];
+  return typeof u === "string" && u.length > 0 ? u : null;
+}
+
+function peerDisplayName(
+  conv: Conversation,
+  uid: string | undefined,
+): string | null {
+  const pid = peerUserId(conv, uid);
+  if (!pid || !conv.participantNames) return null;
+  const n = conv.participantNames[pid];
+  return typeof n === "string" && n.trim() ? n.trim() : null;
+}
+
+export default function MessagesTabScreen() {
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
-  const { conversations, loading, refreshConversations } = useMessages();
+  const {
+    conversations,
+    loading,
+    refreshConversations,
+    hasMoreConversations,
+    loadingMoreConversations,
+    loadMoreConversations,
+    deleteConversation,
+  } = useMessages();
   const insets = useSafeAreaInsets();
 
-  const [activeTab, setActiveTab] = useState<TabType>('business');
-  const [searchQuery, setSearchQuery] = useState('');
+  const dateLocale = useMemo(() => resolveDateLocale(i18n.language), [i18n.language]);
+
+  const filters = useMemo(
+    () =>
+      [
+        { key: "all" as const, label: t("app.messages.filterAll"), types: [] as Conversation["type"][] },
+        {
+          key: "commerce" as const,
+          label: t("app.messages.filterCommerce"),
+          types: ["order", "delivery", "return", "promo", "subscription"] as Conversation["type"][],
+        },
+        {
+          key: "professional" as const,
+          label: t("app.messages.filterProfessional"),
+          types: ["seller", "support", "premium", "entrepreneur"] as Conversation["type"][],
+        },
+        {
+          key: "social" as const,
+          label: t("app.messages.filterSocial"),
+          types: ["direct", "group", "channel"] as Conversation["type"][],
+        },
+      ] satisfies { key: FilterKey; label: string; types: Conversation["type"][] }[],
+    [t],
+  );
+
+  const [filter, setFilter] = useState<FilterKey>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
-  const filterConversations = useMemo(() => {
-    return (types: string[]) =>
-      conversations.filter((conversation) => {
-        const inTab = types.includes(conversation.type);
-        if (!inTab) {
-          return false;
-        }
+  const sortedConversations = useMemo(() => {
+    return [...conversations].sort(
+      (a, b) => timeMs(b.lastMessageTime) - timeMs(a.lastMessageTime),
+    );
+  }, [conversations]);
 
-        if (!normalizedSearch) {
-          return true;
-        }
+  const activeTypes = useMemo(() => {
+    const f = filters.find((x) => x.key === filter);
+    return f?.types ?? [];
+  }, [filter, filters]);
 
-        const haystack = `${conversation.title || ''} ${conversation.lastMessage || ''} ${conversation.type || ''}`.toLowerCase();
-        return haystack.includes(normalizedSearch);
-      });
-  }, [conversations, normalizedSearch]);
-
-  const socialConversations = useMemo(
-    () => filterConversations(['group', 'channel', 'direct']),
-    [filterConversations]
-  );
-  const businessConversations = useMemo(
-    () => filterConversations(['support', 'seller', 'entrepreneur']),
-    [filterConversations]
-  );
-  const shoppingConversations = useMemo(
-    () => filterConversations(['order', 'promo']),
-    [filterConversations]
-  );
-
-  const unreadConversationCount = useMemo(
-    () => conversations.filter((item) => (item.unreadCount?.[user?.uid || ''] || 0) > 0).length,
-    [conversations, user?.uid]
-  );
-
-  const activeConversations = useMemo(() => {
-    if (activeTab === 'social') {
-      return socialConversations;
-    }
-    if (activeTab === 'shopping') {
-      return shoppingConversations;
-    }
-    return businessConversations;
-  }, [activeTab, businessConversations, shoppingConversations, socialConversations]);
-
-  const navigateToConversation = (conversation: any) => {
-    if (!conversation?.id) {
-      return;
-    }
-    router.push(`/conversation/${conversation.id}`);
-  };
-
-  const startCall = (type: 'audio' | 'video', conversationId: string) => {
-    if (!user) {
-      Alert.alert('Connexion requise', 'Veuillez vous connecter');
-      return;
-    }
-
-    const roomId = `call-${conversationId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    router.push({
-      pathname: '/call/webrtc/[roomId]',
-      params: { roomId, type, conversationId, userId: user.uid },
+  const filteredConversations = useMemo(() => {
+    return sortedConversations.filter((c) => {
+      if (activeTypes.length > 0 && !activeTypes.includes(c.type)) {
+        return false;
+      }
+      if (!normalizedSearch) return true;
+      const peer = peerDisplayName(c, user?.uid) || "";
+      const haystack =
+        `${c.title || ""} ${c.lastMessage || ""} ${peer} ${c.type || ""}`.toLowerCase();
+      return haystack.includes(normalizedSearch);
     });
-  };
+  }, [sortedConversations, activeTypes, normalizedSearch, user?.uid]);
 
-  const startLiveStream = (channelName?: string) => {
-    if (!user) {
-      Alert.alert('Connexion requise', 'Veuillez vous connecter');
-      return;
-    }
+  const unreadTotal = useMemo(
+    () =>
+      conversations.reduce(
+        (n, c) => n + (c.unreadCount?.[user?.uid || ""] || 0),
+        0,
+      ),
+    [conversations, user?.uid],
+  );
 
-    const roomId = `live-${channelName || 'general'}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    router.push({
-      pathname: '/call/webrtc/[roomId]',
-      params: {
-        roomId,
-        type: 'video',
-        mode: 'live',
-        isHost: 'true',
-        userId: user.uid,
-        userName: user.displayName || 'Utilisateur',
-        title: channelName || 'Live A2Express',
-      },
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    refreshConversations().finally(() => setRefreshing(false));
+  }, [refreshConversations]);
+
+  const selectedCount = useMemo(
+    () => Object.keys(selectedIds).filter((k) => selectedIds[k]).length,
+    [selectedIds],
+  );
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds({});
+  }, []);
+
+  const toggleRowSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      if (next[id]) delete next[id];
+      else next[id] = true;
+      return next;
     });
-  };
+  }, []);
 
-  const joinLiveStream = (storyId: string) => {
-    if (!user) {
-      Alert.alert('Connexion requise', 'Veuillez vous connecter');
-      return;
-    }
+  const confirmBulkDelete = useCallback(() => {
+    if (selectedCount === 0) return;
+    Alert.alert(
+      t("app.messages.deleteBulkTitle"),
+      t("app.messages.deleteBulkMessage", { count: selectedCount }),
+      [
+        { text: t("app.messages.cancel"), style: "cancel" },
+        {
+          text: t("app.messages.deleteBulkAction"),
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              const ids = Object.keys(selectedIds).filter((k) => selectedIds[k]);
+              let failures = 0;
+              for (const id of ids) {
+                try {
+                  await deleteConversation(id, { suppressErrorAlert: true });
+                } catch {
+                  failures += 1;
+                }
+              }
+              exitSelectMode();
+              if (failures > 0) {
+                Alert.alert(
+                  t("app.messages.deleteDone"),
+                  t("app.messages.deletePartial", {
+                    ok: ids.length - failures,
+                    fail: failures,
+                  }),
+                );
+              } else {
+                Alert.alert(t("app.messages.deleteDone"), t("app.messages.deleteAllOk"));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [selectedCount, selectedIds, deleteConversation, exitSelectMode, t]);
 
-    router.push({
-      pathname: '/call/webrtc/[roomId]',
-      params: {
-        roomId: `live-${storyId}`,
-        type: 'video',
-        mode: 'live',
-        isHost: 'false',
-        userId: user.uid,
-        userName: user.displayName || 'Spectateur',
-      },
-    });
-  };
+  const openConversation = useCallback(
+    (c: Conversation) => {
+      if (!c?.id) return;
+      router.push(`/conversation/${c.id}`);
+    },
+    [router],
+  );
 
-  const createNewConversation = (type: string = 'direct') => {
-    try {
-      if (type === 'entrepreneur' || type === 'seller') {
-        router.push('/search-entrepreneurs');
+  const onRowPress = useCallback(
+    (c: Conversation) => {
+      if (selectMode) {
+        toggleRowSelect(c.id);
         return;
       }
+      openConversation(c);
+    },
+    [selectMode, toggleRowSelect, openConversation],
+  );
 
-      router.push({
-        pathname: '/search-users',
-        params: { type },
+  const onRowLongPress = useCallback(
+    (c: Conversation) => {
+      if (!c?.id) return;
+      setSelectMode(true);
+      setSelectedIds((prev) => ({ ...prev, [c.id]: true }));
+    },
+    [],
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: Conversation }) => {
+      const unread = item.unreadCount?.[user?.uid || ""] || 0;
+      const peerName = peerDisplayName(item, user?.uid);
+      const title = (
+        (item.type === "direct" && peerName) ||
+        item.title ||
+        t("app.messages.fallbackConversationTitle")
+      ).trim();
+      const avatarUrl = peerAvatarUrl(item, user?.uid);
+      const typeLabel = t(`app.messages.types.${item.type}`, {
+        defaultValue: item.type,
       });
-    } catch (error) {
-      Alert.alert('Erreur', 'Impossible de créer la conversation');
-      console.error(error);
-    }
-  };
+      const preview =
+        (item.lastMessage || "").trim() || t("app.messages.noPreviewYet");
+      const isSelected = Boolean(selectedIds[item.id]);
 
-  const formatTime = (timestamp: any) => {
-    if (!timestamp) return '';
-
-    try {
-      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-      const now = new Date();
-      const diff = now.getTime() - date.getTime();
-
-      if (diff < 60000) return 'Maintenant';
-      if (diff < 3600000) return `${Math.floor(diff / 60000)} min`;
-      if (diff < 86400000) {
-        return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-      }
-      return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-    } catch {
-      return '';
-    }
-  };
-
-  const getConversationIcon = (type: string) => {
-    switch (type) {
-      case 'group':
-        return 'people';
-      case 'support':
-        return 'headset';
-      case 'order':
-        return 'bag-handle';
-      case 'seller':
-        return 'storefront';
-      case 'entrepreneur':
-        return 'briefcase';
-      default:
-        return 'chatbubbles';
-    }
-  };
-
-  const renderConversationItem = ({ item }: { item: any }) => {
-    const unreadCount = item.unreadCount?.[user?.uid || ''] || 0;
-
-    return (
-      <TouchableOpacity
-        style={[styles.conversationCard, unreadCount > 0 && styles.conversationCardUnread]}
-        onPress={() => navigateToConversation(item)}
-        activeOpacity={0.9}
-      >
-        <View style={styles.conversationAvatar}>
-          <Ionicons name={getConversationIcon(item.type) as any} size={22} color="#ff6a00" />
-          {unreadCount > 0 ? (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+      return (
+        <Pressable
+          onPress={() => onRowPress(item)}
+          onLongPress={() => onRowLongPress(item)}
+          delayLongPress={380}
+          style={({ pressed }) => [
+            styles.row,
+            unread > 0 && styles.rowUnread,
+            pressed && styles.rowPressed,
+            selectMode && isSelected && styles.rowSelected,
+          ]}
+        >
+          {selectMode ? (
+            <View
+              style={styles.selectMark}
+              accessibilityLabel={isSelected ? t("app.messages.deselectRow") : t("app.messages.selectRow")}
+            >
+              <Ionicons
+                name={isSelected ? "checkbox" : "square-outline"}
+                size={24}
+                color={isSelected ? "#EA580C" : "#9CA3AF"}
+              />
             </View>
           ) : null}
-        </View>
-
-        <View style={styles.conversationContent}>
-          <View style={styles.conversationHeader}>
-            <Text style={[styles.conversationTitle, unreadCount > 0 && styles.conversationTitleUnread]} numberOfLines={1}>
-              {item.title}
-            </Text>
-            <Text style={styles.conversationTime}>{formatTime(item.lastMessageTime)}</Text>
+          <View style={styles.avatarWrap}>
+            {avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={styles.avatarImage}
+                contentFit="cover"
+                transition={120}
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarInitials}>
+                  {initialsFromTitle(title)}
+                </Text>
+              </View>
+            )}
+            {unread > 0 ? (
+              <View style={styles.unreadDot} accessibilityLabel={t("app.messages.a11yUnread", { count: unread })} />
+            ) : null}
           </View>
 
-          <Text style={[styles.conversationMessage, unreadCount > 0 && styles.conversationMessageUnread]} numberOfLines={2}>
-            {item.lastMessage || 'Commencez la conversation...'}
-          </Text>
-
-          <View style={styles.conversationFooter}>
-            <View style={styles.typePill}>
-              <Text style={styles.typePillText}>
-                {item.type === 'entrepreneur' ? 'Entrepreneur' : item.type}
+          <View style={styles.rowBody}>
+            <View style={styles.rowTop}>
+              <Text
+                style={[styles.rowTitle, unread > 0 && styles.rowTitleUnread]}
+                numberOfLines={1}
+              >
+                {title}
+              </Text>
+              <Text style={styles.rowTime}>
+                {formatMessageTime(item.lastMessageTime, dateLocale, t)}
               </Text>
             </View>
+            <Text
+              style={[styles.rowPreview, unread > 0 && styles.rowPreviewUnread]}
+              numberOfLines={2}
+            >
+              {preview}
+            </Text>
+            <View style={styles.rowMeta}>
+              <View style={styles.typeChip}>
+                <Ionicons
+                  name={iconForType(item.type)}
+                  size={12}
+                  color="#C2410C"
+                />
+                <Text style={styles.typeChipText}>{typeLabel}</Text>
+              </View>
+              {unread > 0 ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {unread > 99 ? "99+" : unread}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
           </View>
+
+          {!selectMode ? (
+            <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
+          ) : null}
+        </Pressable>
+      );
+    },
+    [onRowPress, onRowLongPress, selectMode, selectedIds, user?.uid],
+  );
+
+  const listFooter = useMemo(() => {
+    if (loadingMoreConversations) {
+      return (
+        <View style={styles.listFooter}>
+          <ActivityIndicator size="small" color="#EA580C" />
+          <Text style={styles.listFooterText}>{t("app.messages.loadMoreFooter")}</Text>
         </View>
+      );
+    }
+    if (hasMoreConversations) {
+      return (
+        <Pressable
+          style={styles.loadMoreBtn}
+          onPress={() => void loadMoreConversations()}
+        >
+          <Text style={styles.loadMoreBtnText}>{t("app.messages.loadMoreOlder")}</Text>
+        </Pressable>
+      );
+    }
+    return null;
+  }, [hasMoreConversations, loadingMoreConversations, loadMoreConversations, t]);
 
-        <TouchableOpacity style={styles.callButton} onPress={() => startCall('video', item.id)}>
-          <Ionicons name="videocam" size={18} color="#ff6a00" />
-        </TouchableOpacity>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderEmptyState = () => {
-    const icon = activeTab === 'shopping' ? 'bag-handle-outline' : activeTab === 'social' ? 'chatbubbles-outline' : 'briefcase-outline';
-    const title = activeTab === 'shopping' ? 'Aucune conversation shopping' : activeTab === 'social' ? 'Aucune conversation sociale' : 'Aucune conversation business';
-
+  if (!user) {
     return (
-      <View style={styles.emptyState}>
-        <Ionicons name={icon as any} size={56} color="#b49a85" />
-        <Text style={styles.emptyTitle}>{title}</Text>
-        <Text style={styles.emptySubtitle}>Votre prochaine discussion importante apparaîtra ici.</Text>
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
+        <RNStatusBar barStyle="dark-content" />
+        <View style={styles.guest}>
+          <View style={styles.guestIcon}>
+            <Ionicons name="chatbubbles-outline" size={40} color="#EA580C" />
+          </View>
+          <Text style={styles.guestTitle}>{t("app.messages.guestTitle")}</Text>
+          <Text style={styles.guestText}>{t("app.messages.guestBody")}</Text>
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={() => router.push("/(tabs)/account")}
+          >
+            <Text style={styles.primaryBtnText}>{t("app.messages.signIn")}</Text>
+          </Pressable>
+        </View>
       </View>
     );
-  };
+  }
 
   return (
-    <SafeAreaView style={[styles.container, { paddingTop: insets.top }]}>
-      <RNStatusBar barStyle="dark-content" backgroundColor="#f6efe8" />
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <RNStatusBar barStyle="dark-content" />
 
       <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View>
-            <Text style={styles.headerEyebrow}>Messagerie</Text>
-            <Text style={styles.headerTitle}>A2Express</Text>
-            <Text style={styles.headerSubtitle}>Messages rapides, business et commandes en un seul écran</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.headerTitle}>
+              {selectMode ? "Sélection" : "Messages"}
+            </Text>
+            {selectMode ? (
+              <Text style={styles.headerSubtitle}>
+                {selectedCount} sélectionnée(s). Touchez une ligne pour cocher ou décocher.
+              </Text>
+            ) : unreadTotal > 0 ? (
+              <Text style={styles.headerSubtitle}>
+                {unreadTotal} non lu{unreadTotal > 1 ? "s" : ""}
+              </Text>
+            ) : (
+              <Text style={styles.headerSubtitleMuted}>
+                Boutiques, commandes et discussions
+              </Text>
+            )}
           </View>
-
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => router.push('/search-entrepreneurs')} style={styles.headerIconButton}>
-              <Ionicons name="briefcase-outline" size={20} color="#8b5e34" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => createNewConversation()} style={styles.headerIconButton}>
-              <Ionicons name="create-outline" size={20} color="#8b5e34" />
-            </TouchableOpacity>
+            {selectMode ? (
+              <>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                  onPress={exitSelectMode}
+                  accessibilityLabel={t("app.messages.cancelSelectA11y")}
+                >
+                  <Text style={styles.headerActionText}>{t("app.messages.cancel")}</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    styles.deleteIconBtn,
+                    pressed && styles.iconBtnPressed,
+                    selectedCount === 0 && styles.iconBtnDisabled,
+                  ]}
+                  disabled={selectedCount === 0}
+                  onPress={confirmBulkDelete}
+                  accessibilityLabel={t("app.messages.deleteSelectA11y")}
+                >
+                  <Ionicons name="trash-outline" size={22} color="#B91C1C" />
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                  onPress={() => setSelectMode(true)}
+                  accessibilityLabel={t("app.messages.selectModeA11y")}
+                >
+                  <Ionicons name="checkbox-outline" size={22} color="#111827" />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                  onPress={() => router.push("/search-entrepreneurs")}
+                  accessibilityLabel={t("app.messages.findShopA11y")}
+                >
+                  <Ionicons name="storefront-outline" size={22} color="#111827" />
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconBtn,
+                    pressed && styles.iconBtnPressed,
+                  ]}
+                  onPress={() => router.push("/(tabs)/")}
+                  accessibilityLabel={t("app.messages.homeSearchA11y")}
+                >
+                  <Ionicons name="create-outline" size={22} color="#111827" />
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
 
-        <View style={styles.metricsRow}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{conversations.length}</Text>
-            <Text style={styles.metricLabel}>Conversations</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{unreadConversationCount}</Text>
-            <Text style={styles.metricLabel}>Non lus</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{loading ? '...' : activeConversations.length}</Text>
-            <Text style={styles.metricLabel}>Affichés</Text>
-          </View>
-        </View>
-
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={18} color="#a2866d" />
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={18} color="#9CA3AF" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher un message, un vendeur, une commande..."
-            placeholderTextColor="#a2866d"
+            placeholder="Rechercher une conversation…"
+            placeholderTextColor="#9CA3AF"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
           />
         </View>
 
-        <View style={styles.tabsContainer}>
-          {[
-            { key: 'social', label: 'Social', icon: 'sparkles-outline' },
-            { key: 'business', label: 'Business', icon: 'business-outline' },
-            { key: 'shopping', label: 'Shopping', icon: 'bag-handle-outline' },
-          ].map((tab) => {
-            const isActive = activeTab === tab.key;
-
+        <FlatList
+          horizontal
+          data={filters}
+          keyExtractor={(item) => item.key}
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipsList}
+          contentContainerStyle={styles.chipsScroll}
+          renderItem={({ item: f }) => {
+            const active = filter === f.key;
             return (
-              <TouchableOpacity
-                key={tab.key}
-                style={[styles.tabButton, isActive && styles.tabButtonActive]}
-                onPress={() => setActiveTab(tab.key as TabType)}
+              <Pressable
+                onPress={() => setFilter(f.key)}
+                style={[styles.chip, active && styles.chipActive]}
               >
-                <Ionicons
-                  name={tab.icon as any}
-                  size={18}
-                  color={isActive ? '#ffffff' : '#8b6b50'}
-                />
-                <Text style={[styles.tabButtonText, isActive && styles.tabButtonTextActive]}>
-                  {tab.label}
+                <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
+                  {f.label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             );
-          })}
+          }}
+        />
+
+        <View style={styles.shortcuts}>
+          <Pressable
+            style={styles.shortcut}
+            onPress={() => router.push("/orders")}
+          >
+            <Ionicons name="bag-handle-outline" size={16} color="#EA580C" />
+            <Text style={styles.shortcutText}>{t("app.messages.shortcutOrders")}</Text>
+          </Pressable>
+          <View style={styles.shortcutSep} />
+          <Pressable
+            style={styles.shortcut}
+            onPress={() => router.push("/support")}
+          >
+            <Ionicons name="help-circle-outline" size={16} color="#EA580C" />
+            <Text style={styles.shortcutText}>{t("app.messages.shortcutHelp")}</Text>
+          </Pressable>
+          <View style={styles.shortcutSep} />
+          <Pressable
+            style={styles.shortcut}
+            onPress={() => router.push("/search-entrepreneurs")}
+          >
+            <Ionicons name="business-outline" size={16} color="#EA580C" />
+            <Text style={styles.shortcutText}>{t("app.messages.shortcutStores")}</Text>
+          </Pressable>
         </View>
       </View>
 
-      {activeTab === 'social' ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.storiesContent}
-        >
-          <TouchableOpacity style={styles.storyCard}>
-            <View style={styles.storyCircleOwn}>
-              <Image source={{ uri: user?.photoURL || 'https://via.placeholder.com/150' }} style={styles.storyAvatar} />
-              <View style={styles.addStoryButton}>
-                <Ionicons name="add" size={14} color="#ffffff" />
-              </View>
-            </View>
-            <Text style={styles.storyName}>Votre story</Text>
-          </TouchableOpacity>
-
-          {stories.map((story) => (
-            <TouchableOpacity
-              key={story.id}
-              style={styles.storyCard}
-              onPress={() => (story.live ? joinLiveStream(story.id) : undefined)}
-            >
-              <View style={[styles.storyCircle, story.hasNewStories && styles.storyCircleActive]}>
-                <Image source={{ uri: story.avatar }} style={styles.storyAvatar} />
-                {story.live ? (
-                  <View style={styles.liveBadge}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.liveText}>LIVE</Text>
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.storyName}>{story.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      ) : activeTab === 'business' ? (
-        <View style={styles.quickRow}>
-          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/search-entrepreneurs')}>
-            <Ionicons name="people-outline" size={22} color="#ff6a00" />
-            <Text style={styles.quickCardTitle}>Entrepreneurs</Text>
-            <Text style={styles.quickCardText}>Nouveaux contacts qualifiés</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickCard} onPress={() => createNewConversation('support')}>
-            <Ionicons name="headset-outline" size={22} color="#ff6a00" />
-            <Text style={styles.quickCardTitle}>Support</Text>
-            <Text style={styles.quickCardText}>Assistance rapide et directe</Text>
-          </TouchableOpacity>
+      {loading && conversations.length === 0 ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="large" color="#EA580C" />
+          <Text style={styles.loadingText}>{t("app.messages.loadingConversations")}</Text>
         </View>
       ) : (
-        <View style={styles.quickRow}>
-          <TouchableOpacity style={styles.quickCard} onPress={() => router.push('/orders')}>
-            <Ionicons name="bag-check-outline" size={22} color="#ff6a00" />
-            <Text style={styles.quickCardTitle}>Commandes</Text>
-            <Text style={styles.quickCardText}>Suivi et discussions achats</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.quickCard, styles.quickCardAccent]} onPress={() => startLiveStream('shopping')}>
-            <Ionicons name="videocam-outline" size={22} color="#ffffff" />
-            <Text style={[styles.quickCardTitle, styles.quickCardTitleAccent]}>Live produits</Text>
-            <Text style={[styles.quickCardText, styles.quickCardTextAccent]}>Démonstrations en direct</Text>
-          </TouchableOpacity>
-        </View>
+        <FlatList
+          data={filteredConversations}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === "android"}
+          ListFooterComponent={listFooter}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#EA580C"
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Ionicons name="chatbox-outline" size={48} color="#D1D5DB" />
+              <Text style={styles.emptyTitle}>{t("app.messages.emptyTitle")}</Text>
+              <Text style={styles.emptyHint}>
+                {normalizedSearch
+                  ? t("app.messages.emptyHintSearch")
+                  : filter === "all"
+                    ? t("app.messages.emptyHintAll")
+                    : t("app.messages.emptyHintCategory")}
+              </Text>
+              {!normalizedSearch && filter === "all" ? (
+                <Pressable
+                  style={styles.secondaryBtn}
+                  onPress={() => router.push("/(tabs)/index")}
+                >
+                  <Text style={styles.secondaryBtnText}>{t("app.messages.discoverHome")}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          }
+          showsVerticalScrollIndicator={false}
+        />
       )}
-
-      <FlatList
-        data={activeConversations}
-        keyExtractor={(item) => item.id}
-        renderItem={renderConversationItem}
-        contentContainerStyle={styles.listContent}
-        refreshing={refreshing}
-        onRefresh={() => {
-          setRefreshing(true);
-          refreshConversations().finally(() => setRefreshing(false));
-        }}
-        ListHeaderComponent={
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              {activeTab === 'social' ? 'Messages sociaux' : activeTab === 'business' ? 'Conversations business' : 'Conversations shopping'}
-            </Text>
-            <Text style={styles.sectionMeta}>
-              {loading ? 'Chargement...' : `${activeConversations.length} résultats`}
-            </Text>
-          </View>
-        }
-        ListEmptyComponent={renderEmptyState}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={8}
-        maxToRenderPerBatch={10}
-        windowSize={8}
-      />
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  screen: {
     flex: 1,
-    backgroundColor: '#f7f1eb',
+    backgroundColor: "#F9FAFB",
   },
   header: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    backgroundColor: '#f6efe8',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eaded3',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
   },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingTop: 8,
   },
-  headerEyebrow: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#b56d27',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+  headerTextBlock: {
+    flex: 1,
+    paddingRight: 12,
   },
   headerTitle: {
-    marginTop: 4,
     fontSize: 28,
-    fontWeight: '800',
-    color: '#2f241b',
+    fontWeight: "700",
+    color: "#111827",
+    letterSpacing: -0.5,
   },
   headerSubtitle: {
     marginTop: 4,
-    maxWidth: 240,
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#7d6857',
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#EA580C",
+  },
+  headerSubtitleMuted: {
+    marginTop: 4,
+    fontSize: 14,
+    color: "#6B7280",
+    lineHeight: 20,
   },
   headerActions: {
-    flexDirection: 'row',
-    gap: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    justifyContent: "flex-end",
+    maxWidth: "52%",
   },
-  headerIconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#eaded3',
+  headerActionText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#EA580C",
+    paddingHorizontal: 4,
   },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: 10,
+  iconBtn: {
+    minWidth: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  deleteIconBtn: {
+    backgroundColor: "#FEE2E2",
+  },
+  iconBtnDisabled: {
+    opacity: 0.4,
+  },
+  iconBtnPressed: {
+    opacity: 0.85,
+    backgroundColor: "#E5E7EB",
+  },
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: 16,
-  },
-  metricCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    paddingVertical: 14,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
     paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#eaded3',
-  },
-  metricValue: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#2f241b',
-  },
-  metricLabel: {
-    marginTop: 2,
-    fontSize: 12,
-    color: '#8c7665',
-  },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#eaded3',
-    paddingHorizontal: 14,
+    height: 44,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 13,
-    paddingLeft: 10,
-    color: '#2f241b',
-    fontSize: 15,
+    marginLeft: 8,
+    fontSize: 16,
+    color: "#111827",
+    paddingVertical: 0,
   },
-  tabsContainer: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
+  chipsList: {
+    flexGrow: 0,
   },
-  tabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#eaded3',
-  },
-  tabButtonActive: {
-    backgroundColor: '#1f1f1f',
-    borderColor: '#1f1f1f',
-  },
-  tabButtonText: {
-    color: '#8b6b50',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  tabButtonTextActive: {
-    color: '#fff',
-  },
-  storiesContent: {
-    paddingHorizontal: 16,
+  chipsScroll: {
     paddingTop: 14,
     paddingBottom: 4,
-    gap: 12,
+    gap: 8,
+    alignItems: "center",
   },
-  storyCard: {
-    alignItems: 'center',
-    width: 80,
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    marginRight: 8,
   },
-  storyCircleOwn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    padding: 2,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#eaded3',
+  chipActive: {
+    backgroundColor: "#111827",
   },
-  storyCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    padding: 2,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#eaded3',
+  chipLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4B5563",
   },
-  storyCircleActive: {
-    borderColor: '#ff6a00',
+  chipLabelActive: {
+    color: "#FFFFFF",
   },
-  storyAvatar: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 34,
-  },
-  addStoryButton: {
-    position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#ff6a00',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  storyName: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#6f5a49',
-  },
-  liveBadge: {
-    position: 'absolute',
-    bottom: -2,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ff4d73',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#fff',
-    marginRight: 4,
-  },
-  liveText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  quickRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-  },
-  quickCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#eaded3',
-  },
-  quickCardAccent: {
-    backgroundColor: '#1f1f1f',
-    borderColor: '#1f1f1f',
-  },
-  quickCardTitle: {
+  shortcuts: {
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: 12,
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#2f241b',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    backgroundColor: "#FFFBF5",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
   },
-  quickCardTitleAccent: {
-    color: '#fff',
+  shortcut: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  quickCardText: {
-    marginTop: 4,
+  shortcutSep: {
+    width: 1,
+    height: 16,
+    backgroundColor: "#FDBA74",
+  },
+  shortcutText: {
     fontSize: 12,
-    lineHeight: 17,
-    color: '#816d5d',
-  },
-  quickCardTextAccent: {
-    color: '#e7d9cc',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    paddingBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#2f241b',
-  },
-  sectionMeta: {
-    fontSize: 12,
-    color: '#9a836f',
+    fontWeight: "600",
+    color: "#9A3412",
   },
   listContent: {
-    paddingBottom: 28,
+    paddingTop: 8,
+    paddingBottom: 100,
   },
-  conversationCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
     marginHorizontal: 16,
-    marginBottom: 10,
-    backgroundColor: '#fff',
-    borderRadius: 18,
+    marginTop: 10,
     padding: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#eaded3',
+    borderColor: "#F3F4F6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
-  conversationCardUnread: {
-    borderColor: '#ffd0aa',
-    backgroundColor: '#fffaf6',
+  rowUnread: {
+    borderColor: "#FDBA74",
+    backgroundColor: "#FFFBF5",
   },
-  conversationAvatar: {
+  rowPressed: {
+    opacity: 0.92,
+  },
+  rowSelected: {
+    borderColor: "#EA580C",
+    backgroundColor: "#FFF7ED",
+  },
+  selectMark: {
+    marginRight: 8,
+    justifyContent: "center",
+  },
+  listFooter: {
+    paddingVertical: 20,
+    alignItems: "center",
+    gap: 8,
+  },
+  listFooterText: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  loadMoreBtn: {
+    marginHorizontal: 20,
+    marginVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+  },
+  loadMoreBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#EA580C",
+  },
+  avatarWrap: {
+    position: "relative",
+    marginRight: 12,
+  },
+  avatarImage: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#fff2e6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-    position: 'relative',
+    backgroundColor: "#F3F4F6",
   },
-  unreadBadge: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#ff6a00',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 5,
+  avatarFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#FFF7ED",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  unreadBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '800',
+  avatarInitials: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#C2410C",
   },
-  conversationContent: {
+  unreadDot: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#EA580C",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  rowBody: {
     flex: 1,
+    minWidth: 0,
   },
-  conversationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
+  rowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
   },
-  conversationTitle: {
+  rowTitle: {
     flex: 1,
-    marginRight: 8,
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#2f241b',
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#374151",
   },
-  conversationTitleUnread: {
-    color: '#1f1f1f',
+  rowTitleUnread: {
+    fontWeight: "700",
+    color: "#111827",
   },
-  conversationTime: {
-    fontSize: 11,
-    color: '#9b8573',
+  rowTime: {
+    fontSize: 12,
+    color: "#9CA3AF",
   },
-  conversationMessage: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#816d5d',
+  peerName: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#6B7280",
   },
-  conversationMessageUnread: {
-    color: '#5d4a3c',
+  rowPreview: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    color: "#6B7280",
   },
-  conversationFooter: {
-    flexDirection: 'row',
+  rowPreviewUnread: {
+    color: "#4B5563",
+    fontWeight: "500",
+  },
+  rowMeta: {
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: 8,
+    gap: 8,
   },
-  typePill: {
-    backgroundColor: '#fff3e7',
-    borderRadius: 999,
+  typeChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    alignSelf: "flex-start",
     paddingHorizontal: 8,
     paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "#FFEDD5",
   },
-  typePillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#c56d20',
-    textTransform: 'uppercase',
+  typeChipText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#9A3412",
   },
-  callButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#fff2e6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
+  badge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: "#EA580C",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 56,
-    paddingHorizontal: 24,
+  badgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  loadingBox: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingBottom: 80,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  empty: {
+    alignItems: "center",
+    paddingHorizontal: 32,
+    paddingTop: 48,
+    paddingBottom: 40,
   },
   emptyTitle: {
-    marginTop: 14,
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#4d392b',
+    marginTop: 16,
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#374151",
   },
-  emptySubtitle: {
-    marginTop: 6,
-    textAlign: 'center',
-    color: '#8e7766',
-    lineHeight: 20,
+  emptyHint: {
+    marginTop: 8,
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 21,
+    color: "#6B7280",
+  },
+  secondaryBtn: {
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFFFFF",
+  },
+  secondaryBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  guest: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  guestIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: "#FFEDD5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  guestTitle: {
+    marginTop: 24,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  guestText: {
+    marginTop: 10,
+    textAlign: "center",
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#6B7280",
+  },
+  primaryBtn: {
+    marginTop: 28,
+    backgroundColor: "#EA580C",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 14,
+  },
+  primaryBtnText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

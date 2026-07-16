@@ -51,7 +51,7 @@ export default function CompaniesManagement() {
     try {
       const companyRef = doc(db, 'companies', id);
       await updateDoc(companyRef, { status: newStatus });
-      Alert.alert("Succès", `Entreprise ${newStatus === 'active' ? 'approuvée' : 'suspendue'}.`);
+      Alert.alert("Succès", `Fournisseur ${newStatus === 'active' ? 'approuvé' : 'suspendu'}.`);
       fetchCompanies(); // Rafraîchir
     } catch (error) {
       Alert.alert("Erreur", "Action impossible.");
@@ -138,7 +138,7 @@ export default function CompaniesManagement() {
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={28} color="#FFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Entreprises ({companies.length})</Text>
+          <Text style={styles.headerTitle}>Fournisseurs ({companies.length})</Text>
           <TouchableOpacity 
             onPress={() => router.push('/super-admin/companies/add')}
             style={styles.addBtn}

@@ -437,7 +437,7 @@ export class MessagingService {
         },
         participantAvatars: {
           [userId]: '👤',
-          'biU1QvlrGtZeqTLdbLONLGbyVQ92: '🛒'
+          'biU1QvlrGtZeqTLdbLONLGbyVQ92': '🛒',
         },
         orderData: {
           orderId: orderData.id,

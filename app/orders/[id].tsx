@@ -9,12 +9,17 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
-  RefreshControl
+  RefreshControl,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useOrders, Order } from '../../src/contexts/OrderContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/config/firebase';
+import { APP_CONFIG } from '@/constants/Config';
 
 const COLORS = {
   primary: '#FF6A00',
@@ -62,32 +67,43 @@ const statusConfig = {
     bgColor: 'rgba(40, 167, 69, 0.1)'
   },
   cancelled: { 
-    label: 'Annulée', 
-    color: COLORS.danger, 
+    label: 'Avis', 
+    color: '#7C3AED', 
+    icon: 'star-outline' as const,
+    bgColor: 'rgba(124, 58, 237, 0.12)'
+  },
+  failed: {
+    label: 'Échouée',
+    color: COLORS.danger,
     icon: 'close-circle-outline' as const,
-    bgColor: 'rgba(220, 53, 69, 0.1)'
-  }
+    bgColor: 'rgba(220, 53, 69, 0.1)',
+  },
 };
 
 export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { getOrderById, updateOrderStatus, loading: contextLoading } = useOrders();
+  const { user, isSuperAdmin, isAdmin } = useAuth();
+  /** Seuls les comptes internes peuvent faire avancer le workflow logistique sur cet écran (les acheteurs B2B passent par fournisseurs / support). */
+  const canManageFulfillment = isSuperAdmin || isAdmin;
+  const { getOrderById, updateOrderStatus, loading: contextLoading, orders } = useOrders();
   const [order, setOrder] = useState<Order | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Charger la commande
-  useEffect(() => {
-    if (id && typeof id === 'string') {
-      loadOrder();
-    }
-  }, [id]);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState('');
+  const [savingReview, setSavingReview] = useState(false);
 
   const loadOrder = useCallback(() => {
     const foundOrder = getOrderById(id as string);
     setOrder(foundOrder || null);
   }, [id, getOrderById]);
+
+  useEffect(() => {
+    if (id && typeof id === 'string') {
+      loadOrder();
+    }
+  }, [id, loadOrder, orders]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -96,10 +112,43 @@ export default function OrderDetailScreen() {
   }, [loadOrder]);
 
   // Mémoïsation des valeurs dérivées
-  const statusInfo = useMemo(() => 
-    order ? statusConfig[order.status] || statusConfig.pending : statusConfig.pending,
-    [order]
-  );
+  const statusInfo = useMemo(() => {
+    if (!order) return statusConfig.pending;
+    const k = order.status as keyof typeof statusConfig;
+    return statusConfig[k] || statusConfig.pending;
+  }, [order]);
+
+  const canLeaveReview =
+    !!user &&
+    !!order &&
+    (order.status === 'delivered' || order.status === 'cancelled');
+
+  const submitReview = useCallback(async () => {
+    if (!order || !id || !user || reviewRating < 1) {
+      Alert.alert('Avis', 'Veuillez choisir une note de 1 à 5 étoiles.');
+      return;
+    }
+    try {
+      setSavingReview(true);
+      await updateDoc(doc(db, 'orders', String(id)), {
+        customerReview: {
+          rating: reviewRating,
+          comment: reviewComment.trim() || null,
+          userId: user.uid,
+          createdAt: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+      });
+      setReviewComment('');
+      setReviewRating(0);
+      Alert.alert('Merci', 'Votre avis a bien été enregistré.');
+    } catch (e) {
+      console.error(e);
+      Alert.alert('Erreur', 'Impossible d’enregistrer votre avis pour le moment.');
+    } finally {
+      setSavingReview(false);
+    }
+  }, [order, id, user, reviewRating, reviewComment]);
 
   const shipping = useMemo(() => 
     order?.shipping || {
@@ -142,11 +191,13 @@ export default function OrderDetailScreen() {
 
   // Callbacks mémoïsés
   const handleUpdateStatus = useCallback(async (newStatus: Order['status']) => {
-    if (!order || !id) return;
+    if (!order || !id || !canManageFulfillment) return;
+    const cfg = statusConfig[newStatus as keyof typeof statusConfig];
+    if (!cfg) return;
 
     Alert.alert(
       'Modifier le statut',
-      `Voulez-vous vraiment changer le statut en "${statusConfig[newStatus].label}" ?`,
+      `Voulez-vous vraiment changer le statut en "${cfg.label}" ?`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -172,22 +223,47 @@ export default function OrderDetailScreen() {
         }
       ]
     );
-  }, [order, id, updateOrderStatus]);
+  }, [order, id, updateOrderStatus, canManageFulfillment]);
 
   const handleCallSupport = useCallback(() => {
-    Linking.openURL(`tel:+221781234567`).catch(() => 
-      Alert.alert('Erreur', 'Impossible d\'ouvrir l\'application téléphone')
+    const raw = APP_CONFIG.supportPhone.replace(/\s/g, '');
+    Linking.openURL(`tel:${raw}`).catch(() =>
+      Alert.alert('Erreur', "Impossible d'ouvrir l'application téléphone"),
     );
   }, []);
 
+  const handleRequestCancellation = useCallback(() => {
+    const ref = (order as any)?.orderId || order?.id || id;
+    const subject = encodeURIComponent(`Demande concernant la commande ${ref}`);
+    const body = encodeURIComponent(
+      `Bonjour,\n\nJe souhaite obtenir de l'aide concernant ma commande ${ref}.\n\n`,
+    );
+    Linking.openURL(
+      `mailto:${APP_CONFIG.supportEmail}?subject=${subject}&body=${body}`,
+    ).catch(() => Alert.alert('Erreur', 'Ouvrez votre messagerie et écrivez à ' + APP_CONFIG.supportEmail));
+  }, [order, id]);
+
   const handleTrackShipping = useCallback(() => {
-    if (shipping.trackingNumber) {
-      const trackingUrl = `https://tracking.example.com/${shipping.trackingNumber}`;
-      Linking.openURL(trackingUrl).catch(() =>
-        Alert.alert('Erreur', 'Impossible d\'ouvrir le lien de suivi')
+    if (!shipping.trackingNumber) {
+      Alert.alert('Info', 'Numéro de suivi non disponible');
+      return;
+    }
+    const base = APP_CONFIG.shippingTrackingUrlBase?.trim();
+    if (base) {
+      const url = base.includes('{num}')
+        ? base.replace('{num}', encodeURIComponent(String(shipping.trackingNumber)))
+        : base.endsWith('/')
+          ? `${base}${encodeURIComponent(String(shipping.trackingNumber))}`
+          : `${base}/${encodeURIComponent(String(shipping.trackingNumber))}`;
+      Linking.openURL(url).catch(() =>
+        Alert.alert('Erreur', "Impossible d'ouvrir le lien de suivi"),
       );
     } else {
-      Alert.alert('Info', 'Numéro de suivi non disponible');
+      Alert.alert(
+        'Suivi',
+        `Numéro : ${shipping.trackingNumber}\n` +
+          'Le lien de suivi en ligne sera communiqué par le transporteur ou le support si configuré (APP_CONFIG.shippingTrackingUrlBase).',
+      );
     }
   }, [shipping.trackingNumber]);
 
@@ -211,7 +287,7 @@ export default function OrderDetailScreen() {
     return `${price.toLocaleString()} FCFA`;
   }, []);
 
-  if (contextLoading || isUpdating) {
+  if (contextLoading) {
     return (
       <LinearGradient
         colors={COLORS.primaryGradient}
@@ -270,7 +346,10 @@ export default function OrderDetailScreen() {
           <TouchableOpacity style={styles.backButton} onPress={handleBack}>
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Détails de la commande</Text>
+          <View style={{ alignItems: 'center' }}>
+            <Text style={styles.headerTitle}>Bon de commande</Text>
+            <Text style={styles.headerSubtitle}>Achat B2B · fournisseurs partenaires</Text>
+          </View>
           <View style={styles.headerRight} />
         </View>
       </LinearGradient>
@@ -283,9 +362,24 @@ export default function OrderDetailScreen() {
             {statusInfo.label}
           </Text>
         </View>
-        <Text style={styles.orderId}>#{order.id.slice(-8).toUpperCase()}</Text>
+        <Text style={styles.orderRef}>
+          {(order as any).orderId ? String((order as any).orderId) : `#${order.id.slice(-8).toUpperCase()}`}
+        </Text>
         <Text style={styles.orderDate}>Passée le {formatDate(order.createdAt)}</Text>
       </View>
+
+      {(() => {
+        const company =
+          String((order as any).companyName ?? (order as any).buyerCompany ?? '').trim() ||
+          String((address as any).companyName ?? '').trim();
+        if (!company) return null;
+        return (
+          <View style={styles.b2bBanner}>
+            <Ionicons name="business-outline" size={18} color={COLORS.primary} />
+            <Text style={styles.b2bBannerText}>{company}</Text>
+          </View>
+        );
+      })()}
 
       {/* Informations de livraison */}
       <View style={styles.card}>
@@ -363,7 +457,10 @@ export default function OrderDetailScreen() {
           <Text style={styles.cardTitle}>Articles ({itemCount})</Text>
         </View>
         {order.items?.map((item, index) => (
-          <View key={index} style={styles.itemRow}>
+          <View
+            key={`${String((item as any).productId ?? (item as any).id ?? '')}-${String((item as any).name)}-${index}`}
+            style={styles.itemRow}
+          >
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
               <Text style={styles.itemDetails}>
@@ -415,12 +512,79 @@ export default function OrderDetailScreen() {
         </View>
       </View>
 
-      {/* Actions */}
+      {canLeaveReview && (
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardIconContainer}>
+              <Ionicons name="star-outline" size={20} color={COLORS.primary} />
+            </View>
+            <Text style={styles.cardTitle}>Avis sur la commande / fournisseur</Text>
+          </View>
+          {order.customerReview ? (
+            <View style={styles.cardContent}>
+              <View style={styles.starsRow}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Ionicons
+                    key={n}
+                    name={n <= order.customerReview!.rating ? 'star' : 'star-outline'}
+                    size={22}
+                    color="#F59E0B"
+                  />
+                ))}
+              </View>
+              {order.customerReview.comment ? (
+                <Text style={styles.reviewCommentText}>{order.customerReview.comment}</Text>
+              ) : null}
+              <Text style={styles.reviewDate}>
+                Envoyé le{' '}
+                {order.customerReview.createdAt
+                  ? formatDate(order.customerReview.createdAt)
+                  : '—'}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.cardContent}>
+              <Text style={styles.reviewHint}>Notez votre expérience (commande livrée ou annulée).</Text>
+              <View style={styles.starsRow}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <TouchableOpacity key={n} onPress={() => setReviewRating(n)} hitSlop={8}>
+                    <Ionicons
+                      name={n <= reviewRating ? 'star' : 'star-outline'}
+                      size={32}
+                      color="#F59E0B"
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="Commentaire (optionnel)"
+                placeholderTextColor="#A0AEC0"
+                multiline
+                value={reviewComment}
+                onChangeText={setReviewComment}
+                maxLength={800}
+              />
+              <TouchableOpacity
+                style={[styles.reviewSubmit, savingReview && { opacity: 0.6 }]}
+                onPress={() => void submitReview()}
+                disabled={savingReview}
+              >
+                <Text style={styles.reviewSubmitText}>
+                  {savingReview ? 'Envoi…' : 'Envoyer mon avis'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Actions : workflow logistique réservé aux comptes internes ; acheteurs B2B : suivi + support */}
       <View style={styles.actionsContainer}>
-        {order.status === 'pending' && (
+        {canManageFulfillment && order.status === 'pending' && (
           <>
             <TouchableOpacity
-              style={styles.actionButton}
+              style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
               onPress={() => handleUpdateStatus('confirmed')}
               disabled={isUpdating}
               activeOpacity={0.8}
@@ -432,9 +596,9 @@ export default function OrderDetailScreen() {
                 <Text style={styles.actionButtonText}>Confirmer la commande</Text>
               </LinearGradient>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
-              style={[styles.actionButton, styles.cancelButton]}
+              style={[styles.actionButton, styles.cancelButton, isUpdating && { opacity: 0.65 }]}
               onPress={() => handleUpdateStatus('cancelled')}
               disabled={isUpdating}
               activeOpacity={0.8}
@@ -443,10 +607,30 @@ export default function OrderDetailScreen() {
             </TouchableOpacity>
           </>
         )}
-        
-        {order.status === 'confirmed' && (
+
+        {!canManageFulfillment && order.status === 'pending' && (
+          <View style={styles.buyerPendingCard}>
+            <View style={styles.buyerPendingRow}>
+              <Ionicons name="information-circle-outline" size={22} color={COLORS.primary} />
+              <Text style={styles.buyerPendingText}>
+                Votre bon de commande est en traitement côté fournisseur. Pour une modification ou une annulation,
+                contactez le support avec la référence affichée ci-dessus.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.buyerHelpButton}
+              onPress={handleRequestCancellation}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="mail-outline" size={18} color={COLORS.primary} />
+              <Text style={styles.buyerHelpButtonText}>Demander une modification par e-mail</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {canManageFulfillment && order.status === 'confirmed' && (
           <TouchableOpacity
-            style={styles.actionButton}
+            style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
             onPress={() => handleUpdateStatus('shipped')}
             disabled={isUpdating}
             activeOpacity={0.8}
@@ -459,10 +643,10 @@ export default function OrderDetailScreen() {
             </LinearGradient>
           </TouchableOpacity>
         )}
-        
-        {order.status === 'shipped' && (
+
+        {canManageFulfillment && order.status === 'shipped' && (
           <TouchableOpacity
-            style={styles.actionButton}
+            style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
             onPress={() => handleUpdateStatus('delivered')}
             disabled={isUpdating}
             activeOpacity={0.8}
@@ -579,6 +763,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
+  headerSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.88)',
+    marginTop: 4,
+    fontWeight: '500',
+  },
   headerRight: {
     width: 40,
   },
@@ -608,11 +798,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  orderId: {
+  orderRef: {
     fontSize: 18,
     fontWeight: 'bold',
     color: COLORS.text,
     marginBottom: 4,
+    textAlign: 'center',
+  },
+  b2bBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  b2bBannerText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  buyerPendingCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    gap: 12,
+  },
+  buyerPendingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  buyerPendingText: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.textLight,
+    lineHeight: 20,
+  },
+  buyerHelpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
+  },
+  buyerHelpButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.primary,
   },
   orderDate: {
     fontSize: 14,
@@ -817,5 +1063,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textLight,
     fontStyle: 'italic',
+  },
+  starsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  reviewHint: {
+    fontSize: 13,
+    color: COLORS.textLight,
+    lineHeight: 18,
+  },
+  reviewInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    minHeight: 88,
+    textAlignVertical: 'top',
+    fontSize: 14,
+    color: COLORS.text,
+  },
+  reviewSubmit: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  reviewSubmitText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  reviewCommentText: {
+    fontSize: 14,
+    color: COLORS.text,
+    lineHeight: 20,
+  },
+  reviewDate: {
+    fontSize: 12,
+    color: COLORS.textLight,
   },
 });

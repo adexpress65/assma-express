@@ -3,14 +3,15 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import { useLive } from '../contexts/LiveContext';
 import { useAuth } from '../contexts/AuthContext';
+import { liveService } from '../services/liveService';
 
 const TestLiveSystem = () => {
-  const { activeLives, createLive, liveService } = useLive();
+  const { activeLives } = useLive();
   const { user } = useAuth();
 
   const testCreateLive = async () => {
     if (!user) {
-      Alert.alert('Erreur', 'Utilisateur non connect√©');
+      Alert.alert('Erreur', 'Utilisateur non connectÈ');
       return;
     }
 
@@ -20,21 +21,21 @@ const TestLiveSystem = () => {
         user.displayName || 'Test User',
         user.photoURL || ''
       );
-      Alert.alert('Succ√®s', `Live cr√©√©: ${liveId}`);
+      Alert.alert('SuccËs', `Live crÈÈ: ${liveId}`);
     } catch (error) {
-      Alert.alert('Erreur', '√âchec du test');
+      Alert.alert('Erreur', '…chec du test');
       console.error(error);
     }
   };
 
-  return null; // CORRIG…: (
+  return (
     <View style={styles.container}>
-      <Text style={styles.title}>{/* Test du syst√®me Live */}</Text>
+      <Text style={styles.title}>Test du systùme Live</Text>
       <Text>Lives actifs: {activeLives.length}</Text>
       <Text>Utilisateur: {user?.email}</Text>
-      
+
       <TouchableOpacity style={styles.testButton} onPress={testCreateLive}>
-        <Text style={styles.testButtonText}>{/* üß™ Tester la cr√©ation de live */}</Text>
+        <Text style={styles.testButtonText}>Tester la crùation de live</Text>
       </TouchableOpacity>
 
       {activeLives.map((live) => (
@@ -44,7 +45,7 @@ const TestLiveSystem = () => {
         </View>
       ))}
     </View>
-  )
+  );
 };
 
 const styles = StyleSheet.create({

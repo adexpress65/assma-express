@@ -1,5 +1,5 @@
 // src/contexts/MessagesContext.tsx - VERSION COMPLÈTE WHATSAPP-LIKE
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 import {
   collection,
   query,
@@ -16,25 +16,40 @@ import {
   deleteDoc,
   writeBatch,
   getDocs,
-  limit
+  limit,
+  startAfter,
+  type QueryDocumentSnapshot,
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../config/firebase';
 import { useAuth } from './AuthContext';
 import { Alert } from 'react-native';
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
 
 // ================================
 // TYPES
 // ================================
-export type ConversationType = 
-  | 'support' | 'order' | 'group' | 'seller' | 'premium' 
-  | 'delivery' | 'channel' | 'direct' | 'promo' | 'return' | 'subscription';
+export type ConversationType =
+  | "support"
+  | "order"
+  | "group"
+  | "seller"
+  | "premium"
+  | "delivery"
+  | "channel"
+  | "direct"
+  | "promo"
+  | "return"
+  | "subscription"
+  | "entrepreneur";
 
 export interface Conversation {
   id: string;
   title: string;
   type: ConversationType;
+  /** ID document Firestore `companies/{id}` (boutique). */
+  companyId?: string;
+  companyName?: string;
+  companyLogo?: string;
   lastMessage?: string;
   lastMessageTime?: Timestamp | Date;
   participants: string[];
@@ -57,8 +72,9 @@ export interface Message {
   senderId: string;
   senderName?: string;
   timestamp: Timestamp | Date;
+  createdAt?: Timestamp | Date;
   readBy: string[];
-  type: 'text' | 'image' | 'file' | 'voice' | 'location';
+  type: 'text' | 'image' | 'file' | 'voice' | 'location' | 'product_payment';
   imageUrl?: string;
   fileUrl?: string;
   fileName?: string;
@@ -70,12 +86,58 @@ export interface Message {
   };
   replyTo?: string;
   deleted?: boolean;
+  product?: {
+    id: string;
+    name: string;
+    price: number;
+    currency: string;
+    image: string;
+    specifications?: {
+      weight?: string;
+      dimensions?: string;
+      volume?: string;
+    };
+  };
+  payment?: {
+    url: string;
+    provider: 'ngenius';
+    status: 'pending' | 'paid' | 'failed';
+  };
 }
 
 export interface TypingUser {
   uid: string;
   name: string;
   timestamp: Date;
+}
+
+/** Fenêtre temps réel : évitez de charger trop de conversations d'un coup. */
+const CONVERSATIONS_PAGE_SIZE = 25;
+
+function mapFirestoreConversationDoc(docSnap: QueryDocumentSnapshot): Conversation {
+  const data = docSnap.data();
+  return {
+    id: docSnap.id,
+    title: data.title || 'Sans titre',
+    type: data.type || 'direct',
+    companyId: data.companyId || undefined,
+    companyName: data.companyName || undefined,
+    companyLogo: data.companyLogo || undefined,
+    lastMessage: data.lastMessage || '',
+    lastMessageTime: data.lastMessageTime?.toDate() || new Date(),
+    participants: data.participants || [],
+    participantAvatars: data.participantAvatars || {},
+    participantNames: data.participantNames || {},
+    unreadCount: data.unreadCount || {},
+    mute: data.mute || {},
+    createdAt: data.createdAt?.toDate() || new Date(),
+    updatedAt: data.updatedAt?.toDate() || new Date(),
+    createdBy: data.createdBy || '',
+    admins: data.admins || [],
+    messageCount: data.messageCount || 0,
+    pinned: data.pinned || {},
+    archived: data.archived || {},
+  };
 }
 
 interface OnlineUser {
@@ -85,6 +147,7 @@ interface OnlineUser {
 }
 
 interface MessagesContextType {
+    getConversationName: (conversation: Conversation) => string;
   // État
   conversations: Conversation[];
   loading: boolean;
@@ -95,7 +158,14 @@ interface MessagesContextType {
   
   // Conversations
   createConversation: (data: Partial<Conversation>) => Promise<string>;
-  deleteConversation: (conversationId: string) => Promise<void>;
+  deleteConversation: (
+    conversationId: string,
+    options?: { suppressErrorAlert?: boolean },
+  ) => Promise<void>;
+  /** Suite de la liste (Firestore), après les CONVERSATIONS_PAGE_SIZE premiers fils. */
+  hasMoreConversations: boolean;
+  loadingMoreConversations: boolean;
+  loadMoreConversations: () => Promise<void>;
   leaveConversation: (conversationId: string) => Promise<void>;
   pinConversation: (conversationId: string, pin: boolean) => Promise<void>;
   archiveConversation: (conversationId: string, archive: boolean) => Promise<void>;
@@ -109,8 +179,12 @@ interface MessagesContextType {
     fileUrl?: string;
     fileName?: string;
     replyTo?: string;
+    product?: Message['product'];
+    payment?: Message['payment'];
   }) => Promise<void>;
   deleteMessage: (conversationId: string, messageId: string) => Promise<void>;
+  /** Supprime tous les messages (participant). Lot de 400 pour Firestore. */
+  clearAllMessagesInConversation: (conversationId: string) => Promise<void>;
   markAsRead: (conversationId: string) => Promise<void>;
   markAsDelivered: (conversationId: string, messageId: string) => Promise<void>;
   startTyping: (conversationId: string) => Promise<void>;
@@ -139,18 +213,64 @@ const MessagesContext = createContext<MessagesContextType | undefined>(undefined
 // PROVIDER
 // ================================
 export const MessagesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    // Helper pour afficher le nom propre d'une conversation
+    const getConversationName = (conversation: Conversation): string => {
+      if (conversation.type === 'group') {
+        return conversation.title;
+      }
+      // Trouver l'ID du participant qui n'est pas l'utilisateur courant
+      const otherId = conversation.participants.find((id) => id !== user?.uid);
+      if (otherId && conversation.participantNames?.[otherId]) {
+        return conversation.participantNames[otherId];
+      }
+      return conversation.title || 'Conversation';
+    };
   const { user } = useAuth();
   
   // État
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [liveConversations, setLiveConversations] = useState<Conversation[]>([]);
+  const [extraConversations, setExtraConversations] = useState<Conversation[]>([]);
+  const [hasMoreConversations, setHasMoreConversations] = useState(false);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
   const [loading, setLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [typingUsers, setTypingUsers] = useState<Record<string, TypingUser[]>>({});
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  
+
+  const conversations = useMemo(() => {
+    const liveIds = new Set(liveConversations.map((c) => c.id));
+    const merged = [
+      ...liveConversations,
+      ...extraConversations.filter((c) => !liveIds.has(c.id)),
+    ];
+    const uid = user?.uid;
+    if (!uid) return merged;
+    return merged.filter(
+      (c) =>
+        Array.isArray(c.participants) && c.participants.includes(uid),
+    );
+  }, [liveConversations, extraConversations, user?.uid]);
+
   // Références
   const typingTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
-  const unsubscribeRefs = useRef<{ conversations?: () => void; online?: () => void }>({});
+  const unsubscribeRefs = useRef<{ 
+    conversations?: () => void; 
+    online?: () => void;
+    typing: Record<string, () => void>;
+  }>({ typing: {} });
+  const prevConversationCountRef = useRef<number | null>(null);
+  const listEndDocRef = useRef<QueryDocumentSnapshot | null>(null);
+  const loadMoreCursorRef = useRef<QueryDocumentSnapshot | null>(null);
+  const liveConversationsRef = useRef<Conversation[]>([]);
+
+  useEffect(() => {
+    liveConversationsRef.current = liveConversations;
+  }, [liveConversations]);
+
+  useEffect(() => {
+    const liveIds = new Set(liveConversations.map((c) => c.id));
+    setExtraConversations((prev) => prev.filter((c) => !liveIds.has(c.id)));
+  }, [liveConversations]);
   
   // ================================
 // 🚀 SOLUTION ENTREPRENEURS - SIMPLE & IMMÉDIATE
@@ -230,53 +350,57 @@ const ensureEntrepreneurHasUser = async (companyId: string): Promise<string> => 
   // ================================
   useEffect(() => {
     if (!user?.uid) {
+      prevConversationCountRef.current = null;
+      setLiveConversations([]);
+      setExtraConversations([]);
+      listEndDocRef.current = null;
+      loadMoreCursorRef.current = null;
+      setHasMoreConversations(false);
       setLoading(false);
       return;
     }
 
     console.log('📡 Connexion à Firestore pour les conversations...');
-    
-    // Query: Toutes les conversations où l'utilisateur est participant
+
     const conversationsRef = collection(db, 'conversations');
     const q = query(
       conversationsRef,
       where('participants', 'array-contains', user.uid),
-      orderBy('updatedAt', 'desc')
+      orderBy('updatedAt', 'desc'),
+      limit(CONVERSATIONS_PAGE_SIZE),
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const convs: Conversation[] = [];
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        convs.push({
-          id: doc.id,
-          title: data.title || 'Sans titre',
-          type: data.type || 'direct',
-          lastMessage: data.lastMessage || '',
-          lastMessageTime: data.lastMessageTime?.toDate() || new Date(),
-          participants: data.participants || [],
-          participantAvatars: data.participantAvatars || {},
-          participantNames: data.participantNames || {},
-          unreadCount: data.unreadCount || {},
-          mute: data.mute || {},
-          createdAt: data.createdAt?.toDate() || new Date(),
-          updatedAt: data.updatedAt?.toDate() || new Date(),
-          createdBy: data.createdBy || '',
-          admins: data.admins || [],
-          messageCount: data.messageCount || 0,
-          pinned: data.pinned || {},
-          archived: data.archived || {},
-        });
-      });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const convs: Conversation[] = snapshot.docs.map(mapFirestoreConversationDoc);
 
-      console.log(`✅ ${convs.length} conversations chargées`);
-      setConversations(convs);
-      setLoading(false);
-    }, (error) => {
-      console.error('❌ Erreur chargement conversations:', error);
-      setLoading(false);
-    });
+        if (snapshot.docs.length >= CONVERSATIONS_PAGE_SIZE) {
+          listEndDocRef.current =
+            snapshot.docs[snapshot.docs.length - 1] ?? null;
+          setHasMoreConversations(true);
+          loadMoreCursorRef.current = null;
+        } else {
+          listEndDocRef.current = null;
+          loadMoreCursorRef.current = null;
+          setHasMoreConversations(false);
+        }
+
+        if (
+          __DEV__ &&
+          prevConversationCountRef.current !== convs.length
+        ) {
+          prevConversationCountRef.current = convs.length;
+          console.log(`✅ ${convs.length} conversations (temps réel, page 1)`);
+        }
+        setLiveConversations(convs);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('❌ Erreur chargement conversations:', error);
+        setLoading(false);
+      },
+    );
 
     unsubscribeRefs.current.conversations = unsubscribe;
 
@@ -287,8 +411,49 @@ const ensureEntrepreneurHasUser = async (companyId: string): Promise<string> => 
     };
   }, [user?.uid]);
 
+  const loadMoreConversations = async (): Promise<void> => {
+    if (!user?.uid || loadingMoreConversations || !hasMoreConversations) return;
+    const cursor =
+      loadMoreCursorRef.current ?? listEndDocRef.current;
+    if (!cursor) return;
+
+    setLoadingMoreConversations(true);
+    try {
+      const conversationsRef = collection(db, 'conversations');
+      const q = query(
+        conversationsRef,
+        where('participants', 'array-contains', user.uid),
+        orderBy('updatedAt', 'desc'),
+        startAfter(cursor),
+        limit(CONVERSATIONS_PAGE_SIZE),
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        setHasMoreConversations(false);
+        return;
+      }
+      const batch = snap.docs.map(mapFirestoreConversationDoc);
+      setExtraConversations((prev) => {
+        const seen = new Set<string>([
+          ...liveConversationsRef.current.map((c) => c.id),
+          ...prev.map((c) => c.id),
+        ]);
+        const add = batch.filter((c) => !seen.has(c.id));
+        return [...prev, ...add];
+      });
+      loadMoreCursorRef.current = snap.docs[snap.docs.length - 1] ?? null;
+      if (snap.docs.length < CONVERSATIONS_PAGE_SIZE) {
+        setHasMoreConversations(false);
+      }
+    } catch (e) {
+      console.error('❌ loadMoreConversations:', e);
+    } finally {
+      setLoadingMoreConversations(false);
+    }
+  };
+
   // ================================
-  // 🔥 SURVEILLANCE DES UTILISATEURS EN LIGNE
+  // 🔥 SURVEILLANCE DES UTILISATEURS EN LIGNE - OPTIMISÉE
   // ================================
   useEffect(() => {
     if (!user?.uid) return;
@@ -297,14 +462,27 @@ const ensureEntrepreneurHasUser = async (companyId: string): Promise<string> => 
     const q = query(statusRef, where('state', 'in', ['online', 'away']));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      // Récupérer tous les participants avec qui on converse
+      const participantIds = new Set<string>();
+      conversations.forEach(conv => {
+        conv.participants.forEach(id => {
+          if (id !== user.uid) {
+            participantIds.add(id);
+          }
+        });
+      });
+
       const users: OnlineUser[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
-        users.push({
-          uid: data.uid,
-          lastSeen: data.lastChanged?.toDate() || new Date(),
-          status: data.state || 'offline'
-        });
+        // Ne conserver que les participants avec qui on converse
+        if (participantIds.has(data.uid)) {
+          users.push({
+            uid: data.uid,
+            lastSeen: data.lastChanged?.toDate() || new Date(),
+            status: data.state || 'offline'
+          });
+        }
       });
       setOnlineUsers(users);
     });
@@ -316,47 +494,67 @@ const ensureEntrepreneurHasUser = async (companyId: string): Promise<string> => 
         unsubscribeRefs.current.online();
       }
     };
-  }, [user?.uid]);
+  }, [user?.uid, conversations]);
 
   // ================================
-  // 🔥 SURVEILLANCE DES TYPING
+  // 🔥 SURVEILLANCE DES TYPING - OPTIMISÉE
   // ================================
-// --- VERSION CORRIGÉE ET OPTIMISÉE ---
-useEffect(() => {
-  if (!user?.uid || conversations.length === 0) return;
-
-  // On stocke tous nos abonnements dans un objet
-  const unsubscribes: Record<string, () => void> = {};
-
-  conversations.forEach(conversation => {
-    const typingRef = collection(db, 'conversations', conversation.id, 'typing');
+  // On écoute UNIQUEMENT la conversation sélectionnée pour éviter trop de listeners
+  useEffect(() => {
+    if (!user?.uid) return;
     
-    // On enregistre l'écouteur
-    unsubscribes[conversation.id] = onSnapshot(typingRef, (snapshot) => {
+    // Si aucune conversation sélectionnée, nettoyer tous les listeners et sortir
+    if (!selectedConversation) {
+      Object.values(unsubscribeRefs.current.typing).forEach(unsubscribe => unsubscribe());
+      unsubscribeRefs.current.typing = {};
+      setTypingUsers({});
+      return;
+    }
+
+    const conversationId = selectedConversation.id;
+    
+    // Vérifier si on a déjà un listener pour cette conversation
+    if (unsubscribeRefs.current.typing[conversationId]) {
+      return; // Déjà écouté, pas besoin de recréer
+    }
+
+    // Créer le listener pour la conversation sélectionnée
+    const typingRef = collection(db, 'conversations', conversationId, 'typing');
+    const unsubscribe = onSnapshot(typingRef, (snapshot) => {
       const typing: TypingUser[] = [];
       snapshot.forEach((doc) => {
         const data = doc.data();
         if (data.uid !== user.uid) {
           typing.push({
             uid: data.uid,
-            name: conversation.participantNames?.[data.uid] || data.name || 'Quelqu\'un',
+            name: selectedConversation.participantNames?.[data.uid] || data.name || 'Quelqu\'un',
             timestamp: data.timestamp?.toDate() || new Date()
           });
         }
       });
       
-      setTypingUsers(prev => ({
-        ...prev,
-        [conversation.id]: typing
-      }));
+      setTypingUsers({ [conversationId]: typing });
     });
-  });
 
-  // FONCTION DE NETTOYAGE : Ferme tous les écouteurs d'un coup
-  return () => {
-    Object.values(unsubscribes).forEach(unsubscribe => unsubscribe());
-  };
-}, [conversations, user?.uid]);
+    // Enregistrer le nouveau listener
+    unsubscribeRefs.current.typing[conversationId] = unsubscribe;
+
+    // Nettoyer les vieux listeners (sauf celui de la conversation sélectionnée)
+    Object.keys(unsubscribeRefs.current.typing).forEach(id => {
+      if (id !== conversationId) {
+        unsubscribeRefs.current.typing[id]?.();
+        delete unsubscribeRefs.current.typing[id];
+      }
+    });
+
+    // Nettoyer à la désinstallation ou quand la conversation change
+    return () => {
+      if (unsubscribeRefs.current.typing[conversationId]) {
+        unsubscribeRefs.current.typing[conversationId]();
+        delete unsubscribeRefs.current.typing[conversationId];
+      }
+    };
+  }, [user?.uid, selectedConversation?.id]);
 
   // ================================
   // 🔥 FONCTIONS DE CONVERSATION
@@ -368,19 +566,51 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
   if (!user?.uid) throw new Error('Utilisateur non connecté');
 
   try {
-    // 🚀 SI C'EST UN ENTREPRENEUR, ON ADAPTE AUTOMATIQUEMENT
     let participantIds = [...(data.participants || [])];
-    
+    /** ID doc `companies` (boutique), distinct de l’UID propriétaire. */
+    let companyFirestoreId: string | null = data.companyId || null;
+
     if (data.type === 'entrepreneur' || data.type === 'seller') {
-      const companyId = participantIds[0]; // Le premier participant est l'entreprise
-      
-      if (companyId) {
-        // ✅ ASSURER QUE L'ENTREPRENEUR A UN COMPTE UTILISATEUR
-        const realUserId = await ensureEntrepreneurHasUser(companyId);
-        
-        // Remplacer l'ID entreprise par le vrai UID utilisateur
+      if (!companyFirestoreId && participantIds[0]) {
+        const maybeOwner = participantIds[0];
+        const userSnap = await getDoc(doc(db, 'users', maybeOwner));
+        if (userSnap.exists()) {
+          const cid = userSnap.data()?.companyId;
+          if (typeof cid === 'string' && cid.length > 0) {
+            companyFirestoreId = cid;
+          }
+        }
+        if (!companyFirestoreId) {
+          const compSnap = await getDoc(doc(db, 'companies', maybeOwner));
+          if (compSnap.exists()) {
+            companyFirestoreId = maybeOwner;
+          }
+        }
+      }
+
+      if (companyFirestoreId) {
+        const realUserId = await ensureEntrepreneurHasUser(companyFirestoreId);
         participantIds = [realUserId];
-        console.log('🔄 Conversation avec entrepreneur:', { companyId, realUserId });
+        console.log('🔄 Conversation boutique:', { companyFirestoreId, realUserId });
+
+        try {
+          const userDoc = await getDoc(doc(db, 'users', realUserId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            data.participantNames = {
+              ...data.participantNames,
+              [realUserId]: userData.displayName || userData.name || 'Interlocuteur',
+            };
+            const ph = userData.photoURL;
+            data.participantAvatars = {
+              ...data.participantAvatars,
+              [realUserId]:
+                typeof ph === 'string' && ph.startsWith('http') ? ph : '',
+            };
+          }
+        } catch (e) {
+          console.log('⚠️ Impossible de charger le nom/photo utilisateur entrepreneur');
+        }
       }
     }
 
@@ -416,18 +646,47 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
       messageCount: 0
     };
 
-    // Ajouter les infos de l'entreprise si c'est une conversation entrepreneur
-    if (data.type === 'entrepreneur' && participantIds[0]) {
+    if (
+      companyFirestoreId &&
+      (data.type === 'entrepreneur' || data.type === 'seller')
+    ) {
       try {
-        const companyDoc = await getDoc(doc(db, 'companies', participantIds[0]));
+        const companyDoc = await getDoc(
+          doc(db, 'companies', companyFirestoreId),
+        );
         if (companyDoc.exists()) {
           const company = companyDoc.data();
-          conversationData.companyId = participantIds[0];
-          conversationData.companyName = company.name;
-          conversationData.companyLogo = company.logo;
+          conversationData.companyId = companyFirestoreId;
+          conversationData.companyName =
+            company.name || data.title || conversationData.title;
+          conversationData.companyLogo = company.logo || null;
+          if (!conversationData.title || conversationData.title === 'Entrepreneur') {
+            conversationData.title =
+              company.name || conversationData.title || 'Boutique';
+          }
         }
       } catch (e) {
         console.log('⚠️ Impossible de charger les infos entreprise');
+      }
+    }
+
+    if (
+      data.type === 'direct' &&
+      typeof data.companyId === 'string' &&
+      data.companyId.length > 0 &&
+      !conversationData.companyId
+    ) {
+      try {
+        const companyDoc = await getDoc(doc(db, 'companies', data.companyId));
+        if (companyDoc.exists()) {
+          const company = companyDoc.data();
+          conversationData.companyId = data.companyId;
+          conversationData.companyName =
+            company.name || data.title || conversationData.title;
+          conversationData.companyLogo = company.logo || null;
+        }
+      } catch (e) {
+        console.log('⚠️ Infos boutique (conversation directe):', e);
       }
     }
 
@@ -456,45 +715,156 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
   }
 };
 
+  const FIRESTORE_BATCH_MAX = 400;
+
+  async function deleteDocsInChunks(
+    docs: QueryDocumentSnapshot[],
+  ): Promise<void> {
+    for (let i = 0; i < docs.length; i += FIRESTORE_BATCH_MAX) {
+      const batch = writeBatch(db);
+      docs
+        .slice(i, i + FIRESTORE_BATCH_MAX)
+        .forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+  }
+
+  function isFunctionsNotFoundError(e: unknown): boolean {
+    const err = e as { code?: string; message?: string };
+    const msg = String(err?.message ?? '');
+    return (
+      err?.code === 'functions/not-found' ||
+      /not\s*found/i.test(msg)
+    );
+  }
+
+  async function callConversationModeration(
+    conversationId: string,
+    action: 'clearMessages' | 'deleteThread',
+  ): Promise<void> {
+    const fn = httpsCallable(functions, 'conversationModeration');
+    await fn({ conversationId, action });
+  }
+
+  async function clearAllMessagesClientSide(
+    conversationId: string,
+  ): Promise<void> {
+    if (!user?.uid) throw new Error('Utilisateur non connecté');
+
+    const convSnap = await getDoc(doc(db, 'conversations', conversationId));
+    if (!convSnap.exists()) {
+      throw new Error('Conversation non trouvée');
+    }
+    const participants = (convSnap.data().participants || []) as string[];
+    if (!participants.includes(user.uid)) {
+      throw new Error('Accès refusé');
+    }
+
+    const messagesRef = collection(
+      db,
+      'conversations',
+      conversationId,
+      'messages',
+    );
+    const messagesSnapshot = await getDocs(messagesRef);
+    await deleteDocsInChunks(messagesSnapshot.docs);
+
+    await updateDoc(doc(db, 'conversations', conversationId), {
+      lastMessage: '',
+      lastMessageTime: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      messageCount: 0,
+    });
+  }
+
+  const clearAllMessagesInConversation = async (
+    conversationId: string,
+  ): Promise<void> => {
+    if (!user?.uid) throw new Error('Utilisateur non connecté');
+    try {
+      await callConversationModeration(conversationId, 'clearMessages');
+    } catch (e) {
+      if (!isFunctionsNotFoundError(e)) throw e;
+      await clearAllMessagesClientSide(conversationId);
+    }
+  };
+
+  async function deleteConversationClientSide(
+    conversationId: string,
+  ): Promise<void> {
+    if (!user?.uid) throw new Error('Utilisateur non connecté');
+
+    let conversation = conversations.find((c) => c.id === conversationId);
+    if (!conversation) {
+      const snap = await getDoc(doc(db, 'conversations', conversationId));
+      if (!snap.exists()) throw new Error('Conversation non trouvée');
+      const d = snap.data();
+      conversation = {
+        id: conversationId,
+        title: d.title || '',
+        type: d.type || 'direct',
+        participants: d.participants || [],
+        createdBy: d.createdBy || '',
+        admins: d.admins || [],
+        createdAt: d.createdAt?.toDate() || new Date(),
+        updatedAt: d.updatedAt?.toDate() || new Date(),
+      } as Conversation;
+    }
+
+    const isParticipant = conversation.participants?.includes(user.uid);
+    const isCreatorOrAdmin =
+      conversation.createdBy === user.uid ||
+      conversation.admins?.includes(user.uid);
+    const isPair = (conversation.participants?.length || 0) === 2;
+
+    if (!isParticipant || (!isCreatorOrAdmin && !isPair)) {
+      throw new Error(
+        "Vous n'avez pas la permission de supprimer cette conversation",
+      );
+    }
+
+    const messagesRef = collection(
+      db,
+      'conversations',
+      conversationId,
+      'messages',
+    );
+    const messagesSnapshot = await getDocs(messagesRef);
+    await deleteDocsInChunks(messagesSnapshot.docs);
+
+    const typingRef = collection(
+      db,
+      'conversations',
+      conversationId,
+      'typing',
+    );
+    const typingSnapshot = await getDocs(typingRef);
+    await deleteDocsInChunks(typingSnapshot.docs);
+
+    await deleteDoc(doc(db, 'conversations', conversationId));
+    console.log('🗑️ Conversation supprimée (client)');
+  }
+
   // SUPPRIMER UNE CONVERSATION
-  const deleteConversation = async (conversationId: string): Promise<void> => {
+  const deleteConversation = async (
+    conversationId: string,
+    options?: { suppressErrorAlert?: boolean },
+  ): Promise<void> => {
     if (!user?.uid) throw new Error('Utilisateur non connecté');
 
     try {
-      const conversation = conversations.find(c => c.id === conversationId);
-      if (!conversation) throw new Error('Conversation non trouvée');
-
-      // Vérifier les permissions
-      if (conversation.createdBy !== user.uid && !conversation.admins?.includes(user.uid)) {
-        throw new Error('Vous n\'avez pas la permission de supprimer cette conversation');
+      try {
+        await callConversationModeration(conversationId, 'deleteThread');
+        console.log('🗑️ Conversation supprimée');
+      } catch (e) {
+        if (!isFunctionsNotFoundError(e)) throw e;
+        await deleteConversationClientSide(conversationId);
       }
-
-      // Supprimer tous les messages d'abord
-      const messagesRef = collection(db, 'conversations', conversationId, 'messages');
-      const messagesSnapshot = await getDocs(messagesRef);
-      
-      const batch = writeBatch(db);
-      messagesSnapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-      
-      // Supprimer les données de typing
-      const typingRef = collection(db, 'conversations', conversationId, 'typing');
-      const typingSnapshot = await getDocs(typingRef);
-      typingSnapshot.docs.forEach(doc => {
-        batch.delete(doc.ref);
-      });
-      
-      // Supprimer la conversation
-      batch.delete(doc(db, 'conversations', conversationId));
-      
-      await batch.commit();
-      console.log('🗑️ Conversation supprimée');
-      
-      Alert.alert('Succès', 'Conversation supprimée');
     } catch (error) {
       console.error('❌ Erreur suppression conversation:', error);
-      Alert.alert('Erreur', 'Impossible de supprimer la conversation');
+      if (!options?.suppressErrorAlert) {
+        Alert.alert('Erreur', 'Impossible de supprimer la conversation');
+      }
       throw error;
     }
   };
@@ -610,17 +980,26 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
       fileUrl?: string;
       fileName?: string;
       replyTo?: string;
+      product?: Message['product'];
+      payment?: Message['payment'];
     } = {}
   ): Promise<void> => {
     if (!user?.uid) throw new Error('Utilisateur non connecté');
 
     try {
       const messageType = options.type || 'text';
+      const normalizedText = text.trim();
+      const fallbackText =
+        messageType === 'product_payment'
+          ? `Paiement: ${options.product?.name || 'Produit'}`
+          : normalizedText;
+      const safeText = normalizedText || fallbackText;
       const messageData: any = {
-        text,
+        text: safeText,
         senderId: user.uid,
         senderName: user.displayName || 'Vous',
         timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
         readBy: [user.uid],
         type: messageType
       };
@@ -632,6 +1011,8 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
         messageData.fileName = options.fileName;
       }
       if (options.replyTo) messageData.replyTo = options.replyTo;
+      if (options.product) messageData.product = options.product;
+      if (options.payment) messageData.payment = options.payment;
 
       // 1. Ajouter le message
       const messagesRef = collection(db, 'conversations', conversationId, 'messages');
@@ -639,52 +1020,23 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
 
       // 2. Mettre à jour la conversation
       const convRef = doc(db, 'conversations', conversationId);
+      // 2. Mettre à jour la conversation (messageCount sécurisé)
+      const { increment } = await import('firebase/firestore');
       const updateData: any = {
-        lastMessage: text,
+        lastMessage: safeText,
         lastMessageTime: serverTimestamp(),
         updatedAt: serverTimestamp(),
         [`unreadCount.${user.uid}`]: 0,
-        messageCount: await (async () => {
-          const convDoc = await getDoc(convRef);
-          return (convDoc.data()?.messageCount || 0) + 1;
-        })()
+        messageCount: increment(1)
       };
 
       await updateDoc(convRef, updateData);
 
-      // 3. Envoyer des notifications aux autres participants
+      // 3. Push vers les autres appareils : Cloud Function onNewChatMessagePush (Expo), pas de notif locale ici.
+
       const conversation = conversations.find(c => c.id === conversationId);
       if (conversation) {
         const otherParticipants = conversation.participants.filter(p => p !== user.uid);
-        
-        // Envoyer une notification push (si configuré)
-        if (Platform.OS !== 'web') {
-          otherParticipants.forEach(async (participantId) => {
-            // Vérifier si la conversation est mutée pour cet utilisateur
-            if (conversation.mute?.[participantId]) {
-              return;
-            }
-
-            try {
-              await Notifications.scheduleNotificationAsync({
-                content: {
-                  title: conversation.title,
-                  body: `${user.displayName || 'Quelqu\'un'}: ${text.substring(0, 50)}`,
-                  data: { 
-                    conversationId,
-                    type: 'new_message',
-                    senderId: user.uid 
-                  },
-                  sound: true,
-                  badge: 1,
-                },
-                trigger: null,
-              });
-            } catch (error) {
-              console.log('⚠️ Notifications non configurées');
-            }
-          });
-        }
 
         // Incrémenter le compteur non-lu pour les autres
         otherParticipants.forEach(async (participantId) => {
@@ -740,40 +1092,54 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
 
   // MARQUER COMME LU
   const markAsRead = async (conversationId: string): Promise<void> => {
-    if (!user?.uid) return;
+    if (!user?.uid || !conversationId) return;
 
     try {
       const convRef = doc(db, 'conversations', conversationId);
+      const convSnap = await getDoc(convRef);
+      if (!convSnap.exists()) {
+        // Le paramètre route peut être un `companyId`/UID avant bootstrap.
+        return;
+      }
+      const convData = convSnap.data() as Record<string, unknown>;
+      const unreadMap = convData.unreadCount as Record<string, unknown> | undefined;
+      const currentUnread = Number(unreadMap?.[user.uid] ?? 0);
+      if (!Number.isFinite(currentUnread) || currentUnread <= 0) {
+        return;
+      }
+
       await updateDoc(convRef, {
         [`unreadCount.${user.uid}`]: 0,
         updatedAt: serverTimestamp()
       });
       
-      // Marquer tous les messages comme lus
+      // Marquer les derniers messages comme lus si nécessaire.
       const messagesRef = collection(db, 'conversations', conversationId, 'messages');
       const q = query(
         messagesRef,
-        where('readBy', 'array-contains', user.uid),
         orderBy('timestamp', 'desc'),
         limit(50)
       );
       
       const snapshot = await getDocs(q);
       const batch = writeBatch(db);
+      let hasMessageUpdates = false;
       
       snapshot.docs.forEach(docSnapshot => {
-        if (!docSnapshot.data().readBy.includes(user.uid)) {
+        const readBy = Array.isArray(docSnapshot.data().readBy)
+          ? docSnapshot.data().readBy
+          : [];
+        if (!readBy.includes(user.uid)) {
           batch.update(docSnapshot.ref, {
-            readBy: [...docSnapshot.data().readBy, user.uid]
+            readBy: [...readBy, user.uid]
           });
+          hasMessageUpdates = true;
         }
       });
       
-      if (snapshot.docs.length > 0) {
+      if (hasMessageUpdates) {
         await batch.commit();
       }
-      
-      console.log('👀 Messages marqués comme lus');
     } catch (error) {
       console.error('❌ Erreur marquer comme lu:', error);
     }
@@ -838,19 +1204,31 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
   // 🔥 RECHERCHE
   // ================================
 
-  const searchMessages = async (conversationId: string, query: string): Promise<Message[]> => {
+  const searchMessages = async (conversationId: string, searchQuery: string): Promise<Message[]> => {
     try {
       const messagesRef = collection(db, 'conversations', conversationId, 'messages');
-      const snapshot = await getDocs(messagesRef);
+      // Limiter à 50 résultats pour éviter de lire trop de documents
+      const q = query(messagesRef, orderBy('timestamp', 'desc'), limit(50));
+      const snapshot = await getDocs(q);
       
       const messages: Message[] = [];
       snapshot.forEach(doc => {
         const data = doc.data();
-        if (data.text?.toLowerCase().includes(query.toLowerCase()) && !data.deleted) {
+        if (data.text?.toLowerCase().includes(searchQuery.toLowerCase()) && !data.deleted) {
+          // Convertir le timestamp Firestore en Date
+          let messageTimestamp: Date | Timestamp;
+          if (data.timestamp && typeof (data.timestamp as Timestamp).toDate === 'function') {
+            messageTimestamp = (data.timestamp as Timestamp).toDate();
+          } else if (data.timestamp instanceof Date) {
+            messageTimestamp = data.timestamp;
+          } else {
+            messageTimestamp = new Date();
+          }
+          
           messages.push({
             id: doc.id,
             ...data,
-            timestamp: data.timestamp?.toDate() || new Date()
+            timestamp: messageTimestamp
           } as Message);
         }
       });
@@ -923,12 +1301,10 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
         throw new Error('Conversation non trouvée');
       }
 
-      // Compter les messages
-      const messagesRef = collection(db, 'conversations', conversationId, 'messages');
-      const snapshot = await getDocs(messagesRef);
-      
+      // Utiliser le champ messageCount existant au lieu de lire tous les messages
+      // Cela évite des milliers de lectures inutiles !
       return {
-        messageCount: snapshot.size,
+        messageCount: conversation.messageCount || 0,
         participantCount: conversation.participants.length,
         lastActivity: conversation.updatedAt instanceof Date 
           ? conversation.updatedAt 
@@ -954,14 +1330,19 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
     return total + (isArchived ? 0 : userUnread);
   }, 0);
 
+  // ...existing code...
+
   // ================================
   // VALEUR DU CONTEXTE
   // ================================
 
   const value: MessagesContextType = {
+    getConversationName,
     // État
     conversations,
     loading,
+    hasMoreConversations,
+    loadingMoreConversations,
     onlineUsers,
     typingUsers,
     selectedConversation,
@@ -970,6 +1351,7 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
     // Conversations
     createConversation,
     deleteConversation,
+    loadMoreConversations,
     leaveConversation,
     pinConversation,
     archiveConversation,
@@ -979,6 +1361,7 @@ const createConversation = async (data: Partial<Conversation>): Promise<string> 
     // Messages
     sendMessage,
     deleteMessage,
+    clearAllMessagesInConversation,
     markAsRead,
     markAsDelivered,
     startTyping,

@@ -18,6 +18,10 @@ import {
 const ORDERS_LISTEN_LIMIT = 80;
 import { db } from "@/config/firebase";
 import { useAuth } from "./AuthContext";
+import {
+  dedupeOrderLineItems,
+  pickOrderItemsArray,
+} from "@/utils/orderLineItemsDedupe";
 
 /* =======================
     TYPES
@@ -25,7 +29,7 @@ import { useAuth } from "./AuthContext";
 export interface Order {
   id: string;
   userId: string;
-  items: any[]; 
+  items: any[];
   status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled" | "failed";
   total: number;
   createdAt: Date | null;
@@ -44,6 +48,12 @@ export interface Order {
   };
   paymentMethod: string;
   paymentStatus: string;
+  /** Avis client enregistré sur la commande */
+  customerReview?: {
+    rating: number;
+    comment?: string;
+    createdAt: Date | null;
+  };
 }
 
 interface OrderContextType {
@@ -51,8 +61,10 @@ interface OrderContextType {
   loading: boolean;
   createOrder: (data: any) => Promise<string>;
   updateOrderStatus: (orderId: string, status: Order["status"]) => Promise<void>;
-  deleteOrder: (orderId: string) => Promise<void>; // ✅ Ajouté au type
+  deleteOrder: (orderId: string) => Promise<void>;
   getOrderById: (id: string) => Order | undefined;
+  /** Listener temps réel : no-op (compat écran commandes) */
+  refreshOrders: () => Promise<void>;
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -87,15 +99,15 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
       const data = snapshot.docs.map((docSnap) => {
         const d = docSnap.data();
 
-        // Normalisation des items avec nettoyage des URLs d'images (Glide Fix)
-        const normalizedItems = (d.items || []).map((item: any) => {
+        const rawItems = pickOrderItemsArray(d as Record<string, unknown>);
+
+        const normalizedItems = rawItems.map((item: any) => {
           let cleanImage = item.image || item.imageUrl || null;
 
           if (cleanImage && typeof cleanImage === "string") {
             cleanImage = cleanImage.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, "");
-            // Correction spécifique Firebase Storage
-            if (cleanImage.includes('/products/') && !cleanImage.includes('products%2F')) {
-              cleanImage = cleanImage.replace('/products/', '/products%2F');
+            if (cleanImage.includes("/products/") && !cleanImage.includes("products%2F")) {
+              cleanImage = cleanImage.replace("/products/", "/products%2F");
             }
           }
 
@@ -104,35 +116,24 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
             image: cleanImage,
             name: item.name || item.productName || "Produit sans nom",
             price: Number(item.price) || 0,
-            quantity: Number(item.quantity) || 1
+            quantity: Number(item.quantity) || 1,
           };
         });
 
-        // Anti-doublons (certains paiements/retours peuvent ramener des lignes répétées).
-        // On fusionne les lignes ayant le même `id` (souvent le cartId) en additionnant la quantité.
-        const dedupedItems = (() => {
-          const byKey = new Map<string, any>();
-          normalizedItems.forEach((it: any) => {
-            const key = String(it?.id ?? it?.cartId ?? it?.productId ?? it?.name ?? "");
-            if (!key) return;
+        const dedupedItems = dedupeOrderLineItems(normalizedItems) as any[];
 
-            const qty = Number(it.quantity) || 0;
-            if (byKey.has(key)) {
-              const existing = byKey.get(key);
-              existing.quantity = Number(existing.quantity) + qty;
-
-              // Garder un meilleur prix si jamais l'un des doublons est à 0
-              if ((Number(existing.price) || 0) === 0 && (Number(it.price) || 0) > 0) {
-                existing.price = Number(it.price) || 0;
+        const cr = d.customerReview as Record<string, unknown> | undefined;
+        const customerReview =
+          cr && typeof cr === "object"
+            ? {
+                rating: Number(cr.rating) || 0,
+                comment: typeof cr.comment === "string" ? cr.comment : undefined,
+                createdAt:
+                  cr.createdAt instanceof Timestamp
+                    ? cr.createdAt.toDate()
+                    : null,
               }
-              if (!existing.image && it.image) existing.image = it.image;
-              if (!existing.imageUrl && it.imageUrl) existing.imageUrl = it.imageUrl;
-            } else {
-              byKey.set(key, { ...it, quantity: qty || 1 });
-            }
-          });
-          return Array.from(byKey.values());
-        })();
+            : undefined;
 
         const rawStatus = d.status ? String(d.status).toLowerCase().trim() : "pending";
         // Normalisation : le backend/PC peut stocker "paid" ou "pending_payment"
@@ -149,6 +150,7 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
           items: dedupedItems,
           total: Number(d.total) || 0,
           status: normalizedStatus,
+          customerReview,
           createdAt: d.createdAt instanceof Timestamp
             ? d.createdAt.toDate()
             : new Date()
@@ -201,14 +203,19 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
 
   const getOrderById = (id: string) => orders.find(o => o.id === id);
 
+  const refreshOrders = async () => {
+    /* Les commandes viennent d’onSnapshot : rien à recharger manuellement */
+  };
+
   return (
     <OrderContext.Provider value={{ 
       orders, 
       loading, 
       createOrder, 
       updateOrderStatus, 
-      deleteOrder, // ✅ Ajouté ici
-      getOrderById 
+      deleteOrder,
+      getOrderById,
+      refreshOrders,
     }}>
       {children}
     </OrderContext.Provider>

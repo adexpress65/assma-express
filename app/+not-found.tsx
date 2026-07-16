@@ -38,7 +38,7 @@ declare global {
       // Routes produits
       "/product/[id]": { id: string };
       "/category/[id]": { id: string };
-      "/search": undefined;
+      "/search-results": undefined;
       
       // Ajoutez ici toutes les autres routes que vous utilisez
     }

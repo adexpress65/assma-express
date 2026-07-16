@@ -33,7 +33,7 @@ const PREMIUM_ADS_DATA = [
     cta: "Voir les Offres",
     badge: "RAMADAN",
     products: 450,
-    route: "/search?q=ramadan"
+    route: "/search-results?query=ramadan",
   },
   {
     id: 2, 

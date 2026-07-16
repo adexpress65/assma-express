@@ -1,4 +1,5 @@
+export * from './product';
+export * from './cart';
+export * from './order';
+export * from './payment';
 export * from './messages';
-
-// Si vous avez d'autres fichiers de types
-// export * from './otherTypes';

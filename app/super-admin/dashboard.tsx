@@ -34,7 +34,6 @@ import { db } from '@/config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Network from 'expo-network';
 import * as Application from 'expo-application';
-import { LinearGradient } from 'expo-linear-gradient';
 
 interface AdminStats {
   totalCompanies: number;
@@ -114,34 +113,12 @@ export default function SuperAdminDashboard() {
       'updatedAt': new Date()
     });
 
-    Alert.alert("Succès", "L'entreprise a été validée avec succès !");
+    Alert.alert("Succès", "Le fournisseur a été validé avec succès !");
     // Rafraîchir la liste après validation
     setPendingCompanies(prev => prev.filter(company => company.id !== companyId)); 
   } catch (error) {
     console.error("Erreur validation:", error);
-    Alert.alert("Erreur", "Impossible de valider l'entreprise.");
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleRejectCompany = async (companyId: string) => {
-  try {
-    setLoading(true);
-    const companyRef = doc(db, 'companies', companyId);
-    
-    await updateDoc(companyRef, {
-      'verification.status': 'rejected',
-      'verification.verified': false,
-      'isActive': false,
-      'updatedAt': new Date()
-    });
-
-    Alert.alert("Refusé", "L'entreprise a été rejetée.");
-    setPendingCompanies(prev => prev.filter(c => c.id !== companyId));
-  } catch (error) {
-    console.error("Erreur rejet:", error);
-    Alert.alert("Erreur", "Action impossible.");
+    Alert.alert("Erreur", "Impossible de valider le fournisseur.");
   } finally {
     setLoading(false);
   }
@@ -439,14 +416,14 @@ const handleRejectCompany = async (companyId: string) => {
       
       const activities: RecentActivity[] = [];
       
-      // Ajouter les entreprises récentes
+      // Ajouter les inscriptions fournisseurs récentes
       companiesSnapshot.forEach(doc => {
         const data = doc.data();
         activities.push({
           id: doc.id,
           type: 'company_registration',
-          title: 'Nouvelle entreprise inscrite',
-          description: `${data.name || data.companyName || 'Une entreprise'} s'est inscrite`,
+          title: 'Nouveau fournisseur inscrit',
+          description: `${data.name || data.companyName || 'Un fournisseur'} s'est inscrit`,
           createdAt: data.createdAt || Timestamp.now(),
           userEmail: data.email || data.ownerEmail || 'Non spécifié'
         });
@@ -497,8 +474,8 @@ const handleRejectCompany = async (companyId: string) => {
         {
           id: '1',
           type: 'company_registration',
-          title: 'Nouvelle entreprise',
-          description: 'Tech Solutions Inc. s\'est inscrite',
+          title: 'Nouveau fournisseur',
+          description: 'Tech Solutions Inc. s\'est inscrit',
           createdAt: Timestamp.now(),
           userEmail: 'contact@techsolutions.com'
         },
@@ -526,10 +503,9 @@ const handleRejectCompany = async (companyId: string) => {
       color: "#FF6B00"
     },
     { 
-label: "Entreprises", 
+      label: "Fournisseurs", 
       icon: "business", 
-      // Changement ici : on pointe vers le dossier réel 'suppliers'
-      href: "/super-admin/companies/add", 
+      href: "/super-admin/companies",
       count: stats.totalCompanies,
       color: "#4CAF50"
     },
@@ -554,12 +530,12 @@ label: "Entreprises",
       color: "#FF4081",
       isAction: true
     },
-    { 
-      label: "Utilisateurs", 
-      icon: "people", 
-      href: "/super-admin/users",
-      count: stats.totalUsers,
-      color: "#795548"
+    {
+      label: "Push promo produit",
+      icon: "megaphone",
+      href: "/super-admin/product-promo-push",
+      color: "#E91E63",
+      isAction: true,
     },
     { 
       label: "Support", 
@@ -771,15 +747,15 @@ label: "Entreprises",
                 <Ionicons name="business" size={24} color="#FF6B00" />
               </View>
               <Text style={styles.statValue}>{stats.totalCompanies}</Text>
-              <Text style={styles.statLabel}>Entreprises</Text>
+              <Text style={styles.statLabel}>Fournisseurs</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.statCard} onPress={() => router.push('/super-admin/verifications')}>
+            <TouchableOpacity style={styles.statCard} onPress={() => router.push('/super-admin/analytics')}>
               <View style={[styles.statIcon, { backgroundColor: '#4CAF5020' }]}>
-                <Ionicons name="shield-checkmark" size={24} color="#4CAF50" />
+                <Ionicons name="pulse" size={24} color="#4CAF50" />
               </View>
-              <Text style={styles.statValue}>{stats.pendingVerifications}</Text>
-              <Text style={styles.statLabel}>En attente</Text>
+              <Text style={styles.statValue}>{stats.activeToday}</Text>
+              <Text style={styles.statLabel}>Actifs</Text>
             </TouchableOpacity>
             
             <TouchableOpacity style={styles.statCard} onPress={() => router.push('/super-admin/analytics')}>
@@ -796,12 +772,12 @@ label: "Entreprises",
               <Text style={styles.statLabel}>Revenus (XOF)</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.statCard} onPress={() => router.push('/super-admin/users')}>
-              <View style={[styles.statIcon, { backgroundColor: '#9C27B020' }]}>
-                <Ionicons name="people" size={24} color="#9C27B0" />
+            <TouchableOpacity style={styles.statCard} onPress={() => router.push('/super-admin/verifications')}>
+              <View style={[styles.statIcon, { backgroundColor: '#F59E0B20' }]}>
+                <Ionicons name="shield-checkmark" size={24} color="#F59E0B" />
               </View>
-              <Text style={styles.statValue}>{stats.totalUsers}</Text>
-              <Text style={styles.statLabel}>Utilisateurs</Text>
+              <Text style={styles.statValue}>{stats.pendingVerifications}</Text>
+              <Text style={styles.statLabel}>En attente</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -848,36 +824,7 @@ label: "Entreprises",
           </View>
         </View>
 
-        {/* Bouton d'action rapide - AJOUT DE PRODUIT */}
-        <View style={styles.quickActionSection}>
-          <LinearGradient
-            colors={['#667eea', '#764ba2']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.quickActionCard}
-          >
-            <View style={styles.quickActionContent}>
-              <View style={styles.quickActionIcon}>
-                <Ionicons name="add-circle" size={32} color="#FFF" />
-              </View>
-              <View style={styles.quickActionText}>
-                <Text style={styles.quickActionTitle}>Ajouter un produit</Text>
-                <Text style={styles.quickActionDescription}>
-                  Créez un nouveau produit directement depuis le dashboard
-                </Text>
-              </View>
-            </View>
-            <TouchableOpacity 
-              style={styles.quickActionButton}
-              onPress={() => router.push('/super-admin/add-product')}
-            >
-              <Text style={styles.quickActionButtonText}>Commencer</Text>
-              <Ionicons name="arrow-forward" size={16} color="#764ba2" />
-            </TouchableOpacity>
-          </LinearGradient>
-        </View>
-
-        {/* Entreprises en attente */}
+        {/* Vérifications fournisseurs en attente */}
         {pendingCompanies.length > 0 && (
           <View style={styles.pendingSection}>
             <View style={styles.sectionHeader}>
@@ -931,26 +878,10 @@ label: "Entreprises",
       </TouchableOpacity>
 
       <TouchableOpacity 
-        style={styles.rejectBtn}
-        onPress={() => {
-          Alert.alert(
-            "Refuser l'entreprise",
-            `Voulez-vous rejeter ${company.name} ?`,
-            [
-              { text: "Annuler", style: "cancel" },
-              { text: "Rejeter", style: "destructive", onPress: () => handleRejectCompany(company.id) }
-            ]
-          );
-        }}
-      >
-        <Ionicons name="close-outline" size={22} color="#fff" />
-      </TouchableOpacity>
-
-      <TouchableOpacity 
         style={styles.approveBtn}
         onPress={() => {
           Alert.alert(
-            "Valider l'entreprise",
+            "Valider le fournisseur",
             `Autoriser ${company.name} ?`,
             [
               { text: "Annuler", style: "cancel" },

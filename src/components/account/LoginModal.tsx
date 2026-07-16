@@ -1,4 +1,3 @@
-// apps/mobile/src/components/account/LoginModal.tsx
 import React, { useState } from 'react';
 import {
   Modal,
@@ -15,17 +14,18 @@ import {
   Dimensions,
   Animated
 } from 'react-native';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
   UserCredential,
   GoogleAuthProvider,
   signInWithCredential,
   FacebookAuthProvider,
   OAuthProvider
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../config/firebase';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
@@ -33,8 +33,6 @@ import * as Facebook from 'expo-auth-session/providers/facebook';
 import * as AppleAuthentication from 'expo-apple-authentication';
 
 WebBrowser.maybeCompleteAuthSession();
-
-const { width: screenWidth } = Dimensions.get('window');
 
 interface LoginModalProps {
   visible: boolean;
@@ -58,13 +56,11 @@ interface UserData {
   };
 }
 
-// Types d'erreur Firebase
 type FirebaseError = {
   code: string;
   message: string;
 };
 
-// Constantes pour éviter les magic strings
 const USER_ROLES = {
   CLIENT: 'client',
   ADMIN: 'admin',
@@ -99,7 +95,6 @@ const ERROR_MESSAGES = {
   }
 } as const;
 
-// Fonctions utilitaires
 const createUserProfile = async (userCredential: UserCredential): Promise<void> => {
   const { user } = userCredential;
   const userDocRef = doc(db, 'users', user.uid);
@@ -121,54 +116,7 @@ const createUserProfile = async (userCredential: UserCredential): Promise<void> 
   };
 
   await setDoc(userDocRef, userData);
-  console.log('? Nouveau profil créé avec rôle: client');
-};
-
-const ensureUserProfile = async (userId: string): Promise<void> => {
-  console.log(`?? ensureUserProfile pour: ${userId}`);
-  
-  try {
-    const userDocRef = doc(db, 'users', userId);
-    const userDoc = await getDoc(userDocRef);
-
-    if (userDoc.exists()) {
-      const data = userDoc.data();
-      console.log(`?? DOCUMENT EXISTANT DÉTECTÉ`);
-      console.log(`?? Rôle Firestore: "${data.role || 'non défini'}"`);
-      return;
-    } else {
-      console.log(`?? NOUVEAU UTILISATEUR - création profil`);
-      
-      const currentUser = auth.currentUser;
-      const userData = {
-        uid: userId,
-        email: currentUser?.email || '',
-        displayName: currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Utilisateur',
-        role: 'client',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        isActive: true,
-        lastLogin: new Date(),
-        profileCompleted: false,
-        phoneNumber: currentUser?.phoneNumber || null,
-        photoURL: currentUser?.photoURL || null,
-        emailVerified: currentUser?.emailVerified || false
-      };
-      
-      const cleanData: Record<string, any> = {};
-      for (const [key, value] of Object.entries(userData)) {
-        if (value !== undefined && value !== null) {
-          cleanData[key] = value;
-        }
-      }
-      
-      await setDoc(userDocRef, cleanData);
-      console.log(`? Nouveau profil créé avec rôle: "client"`);
-    }
-    
-  } catch (error) {
-    console.error(`? Erreur ensureUserProfile:`, error);
-  }
+  console.log('ℹ️ Nouveau profil créé avec rôle: client');
 };
 
 const getFirebaseErrorMessage = (error: FirebaseError): { title: string; message: string } => {
@@ -210,12 +158,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
   const [loading, setLoading] = useState<boolean>(false);
   const [socialLoading, setSocialLoading] = useState<'google' | 'facebook' | 'apple' | null>(null);
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [forgotPasswordMode, setForgotPasswordMode] = useState<boolean>(false);
   const [slideAnim] = useState<Animated.Value>(new Animated.Value(0));
 
-  // Configuration des providers d'authentification sociale
   const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
     expoClientId: 'VOTRE_CLIENT_ID_EXPO_GOOGLE',
-    iosClientId: 'VOTRE_CLIENT_ID_IOS_GOOGLE',
+    iosClientId: '251188713496-btdeegjjniu9f8t21j1c6bf1r2pi8er.apps.googleusercontent.com',
     androidClientId: 'VOTRE_CLIENT_ID_ANDROID_GOOGLE',
     webClientId: 'VOTRE_CLIENT_ID_WEB_GOOGLE',
   });
@@ -236,14 +184,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
   }, [visible, slideAnim]);
 
-  // Gestion de la réponse Google
   React.useEffect(() => {
     if (googleResponse?.type === 'success') {
       handleGoogleSignIn(googleResponse.authentication?.accessToken);
     }
   }, [googleResponse]);
 
-  // Gestion de la réponse Facebook
   React.useEffect(() => {
     if (facebookResponse?.type === 'success') {
       handleFacebookSignIn(facebookResponse.authentication?.accessToken);
@@ -266,6 +212,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     setConfirmPassword('');
     setLoading(false);
     setSocialLoading(null);
+    setForgotPasswordMode(false);
   };
 
   const validateForm = (): boolean => {
@@ -289,15 +236,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
 
   const handleGoogleSignIn = async (accessToken: string | undefined) => {
     if (!accessToken) return;
-    
     try {
       const credential = GoogleAuthProvider.credential(accessToken);
       const userCredential = await signInWithCredential(auth, credential);
-      
-      await ensureUserProfile(userCredential.user.uid);
       handleAuthSuccess(userCredential, 'Google');
     } catch (error: any) {
-      console.error('? Erreur Google Sign-In:', error);
+      console.error('⚠️ Erreur Google Sign-In:', error);
       Alert.alert('Erreur', 'Échec de la connexion avec Google');
       setSocialLoading(null);
     }
@@ -305,15 +249,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
 
   const handleFacebookSignIn = async (accessToken: string | undefined) => {
     if (!accessToken) return;
-    
     try {
       const credential = FacebookAuthProvider.credential(accessToken);
       const userCredential = await signInWithCredential(auth, credential);
-      
-      await ensureUserProfile(userCredential.user.uid);
       handleAuthSuccess(userCredential, 'Facebook');
     } catch (error: any) {
-      console.error('? Erreur Facebook Sign-In:', error);
+      console.error('⚠️ Erreur Facebook Sign-In:', error);
       Alert.alert('Erreur', 'Échec de la connexion avec Facebook');
       setSocialLoading(null);
     }
@@ -331,73 +272,62 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
       const { identityToken } = appleCredential;
       
       if (identityToken) {
-        const provider = new OAuthProvider('apple.com');
-        const credential = provider.credential({
+        const appleProvider = new OAuthProvider('apple.com');
+        const credential = appleProvider.credential({
           idToken: identityToken,
         });
 
         const userCredential = await signInWithCredential(auth, credential);
-        
-        await ensureUserProfile(userCredential.user.uid);
         handleAuthSuccess(userCredential, 'Apple');
       }
     } catch (error: any) {
-      if (error.code === 'ERR_CANCELED') {
-        // L'utilisateur a annulé la connexion
+      if (error.code === 'ERR_REQUEST_CANCELED' || error.code === 'ERR_CANCELED') {
         console.log('Connexion Apple annulée');
       } else {
-        console.error('? Erreur Apple Sign-In:', error);
-        Alert.alert('Erreur', 'Échec de la connexion avec Apple');
+        console.error('⚠️ Erreur Apple Sign-In:', error);
+        Alert.alert('Erreur Apple', error.message || 'Échec de la connexion avec Apple');
       }
+    } finally {
       setSocialLoading(null);
     }
   };
 
   const handleAuthSuccess = (userCredential: UserCredential, provider: string) => {
-    console.log(`? Connexion réussie avec ${provider}:`, userCredential.user.email);
-    Alert.alert('?? Connexion réussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
+    console.log(`ℹ️ Connexion réussie avec ${provider}:`, userCredential.user.email);
+    Alert.alert('Connexion réussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
     resetForm();
     onClose();
     onLoginSuccess?.();
   };
 
   const handleLogin = async (): Promise<void> => {
-    console.log('?? Tentative de connexion:', email);
-
+    console.log('🔄 Tentative de connexion:', email);
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      await ensureUserProfile(userCredential.user.uid);
       handleAuthSuccess(userCredential, 'Email');
     } catch (error: any) {
-      console.error('? Erreur de connexion:', error);
+      console.error('⚠️ Erreur de connexion:', error);
       const { title, message } = getFirebaseErrorMessage(error);
       Alert.alert(title, message);
-      setLoading(false);
     }
   };
 
   const handleRegister = async (): Promise<void> => {
-    console.log('?? Tentative d\'inscription:', email);
-
+    console.log('🔄 Tentative d\'inscription:', email);
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       await createUserProfile(userCredential);
       handleAuthSuccess(userCredential, 'Email');
     } catch (error: any) {
-      console.error('? Erreur d\'inscription:', error);
+      console.error('⚠️ Erreur d\'inscription:', error);
       const { title, message } = getFirebaseErrorMessage(error);
       Alert.alert(title, message);
-      setLoading(false);
     }
   };
 
   const handleAuth = async (): Promise<void> => {
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setLoading(true);
-
     try {
       if (isLogin) {
         await handleLogin();
@@ -418,11 +348,37 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     setIsLogin(!isLogin);
     setPassword('');
     setConfirmPassword('');
+    setForgotPasswordMode(false);
+  };
+
+  const handleSendPasswordReset = async (): Promise<void> => {
+    if (!validateEmail(email)) {
+      Alert.alert(
+        'Email invalide',
+        'Indiquez l’adresse e-mail de votre compte pour recevoir le lien de réinitialisation.'
+      );
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      Alert.alert(
+        'E-mail envoyé',
+        'Si un compte existe avec cette adresse, vous recevrez un lien pour choisir un nouveau mot de passe. Vérifiez aussi vos courriers indésirables.',
+        [{ text: 'OK', onPress: () => setForgotPasswordMode(false) }]
+      );
+      setPassword('');
+    } catch (error: any) {
+      const { title, message } = getFirebaseErrorMessage(error);
+      Alert.alert(title, message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSocialLogin = async (provider: 'google' | 'facebook' | 'apple') => {
     setSocialLoading(provider);
-    
     try {
       if (provider === 'google') {
         await googlePromptAsync();
@@ -432,7 +388,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
         await handleAppleSignIn();
       }
     } catch (error) {
-      console.error(`? Erreur ${provider} login:`, error);
+      console.error(`⚠️ Erreur ${provider} login:`, error);
       setSocialLoading(null);
     }
   };
@@ -454,7 +410,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* EN-TÊTE AVEC GRADIENT */}
+          {/* EN-TÊTE */}
           <View style={styles.header}>
             <View style={styles.headerBackground} />
             <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -469,75 +425,77 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </View>
               
               <Text style={styles.title}>
-                {isLogin ? 'Content de vous revoir ! ??' : 'Rejoignez A2Express ??'}
+                {forgotPasswordMode
+                  ? 'Mot de passe oublié'
+                  : isLogin
+                    ? 'Content de vous revoir ! 👋'
+                    : 'Rejoignez A2Express 🚀'}
               </Text>
               <Text style={styles.subtitle}>
-                {isLogin 
-                  ? 'Connectez-vous pour accéder à votre compte' 
-                  : 'Créez votre compte en quelques secondes'
-                }
+                {forgotPasswordMode
+                  ? 'Saisissez votre e-mail : nous vous enverrons un lien pour réinitialiser votre mot de passe.'
+                  : isLogin
+                    ? 'Connectez-vous pour accéder à votre compte'
+                    : 'Créez votre compte en quelques secondes'}
               </Text>
             </Animated.View>
           </View>
 
           {/* FORMULAIRE */}
           <Animated.View style={[styles.form, slideUp]}>
-            {/* Boutons d'authentification sociale */}
-            <View style={styles.socialButtonsContainer}>
-              <TouchableOpacity 
-                style={[styles.socialButton, styles.googleButton]}
-                onPress={() => handleSocialLogin('google')}
-                disabled={socialLoading !== null}
-              >
-                {socialLoading === 'google' ? (
-                  <ActivityIndicator size="small" color="#DB4437" />
-                ) : (
-                  <>
-                    <Ionicons name="logo-google" size={24} color="#DB4437" />
-                    <Text style={styles.socialButtonText}>Google</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+            {!forgotPasswordMode && (
+              <>
+                <View style={styles.socialButtonsContainer}>
+                  <TouchableOpacity 
+                    style={[styles.socialButton, styles.googleButton]}
+                    onPress={() => handleSocialLogin('google')}
+                    disabled={socialLoading !== null}
+                  >
+                    {socialLoading === 'google' ? (
+                      <ActivityIndicator size="small" color="#DB4437" />
+                    ) : (
+                      <>
+                        <Ionicons name="logo-google" size={24} color="#DB4437" />
+                        <Text style={styles.socialButtonText}>Google</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={[styles.socialButton, styles.facebookButton]}
-                onPress={() => handleSocialLogin('facebook')}
-                disabled={socialLoading !== null}
-              >
-                {socialLoading === 'facebook' ? (
-                  <ActivityIndicator size="small" color="#4267B2" />
-                ) : (
-                  <>
-                    <Ionicons name="logo-facebook" size={24} color="#4267B2" />
-                    <Text style={styles.socialButtonText}>Facebook</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.socialButton, styles.facebookButton]}
+                    onPress={() => handleSocialLogin('facebook')}
+                    disabled={socialLoading !== null}
+                  >
+                    {socialLoading === 'facebook' ? (
+                      <ActivityIndicator size="small" color="#4267B2" />
+                    ) : (
+                      <>
+                        <Ionicons name="logo-facebook" size={24} color="#4267B2" />
+                        <Text style={styles.socialButtonText}>Facebook</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
 
-              {Platform.OS === 'ios' && (
-                <TouchableOpacity 
-                  style={[styles.socialButton, styles.appleButton]}
-                  onPress={() => handleSocialLogin('apple')}
-                  disabled={socialLoading !== null}
-                >
-                  {socialLoading === 'apple' ? (
-                    <ActivityIndicator size="small" color="#000" />
-                  ) : (
-                    <>
-                      <Ionicons name="logo-apple" size={24} color="#000" />
-                      <Text style={styles.socialButtonText}>Apple</Text>
-                    </>
+                  {Platform.OS === 'ios' && (
+                    <AppleAuthentication.AppleAuthenticationButton
+                      buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+                      buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                      cornerRadius={8}
+                      style={{ width: '31%', height: 48 }}
+                      onPress={async () => {
+                        await handleSocialLogin('apple');
+                      }}
+                    />
                   )}
-                </TouchableOpacity>
-              )}
-            </View>
+                </View>
 
-            {/* Séparateur */}
-            <View style={styles.separator}>
-              <View style={styles.separatorLine} />
-              <Text style={styles.separatorText}>ou continuez avec</Text>
-              <View style={styles.separatorLine} />
-            </View>
+                <View style={styles.separator}>
+                  <View style={styles.separatorLine} />
+                  <Text style={styles.separatorText}>ou continuez avec</Text>
+                  <View style={styles.separatorLine} />
+                </View>
+              </>
+            )}
 
             {/* EMAIL */}
             <View style={styles.inputContainer}>
@@ -557,110 +515,145 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               />
             </View>
 
-            {/* MOT DE PASSE */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.label}>
-                <Ionicons name="lock-closed-outline" size={16} color="#666" /> Mot de passe
-              </Text>
-              <View style={styles.passwordContainer}>
-                <TextInput
-                  style={[styles.input, styles.passwordInput]}
-                  placeholder="Votre mot de passe"
-                  placeholderTextColor="#999"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  autoComplete="password"
-                  editable={!loading && !socialLoading}
-                />
+            {forgotPasswordMode ? (
+              <>
                 <TouchableOpacity 
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeButton}
+                  style={[styles.authButton, loading && styles.authButtonDisabled]}
+                  onPress={handleSendPasswordReset}
                   disabled={loading || socialLoading !== null}
                 >
-                  <Ionicons 
-                    name={showPassword ? "eye-off" : "eye"} 
-                    size={20} 
-                    color="#666" 
-                  />
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <View style={styles.buttonContent}>
+                      <Ionicons name="mail-outline" size={20} color="#FFF" />
+                      <Text style={styles.authButtonText}>Envoyer le lien par e-mail</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
-              </View>
-              {!isLogin && (
-                <Text style={styles.passwordHint}>
-                  ?? Minimum 6 caractères
-                </Text>
-              )}
-            </View>
 
-            {/* CONFIRMATION MOT DE PASSE (INSCRIPTION) */}
-            {!isLogin && (
-              <Animated.View style={[styles.inputContainer, slideUp]}>
-                <Text style={styles.label}>
-                  <Ionicons name="lock-closed-outline" size={16} color="#666" /> Confirmer le mot de passe
-                </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirmer votre mot de passe"
-                  placeholderTextColor="#999"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showPassword}
-                  autoComplete="password"
-                  editable={!loading && !socialLoading}
-                />
-              </Animated.View>
-            )}
+                <TouchableOpacity 
+                  style={styles.switchContainer}
+                  onPress={() => setForgotPasswordMode(false)}
+                  disabled={loading}
+                >
+                  <Text style={styles.switchText}>
+                    <Text style={styles.switchLink}>Retour à la connexion</Text>
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>
+                    <Ionicons name="lock-closed-outline" size={16} color="#666" /> Mot de passe
+                  </Text>
+                  <View style={styles.passwordContainer}>
+                    <TextInput
+                      style={[styles.input, styles.passwordInput]}
+                      placeholder="Votre mot de passe"
+                      placeholderTextColor="#999"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
+                      autoComplete="password"
+                      editable={!loading && !socialLoading}
+                    />
+                    <TouchableOpacity 
+                      onPress={() => setShowPassword(!showPassword)}
+                      style={styles.eyeButton}
+                      disabled={loading || socialLoading !== null}
+                    >
+                      <Ionicons 
+                        name={showPassword ? "eye-off" : "eye"} 
+                        size={20} 
+                        color="#666" 
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {!isLogin && (
+                    <Text style={styles.passwordHint}>
+                      💡 Minimum 6 caractères
+                    </Text>
+                  )}
+                  {isLogin && (
+                    <TouchableOpacity
+                      style={styles.forgotPasswordLink}
+                      onPress={() => setForgotPasswordMode(true)}
+                      disabled={loading || socialLoading !== null}
+                    >
+                      <Text style={styles.forgotPasswordLinkText}>Mot de passe oublié ?</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
 
-            {/* BOUTON PRINCIPAL */}
-            <TouchableOpacity 
-              style={[
-                styles.authButton,
-                (loading || socialLoading) && styles.authButtonDisabled,
-                !isLogin && styles.registerButton
-              ]}
-              onPress={handleAuth}
-              disabled={loading || socialLoading !== null}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <View style={styles.buttonContent}>
-                  <Ionicons 
-                    name={isLogin ? "log-in-outline" : "person-add-outline"} 
-                    size={20} 
-                    color="#FFF" 
-                  />
-                  <Text style={styles.authButtonText}>
-                    {isLogin ? 'Se connecter' : 'Créer mon compte'}
+                {!isLogin && (
+                  <Animated.View style={[styles.inputContainer, slideUp]}>
+                    <Text style={styles.label}>
+                      <Ionicons name="lock-closed-outline" size={16} color="#666" /> Confirmer le mot de passe
+                    </Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirmer votre mot de passe"
+                      placeholderTextColor="#999"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showPassword}
+                      autoComplete="password"
+                      editable={!loading && !socialLoading}
+                    />
+                  </Animated.View>
+                )}
+
+                <TouchableOpacity 
+                  style={[
+                    styles.authButton,
+                    (loading || socialLoading) && styles.authButtonDisabled,
+                    !isLogin && styles.registerButton
+                  ]}
+                  onPress={handleAuth}
+                  disabled={loading || socialLoading !== null}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <View style={styles.buttonContent}>
+                      <Ionicons 
+                        name={isLogin ? "log-in-outline" : "person-add-outline"} 
+                        size={20} 
+                        color="#FFF" 
+                      />
+                      <Text style={styles.authButtonText}>
+                        {isLogin ? 'Se connecter' : 'Créer mon compte'}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.switchContainer}
+                  onPress={switchMode}
+                  disabled={loading || socialLoading !== null}
+                >
+                  <Text style={styles.switchText}>
+                    {isLogin 
+                      ? "👉 Pas de compte ? " 
+                      : "👈 Déjà un compte ? "
+                    }
+                    <Text style={styles.switchLink}>
+                      {isLogin ? "S'inscrire" : "Se connecter"}
+                    </Text>
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={styles.securityInfo}>
+                  <Ionicons name="shield-checkmark-outline" size={16} color="#4CAF50" />
+                  <Text style={styles.securityText}>
+                    Vos informations sont sécurisées et confidentielles
                   </Text>
                 </View>
-              )}
-            </TouchableOpacity>
-
-            {/* SWITCH LOGIN/INSCRIPTION */}
-            <TouchableOpacity 
-              style={styles.switchContainer}
-              onPress={switchMode}
-              disabled={loading || socialLoading !== null}
-            >
-              <Text style={styles.switchText}>
-                {isLogin 
-                  ? "?? Pas de compte ? " 
-                  : "? Déjà un compte ? "
-                }
-                <Text style={styles.switchLink}>
-                  {isLogin ? "S'inscrire" : "Se connecter"}
-                </Text>
-              </Text>
-            </TouchableOpacity>
-
-            {/* INFORMATIONS DE SÉCURITÉ */}
-            <View style={styles.securityInfo}>
-              <Ionicons name="shield-checkmark-outline" size={16} color="#4CAF50" />
-              <Text style={styles.securityText}>
-                Vos informations sont sécurisées et confidentielles
-              </Text>
-            </View>
+              </>
+            )}
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -769,10 +762,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     borderColor: '#E0E0E0',
   },
-  appleButton: {
-    backgroundColor: '#000',
-    borderColor: '#000',
-  },
   socialButtonText: {
     fontSize: 14,
     fontWeight: '600',
@@ -831,6 +820,16 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 6,
     fontStyle: 'italic',
+  },
+  forgotPasswordLink: {
+    alignSelf: 'flex-end',
+    marginTop: 10,
+    paddingVertical: 4,
+  },
+  forgotPasswordLinkText: {
+    fontSize: 14,
+    color: '#FF6B00',
+    fontWeight: '600',
   },
   authButton: {
     backgroundColor: '#FF6B00',

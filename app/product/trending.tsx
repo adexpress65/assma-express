@@ -13,6 +13,8 @@ import {
 import { Image } from 'expo-image'; // Meilleure performance pour les images
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '@/utils/productLocale';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 
@@ -20,6 +22,7 @@ const { width } = Dimensions.get('window');
 
 export default function TrendingProductsScreen() {
   const router = useRouter();
+  const { i18n } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [products, setProducts] = useState<any[]>([]); 
@@ -97,7 +100,14 @@ export default function TrendingProductsScreen() {
       </View>
       
       <View style={styles.productDetails}>
-        <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
+        <Text style={styles.productName} numberOfLines={2}>
+          {getLocalizedProductText(
+            item.name,
+            'name',
+            item as Record<string, unknown>,
+            i18n.language,
+          )}
+        </Text>
         <Text style={styles.productPrice}>
           {item.price?.toLocaleString()} <Text style={styles.currency}>FCFA</Text>
         </Text>

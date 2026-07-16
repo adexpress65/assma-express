@@ -62,8 +62,8 @@ export default function ConfirmationScreen() {
 
     if (isCancel) {
       return {
-        title: 'Paiement interrompu',
-        message: 'Le processus a été annulé. Aucun montant n’a été débité de votre compte.',
+        title: 'Paiement en vérification',
+        message: 'Votre transaction a été reçue et est en cours de confirmation bancaire. Si vous avez été débité, la commande sera mise à jour automatiquement.',
         icon: 'alert-circle' as const,
         iconColor: COLORS.error,
         bgColor: '#FCE8E6',
@@ -115,7 +115,7 @@ export default function ConfirmationScreen() {
       router.replace('/orders');
       return;
     }
-    router.replace('/(tabs)');
+    router.replace('/orders');
   };
 
   return (
@@ -159,7 +159,7 @@ export default function ConfirmationScreen() {
             <Text style={styles.infoText}>
               {isSuccess
                 ? 'Le récapitulatif est disponible dans l’onglet "Mes Commandes".'
-                : 'Si vous avez rencontré un problème technique, veuillez contacter notre support.'
+                : 'Si le débit est effectué, la commande apparaîtra dans "Mes Commandes" après synchronisation.'
               }
             </Text>
           </View>
@@ -175,7 +175,7 @@ export default function ConfirmationScreen() {
             color={COLORS.white}
           />
           <Text style={styles.buttonText}>
-            {isSuccess ? "Voir mes commandes" : "Réessayer"}
+            {isSuccess ? "Voir mes commandes" : "Suivre ma commande"}
           </Text>
         </TouchableOpacity>
 

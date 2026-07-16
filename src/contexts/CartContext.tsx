@@ -1,36 +1,18 @@
 // contexts/CartContext.tsx
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { doc, setDoc, getDoc } from "firebase/firestore";
+import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../config/firebase";
 import { isZeroDollarsProduct } from "../utils/zeroDollarsShop";
+import type { CartItem, AddToCartInput } from "../types/cart";
 
-export interface CartItem {
-  id: string;
-  cartId: string;
-  name: string;
-  price: number;           // ✅ TOUJOURS en XOF
-  originalCurrency: 'XOF';
-  quantity: number;
-  image?: string | null;
-  selectedSize?: string | null;
-  selectedColor?: string | null;
-  seller?: string | null;
-  sellerId?: string | null;
-  minOrder?: number | null;
-  inStock?: boolean | null;
-  hasFreeShipping?: boolean; 
-  variantInfo?: {
-    basePrice?: number;
-    priceAdjustment?: number;
-    variantId?: string;
-  } | null;
-}
+// Ré-export pour rétrocompatibilité avec les fichiers qui importent CartItem depuis ce module
+export type { CartItem } from "../types/cart";
 
 interface CartContextType {
   cartItems: CartItem[];
-  addToCart: (product: any) => void;
+  addToCart: (product: AddToCartInput) => void;
   removeFromCart: (cartId: string) => void;
   updateQuantity: (cartId: string, newQuantity: number) => void;
   clearCart: () => void;
@@ -42,7 +24,7 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 // --- UTILITAIRES DE NETTOYAGE ---
 
-const fixFirebaseUrl = (url: any): string | null => {
+const fixFirebaseUrl = (url: unknown): string | null => {
   if (!url || typeof url !== 'string') return null;
   try {
     // Décode l'URL pour éviter le double encodage qui cause l'erreur 400 sur Android
@@ -53,12 +35,14 @@ const fixFirebaseUrl = (url: any): string | null => {
   }
 };
 
-const sanitizeForFirestore = (data: any): any => {
+const sanitizeForFirestore = (data: unknown): unknown => {
   if (data === undefined || data === null) return null;
   if (Array.isArray(data)) return data.map(item => sanitizeForFirestore(item));
   if (typeof data === 'object' && !(data instanceof Date)) {
-    const sanitized: any = {};
-    Object.keys(data).forEach(key => { sanitized[key] = sanitizeForFirestore(data[key]); });
+    const sanitized: Record<string, unknown> = {};
+    Object.keys(data as object).forEach(key => {
+      sanitized[key] = sanitizeForFirestore((data as Record<string, unknown>)[key]);
+    });
     return sanitized;
   }
   return data;
@@ -69,57 +53,99 @@ const sanitizeForFirestore = (data: any): any => {
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
+  /** AsyncStorage lu au moins une fois — évite merge Firestore avant le panier local */
+  const [storageHydrated, setStorageHydrated] = useState(false);
   const isInitialMount = useRef(true);
   const syncTimeout = useRef<NodeJS.Timeout | null>(null);
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = userId;
 
   const STORAGE_KEY = "@assma_cart"; // Gardé tel quel pour la compatibilité des données existantes
+  const CART_TS_KEY = "@assma_cart_updatedAt";
 
-  const saneQty = (q: any): number => {
+  const saneQty = (q: unknown): number => {
     const n = Math.floor(Number(q));
     return (!Number.isFinite(n) || n < 1) ? 1 : (n > 999 ? 999 : n);
   };
 
-  // 🔐 AUTH LISTENER
+  const normalizeParsedItem = (item: AddToCartInput): CartItem => {
+    const cleanPrice = Number(item.price) || 0;
+    const isZero = isZeroDollarsProduct({
+      price: cleanPrice,
+      companyName: item.companyName ?? item.seller ?? item.supplier,
+      supplier: item.supplier ?? undefined,
+      seller: item.seller ?? undefined,
+      name: item.name ?? "",
+    });
+    return {
+      ...item,
+      cartId: `${item.id}-${item.selectedSize || "NS"}-${item.selectedColor || "NS"}`,
+      quantity: saneQty(item.quantity),
+      originalCurrency: "XOF",
+      image: fixFirebaseUrl(item.image),
+      hasFreeShipping: isZero ? false : !!item.hasFreeShipping,
+      price: isZero ? 0 : cleanPrice,
+    } as CartItem;
+  };
+
+  const firestoreUpdatedAtToMs = (v: unknown): number => {
+    if (v == null) return 0;
+    if (v instanceof Timestamp) return v.toMillis();
+    if (typeof (v as Timestamp)?.toMillis === "function") {
+      try {
+        return (v as Timestamp).toMillis();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    return 0;
+  };
+
+  // 🔐 AUTH
   useEffect(() => {
     return onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setUserId(user.uid);
-        mergeCartWithFirestore(user.uid);
-      } else {
-        setUserId(null);
-      }
+      setUserId(user ? user.uid : null);
     });
   }, []);
 
-  // 📦 LOAD LOCAL STORAGE
+  // 📦 LOAD LOCAL STORAGE (toujours avant merge Firestore)
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then(stored => {
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setCartItems(parsed.map((item: any) => {
-            const cleanPrice = Number(item.price) || 0;
-            const isZero = isZeroDollarsProduct({
-              price: cleanPrice,
-              companyName: item.companyName ?? item.seller ?? item.supplier,
-              supplier: item.supplier,
-              seller: item.seller,
-              name: item.name,
-            });
-            return {
-              ...item,
-              cartId: `${item.id}-${item.selectedSize || 'NS'}-${item.selectedColor || 'NS'}`,
-              quantity: saneQty(item.quantity),
-              originalCurrency: 'XOF',
-              image: fixFirebaseUrl(item.image),
-              hasFreeShipping: !!item.hasFreeShipping,
-              price: isZero ? 0 : cleanPrice,
-            };
-          }));
-        } catch (e) { console.error("Err parse local cart", e); }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [stored, ts] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY),
+          AsyncStorage.getItem(CART_TS_KEY),
+        ]);
+        if (!ts) {
+          await AsyncStorage.setItem(CART_TS_KEY, String(Date.now()));
+        }
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (!cancelled) {
+              setCartItems((parsed as AddToCartInput[]).map(normalizeParsedItem));
+            }
+          } catch (e) {
+            console.error("Err parse local cart", e);
+          }
+        }
+      } finally {
+        if (!cancelled) setStorageHydrated(true);
       }
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // ☁️ Après hydratation locale + utilisateur connecté : résoudre conflit local / nuage
+  useEffect(() => {
+    if (!userId || !storageHydrated) return;
+    void mergeCartWithFirestore(userId);
+  }, [userId, storageHydrated]);
 
   // 💾 AUTO SAVE & SYNC
   useEffect(() => {
@@ -127,68 +153,110 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isInitialMount.current = false;
       return;
     }
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cartItems));
+    const now = Date.now();
+    void AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cartItems));
+    void AsyncStorage.setItem(CART_TS_KEY, String(now));
 
     if (userId) {
       if (syncTimeout.current) clearTimeout(syncTimeout.current);
       syncTimeout.current = setTimeout(() => {
-        syncToFirestore(userId, cartItems);
+        void syncToFirestore(userId, cartItems, now);
       }, 2000);
     }
   }, [cartItems, userId]);
 
-  const syncToFirestore = async (uid: string, items: CartItem[]) => {
+  const syncToFirestore = async (uid: string, items: CartItem[], updatedAtMs?: number) => {
     try {
       const ref = doc(db, "users", uid, "data", "cart");
+      const at = updatedAtMs ?? Date.now();
       const dataToSave = sanitizeForFirestore({
-        items: items.map(item => ({
+        items: items.map((item) => ({
           ...item,
-          originalCurrency: undefined, // Non stocké pour alléger Firestore
+          originalCurrency: undefined,
         })),
-        updatedAt: new Date(),
-        totalPrice: items.reduce((sum, i) => sum + (i.price * i.quantity), 0)
+        updatedAt: Timestamp.fromMillis(at),
+        totalPrice: items.reduce((sum, i) => sum + i.price * i.quantity, 0),
       });
       await setDoc(ref, dataToSave, { merge: true });
-    } catch (error) { console.error("⚠️ Firestore Sync Error:", error); }
+    } catch (error) {
+      console.error("⚠️ Firestore Sync Error:", error);
+    }
   };
 
+  /** Écriture immédiate (vidage panier, éviter que le merge réinjecte l’ancien nuage). */
+  const syncToFirestoreImmediate = async (uid: string, items: CartItem[]) => {
+    const at = Date.now();
+    await AsyncStorage.setItem(CART_TS_KEY, String(at));
+    await syncToFirestore(uid, items, at);
+  };
+
+  /**
+   * Au login : un seul jeu de données gagne (dernier `updatedAt`).
+   * Avant : fusion = réinjection de centaines de lignes distantes après suppression locale.
+   */
   const mergeCartWithFirestore = async (uid: string) => {
     try {
       const ref = doc(db, "users", uid, "data", "cart");
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        const remoteItems = snap.data()?.items || [];
-        setCartItems(prev => {
-          const merged = [...prev];
-          remoteItems.forEach((ri: any) => {
-            const normalizedRiCartId = `${ri.id}-${ri.selectedSize || 'NS'}-${ri.selectedColor || 'NS'}`;
-            if (!merged.find(li => li.cartId === normalizedRiCartId)) {
-              const cleanPrice = Number(ri.price) || 0;
-              const isZero = isZeroDollarsProduct({
-                price: cleanPrice,
-                companyName: ri.companyName ?? ri.seller ?? ri.supplier,
-                supplier: ri.supplier,
-                seller: ri.seller,
-                name: ri.name,
-              });
-              merged.push({
-                ...ri,
-                cartId: normalizedRiCartId,
-                image: fixFirebaseUrl(ri.image),
-                originalCurrency: 'XOF',
-                hasFreeShipping: !!ri.hasFreeShipping,
-                price: isZero ? 0 : cleanPrice,
-              });
-            }
-          });
-          return merged;
-        });
+      const [snap, localJson, localTsStr] = await Promise.all([
+        getDoc(ref),
+        AsyncStorage.getItem(STORAGE_KEY),
+        AsyncStorage.getItem(CART_TS_KEY),
+      ]);
+
+      const localTs = localTsStr ? parseInt(localTsStr, 10) : 0;
+      let localItems: CartItem[] = [];
+      if (localJson) {
+        try {
+          localItems = (JSON.parse(localJson) as AddToCartInput[]).map(normalizeParsedItem);
+        } catch {
+          localItems = [];
+        }
       }
-    } catch (e) { console.error("Merge error", e); }
+
+      if (!snap.exists()) {
+        if (localItems.length > 0) {
+          await syncToFirestoreImmediate(uid, localItems);
+        }
+        return;
+      }
+
+      const data = snap.data() as Record<string, unknown>;
+      const remoteItems = (data?.items || []) as AddToCartInput[];
+      const remoteTs = firestoreUpdatedAtToMs(data?.updatedAt);
+
+      if (localTs > remoteTs) {
+        setCartItems(localItems);
+        await syncToFirestoreImmediate(uid, localItems);
+        return;
+      }
+
+      if (localTs < remoteTs) {
+        const normalizedRemote = remoteItems.map(normalizeParsedItem);
+        setCartItems(normalizedRemote);
+        const at = remoteTs || Date.now();
+        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedRemote));
+        await AsyncStorage.setItem(CART_TS_KEY, String(at));
+        return;
+      }
+
+      // Égalité : garder le panier local s’il contient encore des lignes (évite écrasement fantôme)
+      if (localItems.length > 0) {
+        setCartItems(localItems);
+        await syncToFirestoreImmediate(uid, localItems);
+        return;
+      }
+
+      const normalizedRemote = remoteItems.map(normalizeParsedItem);
+      setCartItems(normalizedRemote);
+      const at = remoteTs || Date.now();
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(normalizedRemote));
+      await AsyncStorage.setItem(CART_TS_KEY, String(at));
+    } catch (e) {
+      console.error("Merge error", e);
+    }
   };
 
-  // ✅ ADD TO CART
-  const addToCart = (product: any) => {
+  const addToCart = (product: AddToCartInput) => {
     setCartItems((prev) => {
       const uniqueCartId = `${product.id}-${product.selectedSize || 'NS'}-${product.selectedColor || 'NS'}`;
       const existing = prev.find((i) => i.cartId === uniqueCartId);
@@ -204,8 +272,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       const finalPrice = isZero ? 0 : rawPrice;
 
-      const cleanStr = (str: any) => (typeof str === 'string' ? str.trim() : null);
-      const cleanId = (v: any) => {
+      const cleanStr = (str: unknown) => (typeof str === 'string' ? str.trim() : null);
+      const cleanId = (v: unknown) => {
         const s = typeof v === "string" ? v.trim() : "";
         return s.length ? s : null;
       };
@@ -225,18 +293,27 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sellerId: cleanId(product.sellerId ?? product.companyId ?? product.storeId ?? product.merchantId),
         minOrder: Number(product.minOrder) || 1,
         inStock: product.inStock ?? true,
-        hasFreeShipping: product.hasFreeShipping ?? false, 
+        hasFreeShipping: isZero ? false : (product.hasFreeShipping ?? false), 
         variantInfo: product.variantInfo ? {
           basePrice: product.variantInfo.basePrice,
           priceAdjustment: product.variantInfo.priceAdjustment,
           variantId: product.variantInfo.variantId,
         } : null,
+        ...(product.specifications != null
+          ? { specifications: product.specifications }
+          : {}),
       };
 
       if (existing) {
         return prev.map((i) => 
           i.cartId === uniqueCartId 
-            ? { ...i, quantity: saneQty(i.quantity + qtyToAdd) } 
+            ? {
+                ...i,
+                quantity: saneQty(i.quantity + qtyToAdd),
+                ...(i.specifications == null && product.specifications != null
+                  ? { specifications: product.specifications }
+                  : {}),
+              }
             : i
         );
       }
@@ -256,7 +333,13 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const clearCart = () => {
     setCartItems([]);
-    AsyncStorage.removeItem(STORAGE_KEY);
+    const at = Date.now();
+    void AsyncStorage.multiRemove([STORAGE_KEY]);
+    void AsyncStorage.setItem(CART_TS_KEY, String(at));
+    const uid = userIdRef.current;
+    if (uid) {
+      void syncToFirestoreImmediate(uid, []);
+    }
   };
 
   const getTotalPrice = () => cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);

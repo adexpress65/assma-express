@@ -1,4 +1,6 @@
 import React, { createContext, useState, useContext, ReactNode, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { intlLocaleForAppLanguage } from '../utils/productLocale';
 
 type Currency = { 
   code: string; 
@@ -27,6 +29,7 @@ const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined
 
 export const CurrencyProvider = ({ children }: { children: ReactNode }) => {
   const [currency, setCurrency] = useState<Currency>(currencies.XOF);
+  const { i18n } = useTranslation();
 
   const setCurrencyByCode = (code: string) => {
     if (currencies[code]) {
@@ -41,11 +44,12 @@ export const CurrencyProvider = ({ children }: { children: ReactNode }) => {
     return value * currency.rate;
   };
 
-  // 🔥 Format final affichage
+  // 🔥 Format final affichage (séparateurs décimaux + ordre selon la langue UI)
   const formatPrice = (priceXOF: number | string): string => {
     const converted = convertPrice(priceXOF);
+    const locale = intlLocaleForAppLanguage(i18n.language);
 
-    const formatted = new Intl.NumberFormat('fr-FR', {
+    const formatted = new Intl.NumberFormat(locale, {
       minimumFractionDigits: currency.code === 'XOF' ? 0 : 2,
       maximumFractionDigits: currency.code === 'XOF' ? 0 : 2,
     }).format(converted);
@@ -59,7 +63,7 @@ export const CurrencyProvider = ({ children }: { children: ReactNode }) => {
     allCurrencies: Object.values(currencies),
     formatPrice,
     convertPrice,
-  }), [currency]);
+  }), [currency, i18n.language]);
 
   return (
     <CurrencyContext.Provider value={value}>

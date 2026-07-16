@@ -130,7 +130,7 @@ export default function AIChatScreen() {
           <Text style={styles.headerName}>Assistant Intelligent</Text>
           <View style={styles.statusRow}>
             <View style={styles.statusDot} />
-            <Text style={styles.statusText}>IA Assma Connectée</Text>
+            <Text style={styles.statusText}>IA A2Express Connectee</Text>
           </View>
         </View>
       </View>

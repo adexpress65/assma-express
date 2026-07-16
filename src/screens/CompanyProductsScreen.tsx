@@ -1,5 +1,7 @@
 // screens/CompanyProductsScreen.tsx - VERSION PROPRE ET CORRIGÉE
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { getLocalizedProductText } from "../utils/productLocale";
 import {
   View,
   Text,
@@ -15,13 +17,21 @@ import {
   Alert,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { getProductsByCompany, Product } from "../services/firebase/productsService";
+import type { QueryDocumentSnapshot } from "firebase/firestore";
+import {
+  getProductsByCompanyFirstPage,
+  getProductsByCompanyPage,
+  getProductById,
+  type CompanyProductSource,
+  type Product,
+} from "../services/firebase/productsService";
 import { getCompanyById, Company } from "../services/firebase/companyService";
 import { Ionicons } from "@expo/vector-icons";
 import { useCart } from '../contexts/CartContext';
 import { isZeroDollarsProduct } from '../utils/zeroDollarsShop';
 
 const { width } = Dimensions.get("window");
+const SHOP_PAGE_SIZE = 28;
 
 // ✅ Type pour les paramètres de navigation
 interface NavigationParams {
@@ -36,7 +46,18 @@ interface NavigationParams {
 
 export default function CompanyProductsScreen() {
   const router = useRouter();
-  
+  const { i18n } = useTranslation();
+  const productDisplayName = useCallback(
+    (p: Product) =>
+      getLocalizedProductText(
+        p.name,
+        "name",
+        p as unknown as Record<string, unknown>,
+        i18n.language,
+      ),
+    [i18n.language],
+  );
+
   /**
    * ✅ PARAMÈTRES — SOURCE UNIQUE DE VÉRITÉ
    */
@@ -52,6 +73,11 @@ export default function CompanyProductsScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
+  const [productsLastDoc, setProductsLastDoc] = useState<QueryDocumentSnapshot | null>(null);
+  const [productsHasMore, setProductsHasMore] = useState(false);
+  const [productsSource, setProductsSource] = useState<CompanyProductSource | null>(null);
+  const loadMoreGuard = useRef(false);
   
   /**
    * 🧠 STATES FILTRES
@@ -80,36 +106,42 @@ export default function CompanyProductsScreen() {
   const loadCompanyAndProducts = async () => {
     try {
       setLoading(true);
-      
-      console.log('🏢 Chargement entreprise:', companyId);
-      console.log('🎯 Produit présélectionné:', preselectedProductId);
-      
-      // 1. Charger l'entreprise
+      loadMoreGuard.current = false;
+      setProductsLastDoc(null);
+      setProductsHasMore(false);
+      setProductsSource(null);
+
       const companyData = await getCompanyById(companyId);
       setCompany(companyData);
-      
-      // 2. Charger les produits
-      const productsData = await getProductsByCompany(companyId);
-      setProducts(productsData);
-      setFilteredProducts(productsData);
-      
-      // 3. Extraire les catégories
-      const uniqueCategories = ["all", ...new Set(productsData.map(p => p.categoryName).filter(Boolean))];
-      setCategories(uniqueCategories as string[]);
-      
-      // 4. Gérer la pré-sélection
-      if (preselectedProductId && productsData.length > 0) {
-        const productToSelect = productsData.find(p => p.id === preselectedProductId);
-        if (productToSelect) {
-          console.log('✅ Produit présélectionné trouvé');
-          setSelectedProduct(productToSelect);
-          setModalVisible(true); // ✅ OUVERTURE AUTO DU MODAL
+
+      const first = await getProductsByCompanyFirstPage(companyId, SHOP_PAGE_SIZE);
+      let list = first.products;
+      setProductsLastDoc(first.lastDoc);
+      setProductsHasMore(first.hasMore);
+      setProductsSource(first.source);
+
+      if (preselectedProductId && !list.some((p) => p.id === preselectedProductId)) {
+        const extra = await getProductById(preselectedProductId);
+        if (
+          extra &&
+          (String(extra.companyId) === String(companyId) ||
+            String(extra.sellerId) === String(companyId))
+        ) {
+          list = [extra, ...list.filter((p) => p.id !== extra.id)];
         }
-      } else if (productsData.length > 0) {
-        // Sinon, sélectionner le premier produit
-        setSelectedProduct(productsData[0]);
       }
-      
+
+      setProducts(list);
+
+      if (preselectedProductId && list.length > 0) {
+        const productToSelect = list.find((p) => p.id === preselectedProductId);
+        if (productToSelect) {
+          setSelectedProduct(productToSelect);
+          setModalVisible(true);
+        }
+      } else if (list.length > 0) {
+        setSelectedProduct(list[0]);
+      }
     } catch (error) {
       console.error("❌ Erreur chargement entreprise/produits:", error);
       Alert.alert("Erreur", "Impossible de charger les produits de la boutique");
@@ -117,6 +149,46 @@ export default function CompanyProductsScreen() {
       setLoading(false);
     }
   };
+
+  const loadMoreProducts = useCallback(async () => {
+    if (!productsHasMore || !productsSource || loadingMoreProducts || loadMoreGuard.current) return;
+    if (!productsLastDoc) {
+      setProductsHasMore(false);
+      return;
+    }
+    loadMoreGuard.current = true;
+    setLoadingMoreProducts(true);
+    try {
+      const next = await getProductsByCompanyPage(
+        companyId,
+        SHOP_PAGE_SIZE,
+        productsSource,
+        productsLastDoc,
+      );
+      if (next.products.length === 0) {
+        setProductsHasMore(false);
+        return;
+      }
+      setProducts((prev) => {
+        const ids = new Set(prev.map((p) => p.id));
+        return [...prev, ...next.products.filter((p) => !ids.has(p.id))];
+      });
+      setProductsLastDoc(next.lastDoc);
+      setProductsHasMore(next.hasMore);
+    } catch (e) {
+      console.warn("[CompanyProductsScreen] loadMore", e);
+      setProductsHasMore(false);
+    } finally {
+      setLoadingMoreProducts(false);
+      loadMoreGuard.current = false;
+    }
+  }, [
+    companyId,
+    productsHasMore,
+    productsLastDoc,
+    productsSource,
+    loadingMoreProducts,
+  ]);
 
   /**
    * 🚀 EFFECT PRINCIPAL
@@ -129,6 +201,18 @@ export default function CompanyProductsScreen() {
     }
     loadCompanyAndProducts();
   }, [companyId]);
+
+  useEffect(() => {
+    const uniqueCategories = [
+      "all",
+      ...new Set(
+        products
+          .map((p) => String(p.categoryName || "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    setCategories(uniqueCategories as string[]);
+  }, [products]);
 
   /**
    * 🔎 EFFECT FILTRAGE
@@ -206,7 +290,7 @@ export default function CompanyProductsScreen() {
       
       Alert.alert(
         "✅ Ajouté au panier", 
-        `${selectedProduct.name} (${quantity}x) a été ajouté`,
+        `${productDisplayName(selectedProduct)} (${quantity}x) a été ajouté`,
         [
           { text: "Continuer", style: "cancel" },
           { 
@@ -350,7 +434,7 @@ export default function CompanyProductsScreen() {
             />
             <View style={styles.previewInfo}>
               <Text style={styles.previewName} numberOfLines={2}>
-                {selectedProduct.name}
+                {productDisplayName(selectedProduct)}
               </Text>
               <Text style={styles.previewPrice}>
                 {selectedProduct.price?.toLocaleString('fr-FR') || "0"} F CFA
@@ -399,6 +483,17 @@ export default function CompanyProductsScreen() {
           numColumns={2}
           columnWrapperStyle={styles.productsRow}
           contentContainerStyle={styles.productsGrid}
+          onEndReachedThreshold={0.35}
+          onEndReached={() => {
+            void loadMoreProducts();
+          }}
+          ListFooterComponent={
+            loadingMoreProducts ? (
+              <View style={{ paddingVertical: 16 }}>
+                <ActivityIndicator color="#ff6a00" />
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={styles.productCard}
@@ -411,7 +506,7 @@ export default function CompanyProductsScreen() {
               />
               <View style={styles.productInfo}>
                 <Text style={styles.productName} numberOfLines={2}>
-                  {item.name}
+                  {productDisplayName(item)}
                 </Text>
                 <Text style={styles.productPrice}>
                   {item.price?.toLocaleString('fr-FR') || "0"} F CFA
@@ -450,7 +545,7 @@ export default function CompanyProductsScreen() {
                     style={styles.modalProductImage}
                   />
                   <View style={styles.modalProductDetails}>
-                    <Text style={styles.modalProductName}>{selectedProduct.name}</Text>
+                    <Text style={styles.modalProductName}>{productDisplayName(selectedProduct)}</Text>
                     <Text style={styles.modalProductPrice}>
                       {selectedProduct.price?.toLocaleString('fr-FR')} F CFA
                     </Text>

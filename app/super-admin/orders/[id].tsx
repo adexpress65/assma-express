@@ -1,56 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, Linking, Modal, TextInput, Clipboard, Platform
+  ActivityIndicator, Alert, Modal, TextInput, Clipboard, Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, FontAwesome, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import {
+  arrayUnion,
+  doc,
+  getDoc,
+  serverTimestamp,
+  updateDoc,
+  Timestamp,
+} from 'firebase/firestore';
 import { db } from '@/config/firebase';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  getAdminStatusUi,
+  normalizeAdminOrderStatus,
+  type AdminOrderStatus,
+} from '@/features/super-admin/orders/adminOrderStatus';
+import {
+  extractOrderItemsArray,
+  formatAdminCurrency,
+  formatAdminOrderDate,
+  getCleanProductImageUrl,
+  normalizeShippingFromOrder,
+} from '@/features/super-admin/orders/orderUtils';
+import {
+  canAdvanceOrderStatus,
+  isOrderPaymentConfirmed,
+  orderStatusImpliesPaymentMismatch,
+} from '@/features/super-admin/orders/orderPayment';
+import { openPhoneDialer, openSmsComposer } from '@/features/super-admin/orders/contactChannels';
 
-// Configuration des statuts avec couleurs et actions
-const statusConfig = {
-  confirmed: { 
-    color: '#F59E0B', 
-    bgColor: '#FEF3C7', 
-    label: 'Confirmée', 
-    icon: 'checkmark-done-outline',
-    nextAction: 'Préparer la commande', 
-    nextStatus: 'processing' 
-  },
-  processing: { 
-    color: '#3B82F6', 
-    bgColor: '#DBEAFE', 
-    label: 'En préparation', 
-    icon: 'hammer-outline',
-    nextAction: 'Colis prêt', 
-    nextStatus: 'shipped' 
-  },
-  shipped: { 
-    color: '#8B5CF6', 
-    bgColor: '#EDE9FE', 
-    label: 'Expédiée', 
-    icon: 'bicycle-outline',
-    nextAction: 'Confirmer la livraison', 
-    nextStatus: 'delivered' 
-  },
-  delivered: { 
-    color: '#10B981', 
-    bgColor: '#D1FAE5', 
-    label: 'Livrée', 
-    icon: 'happy-outline' 
-  },
-};
+function pickStr(v: unknown): string | undefined {
+  if (v == null) return undefined;
+  const s = String(v).trim();
+  return s || undefined;
+}
 
 interface Order {
   id: string;
   orderId: string;
-  status: keyof typeof statusConfig;
+  status: AdminOrderStatus;
   currency: string;
   total: number;
   createdAt: Timestamp;
+  /** Client Firebase (pour lien vers ses commandes). */
+  userId?: string;
+  customerEmail?: string;
   items: Array<{
     name: string;
     imageUrl?: string;
@@ -60,7 +61,15 @@ interface Order {
     quantity: number;
     price: number;
     companyName: string;
-    companyPhone?: string; // Ajout du téléphone fournisseur
+    companyPhone?: string;
+    companyId?: string;
+    productId?: string;
+    seller?: string;
+    sellerId?: string;
+    supplier?: string;
+    id?: string;
+    sku?: string;
+    hasFreeShipping?: boolean;
     specifications?: {
       volume?: string;
       weight?: string;
@@ -87,6 +96,7 @@ interface Order {
 
 export default function OrderDetailsAdmin() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user, isSuperAdmin } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -95,17 +105,81 @@ export default function OrderDetailsAdmin() {
   const [targetPhone, setTargetPhone] = useState("");
   const [selectedSupplier, setSelectedSupplier] = useState<{name: string, company: string, phone?: string} | null>(null);
   const [notifiedSuppliers, setNotifiedSuppliers] = useState<Set<string>>(new Set());
+  const [productInfoVisible, setProductInfoVisible] = useState(false);
+  const [productInfoLine, setProductInfoLine] = useState<Order["items"][number] | null>(null);
+  const [productInfoDoc, setProductInfoDoc] = useState<Record<string, unknown> | null>(null);
+  const [productInfoLoading, setProductInfoLoading] = useState(false);
 
-  useEffect(() => { 
-    fetchOrder(); 
-  }, [id]);
+  useEffect(() => {
+    if (!user || !isSuperAdmin) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    void fetchOrder();
+  }, [id, user, isSuperAdmin]);
+
+  useEffect(() => {
+    if (!user) {
+      router.replace('/(tabs)/account');
+      return;
+    }
+    if (!isSuperAdmin) {
+      Alert.alert('Accès refusé', 'Réservé aux super-administrateurs.');
+      router.back();
+    }
+  }, [user, isSuperAdmin]);
 
   const fetchOrder = async () => {
-    if (!id) return;
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     try {
       const orderDoc = await getDoc(doc(db, 'orders', id));
       if (orderDoc.exists()) {
-        setOrder({ id: orderDoc.id, ...orderDoc.data() } as Order);
+        const raw = orderDoc.data() as Record<string, unknown>;
+        const persisted = raw.notifiedSupplierCompanies;
+        if (Array.isArray(persisted)) {
+          setNotifiedSuppliers(
+            new Set(
+              persisted.filter((x): x is string => typeof x === "string"),
+            ),
+          );
+        } else {
+          setNotifiedSuppliers(new Set());
+        }
+        const mergedItems = extractOrderItemsArray(raw);
+        const ship = normalizeShippingFromOrder(raw);
+        const prevShip = (raw.shippingAddress || {}) as Record<string, unknown>;
+        setOrder({
+          id: orderDoc.id,
+          ...raw,
+          userId: typeof raw.userId === "string" ? raw.userId : undefined,
+          customerEmail:
+            typeof raw.customerEmail === "string"
+              ? raw.customerEmail
+              : typeof raw.userEmail === "string"
+                ? raw.userEmail
+                : undefined,
+          status: normalizeAdminOrderStatus(raw.status),
+          items:
+            (mergedItems.length
+              ? mergedItems
+              : Array.isArray(raw.items)
+                ? raw.items
+                : []) as Order["items"],
+          shippingAddress: {
+            fullName: String(
+              ship.fullName ?? prevShip.fullName ?? "",
+            ),
+            phone: String(ship.phone ?? prevShip.phone ?? ""),
+            street: String(ship.street ?? prevShip.street ?? ""),
+            city: String(ship.city ?? prevShip.city ?? ""),
+            postalCode: String(ship.postalCode ?? prevShip.postalCode ?? ""),
+            country: String(ship.country ?? prevShip.country ?? ""),
+          },
+        } as Order);
       } else { 
         Alert.alert('Erreur', 'Commande non trouvée');
         router.back(); 
@@ -118,34 +192,51 @@ export default function OrderDetailsAdmin() {
     }
   };
 
-  // Fonction de nettoyage d'URL Firebase Storage (LA SOLUTION)
-  const getCleanImage = (item: any) => {
-    // 1. On récupère l'URL peu importe le nom du champ (imageUrl ou image)
-    let uri = item.imageUrl || item.image || item.photoURL || item.photos?.[0];
-    
-    if (!uri || typeof uri !== 'string') return null;
-
+  const openProductInfo = async (item: Order["items"][number]) => {
+    setProductInfoLine(item);
+    setProductInfoDoc(null);
+    setProductInfoVisible(true);
+    const line = item as Record<string, unknown>;
+    const pid =
+      typeof line.productId === "string" && line.productId.trim()
+        ? line.productId.trim()
+        : "";
+    if (!pid) {
+      return;
+    }
+    setProductInfoLoading(true);
     try {
-      // 2. .trim() enlève les espaces vides au début et à la fin
-      // 3. .replace(...) avec la Regex supprime les caractères invisibles/spéciaux
-      let clean = uri.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, '');
-
-      // 4. Correction spécifique Firebase : On remplace le slash du dossier par le code %2F
-      if (clean.includes('/products/') && !clean.includes('products%2F')) {
-        clean = clean.replace('/products/', '/products%2F');
+      const snap = await getDoc(doc(db, "products", pid));
+      if (snap.exists()) {
+        setProductInfoDoc(snap.data() as Record<string, unknown>);
       }
-      return clean;
-    } catch (e) { 
-      return uri; // En cas d'erreur, on renvoie l'original par sécurité
+    } catch (e) {
+      console.warn("[super-admin/order] lecture produit", e);
+    } finally {
+      setProductInfoLoading(false);
     }
   };
 
-  const updateOrderStatus = async (newStatus: string) => {
+  const closeProductInfo = () => {
+    setProductInfoVisible(false);
+    setProductInfoLine(null);
+    setProductInfoDoc(null);
+  };
+
+  const updateOrderStatus = async (newStatus: AdminOrderStatus) => {
     if (!order || updating) return;
-    
+    const rec = order as unknown as Record<string, unknown>;
+    if (!canAdvanceOrderStatus(newStatus, rec)) {
+      Alert.alert(
+        "Paiement non confirmé",
+        "Impossible d’avancer cette commande : aucun paiement enregistré (pas de date paidAt ni statut de paiement valide). Les commandes de test ne doivent pas être traitées ni livrées.",
+      );
+      return;
+    }
+
     Alert.alert(
       'Confirmer le changement',
-      `Passer la commande au statut "${statusConfig[newStatus as keyof typeof statusConfig]?.label}" ?`,
+      `Passer la commande au statut « ${getAdminStatusUi(newStatus).label} » ?`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -157,7 +248,7 @@ export default function OrderDetailsAdmin() {
                 status: newStatus, 
                 updatedAt: Timestamp.now() 
               });
-              setOrder({ ...order, status: newStatus as keyof typeof statusConfig });
+              setOrder({ ...order, status: newStatus });
               Alert.alert('Succès', 'Statut mis à jour');
             } catch (error) {
               Alert.alert('Erreur', 'Mise à jour échouée');
@@ -286,60 +377,38 @@ export default function OrderDetailsAdmin() {
 
     Alert.alert(
       'Notifier tous les fournisseurs',
-      'Choisissez le mode de notification',
+      'Copiez le récapitulatif pour l’envoyer par SMS ou e-mail à chaque boutique.',
       [
-        {
-          text: 'WhatsApp Groupes',
-          onPress: () => {
-            // Idéalement ici vous auriez un lien de groupe WhatsApp
-            Alert.alert('Info', 'Fonctionnalité de groupe WhatsApp à configurer');
-          }
-        },
         {
           text: 'Copier la liste',
           onPress: () => {
             Clipboard.setString(groupsMessage);
-            Alert.alert('✅ Copié', 'Liste des fournisseurs copiée');
+            Alert.alert('✅ Copié', 'Liste des fournisseurs copiée dans le presse-papiers.');
           }
         },
-        { text: 'Annuler', style: 'cancel' }
+        { text: 'Fermer', style: 'cancel' }
       ]
     );
   };
 
   const markSupplierNotified = (companyName: string) => {
-    setNotifiedSuppliers(prev => {
+    setNotifiedSuppliers((prev) => {
       const newSet = new Set(prev);
       newSet.add(companyName);
       return newSet;
     });
   };
 
-  const openWhatsApp = (phone: string, customMessage?: string) => {
-    const cleanPhone = phone.replace(/[^\d+]/g, '');
-    const defaultMessage = customMessage || message;
-    Linking.openURL(`whatsapp://send?phone=${cleanPhone}&text=${encodeURIComponent(defaultMessage)}`);
-  };
-
-  const formatCurrency = (amount: number, currency: string = 'XOF') => {
-    return new Intl.NumberFormat('fr-FR', { 
-      style: 'currency', 
-      currency: currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
-  };
-
-  const formatDate = (timestamp: Timestamp) => {
-    if (!timestamp) return 'N/A';
-    const date = timestamp.toDate();
-    return new Intl.DateTimeFormat('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date);
+  const persistSupplierNotifiedToOrder = async (companyName: string) => {
+    if (!id || !companyName.trim()) return;
+    try {
+      await updateDoc(doc(db, "orders", String(id)), {
+        notifiedSupplierCompanies: arrayUnion(companyName.trim()),
+        supplierNotifyUpdatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.warn("[super-admin/order] persist notify:", e);
+    }
   };
 
   if (loading) {
@@ -353,7 +422,16 @@ export default function OrderDetailsAdmin() {
 
   if (!order) return null;
 
-  const statusInfo = statusConfig[order.status] || statusConfig.confirmed;
+  const statusInfo = getAdminStatusUi(order.status);
+  const orderRec = order as unknown as Record<string, unknown>;
+  const paymentOk = isOrderPaymentConfirmed(orderRec);
+  const paymentMismatch = orderStatusImpliesPaymentMismatch(
+    String(order.status),
+    orderRec,
+  );
+  const nextStatus = statusInfo.nextStatus;
+  const canShowAdvance =
+    nextStatus && canAdvanceOrderStatus(nextStatus, orderRec);
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -389,7 +467,7 @@ export default function OrderDetailsAdmin() {
           <Text style={[styles.statusBannerText, { color: statusInfo.color }]}>
             {statusInfo.label}
           </Text>
-          <Text style={styles.dateText}>{formatDate(order.createdAt)}</Text>
+          <Text style={styles.dateText}>{formatAdminOrderDate(order.createdAt)}</Text>
         </View>
 
         {/* Carte de statut détaillée */}
@@ -405,14 +483,54 @@ export default function OrderDetailsAdmin() {
           </View>
         </View>
 
+        {paymentMismatch ? (
+          <View style={styles.paymentMismatch}>
+            <Ionicons name="warning-outline" size={22} color="#B45309" />
+            <Text style={styles.paymentMismatchText}>
+              Incohérence : le statut est avancé (confirmé, expédié, livré…) alors
+              qu’aucun paiement n’est enregistré (paidAt / paymentStatus). Ne pas
+              traiter comme une vente réelle ; corrigez en base ou annulez.
+            </Text>
+          </View>
+        ) : !paymentOk ? (
+          <View style={styles.paymentWarn}>
+            <Ionicons name="card-outline" size={22} color="#B91C1C" />
+            <Text style={styles.paymentWarnText}>
+              Paiement non confirmé : ne prévenez pas les fournisseurs et n’avancez
+              pas le statut tant que la passerelle n’a pas enregistré un paiement
+              (paidAt ou paymentStatus).
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.marketplaceHint}>
+          <Ionicons name="git-network-outline" size={22} color="#C2410C" />
+          <Text style={styles.marketplaceHintText}>
+            Logique marketplace : le client paie sur A2Express ; vous relayez chaque
+            ligne vers la boutique concernée (appel ou SMS professionnel), comme un
+            agrégateur type Alibaba.
+          </Text>
+        </View>
+
         {/* Bouton de notification groupée pour les fournisseurs */}
         <View style={styles.bulkActionContainer}>
-          <TouchableOpacity 
-            style={styles.bulkNotifyButton}
-            onPress={notifyAllSuppliers}
+            <TouchableOpacity 
+            style={[styles.bulkNotifyButton, !paymentOk && styles.bulkNotifyDisabled]}
+            onPress={() => {
+              if (!paymentOk) {
+                Alert.alert(
+                  "Paiement requis",
+                  "Confirmez d’abord le paiement avant de contacter les fournisseurs.",
+                );
+                return;
+              }
+              notifyAllSuppliers();
+            }}
           >
-            <FontAwesome name="whatsapp" size={20} color="#FFF" />
-            <Text style={styles.bulkNotifyText}>Notifier tous les fournisseurs</Text>
+            <Ionicons name="megaphone-outline" size={22} color="#FFF" />
+            <Text style={styles.bulkNotifyText}>
+              Contacter les fournisseurs (appel / SMS)
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -420,22 +538,28 @@ export default function OrderDetailsAdmin() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📦 Articles à préparer</Text>
           {order.items?.map((item, index) => {
-            const imageUrl = getCleanImage(item); // Utilisation de la fonction qui résout le problème d'image
+            const imageUrl = getCleanProductImageUrl(item as Record<string, unknown>);
             const isNotified = notifiedSuppliers.has(item.companyName);
             
             return (
               <View key={index} style={styles.productCard}>
-                {/* Affichage de l'image avec expo-image et l'URL nettoyée */}
-                <Image 
-                  source={imageUrl ? { uri: imageUrl } : null}
-                  style={styles.productImage} 
-                  contentFit="cover"
-                  transition={300}
-                  cachePolicy="disk"
-                  // Remplace require(...) par null
-placeholder={null}
-                  recyclingKey={imageUrl}
-                />
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => openProductInfo(item)}
+                  style={styles.productImageTouchable}
+                  accessibilityRole="button"
+                  accessibilityLabel="Voir le détail du produit et la boutique"
+                >
+                  <Image
+                    source={imageUrl ? { uri: imageUrl } : null}
+                    style={styles.productImage}
+                    contentFit="cover"
+                    transition={300}
+                    cachePolicy="disk"
+                    placeholder={null}
+                    recyclingKey={imageUrl}
+                  />
+                </TouchableOpacity>
                 
                 <View style={styles.productInfo}>
                   <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
@@ -505,10 +629,10 @@ placeholder={null}
                         isNotified && styles.supplierButtonNotified
                       ]}
                     >
-                      <FontAwesome 
-                        name={isNotified ? "check" : "whatsapp"} 
-                        size={14} 
-                        color={isNotified ? "#10B981" : "#25D366"} 
+                      <Ionicons 
+                        name={isNotified ? "checkmark-circle" : "chatbubble-ellipses-outline"} 
+                        size={16} 
+                        color={isNotified ? "#10B981" : "#EA580C"} 
                       />
                       <Text 
                         style={[
@@ -534,14 +658,14 @@ placeholder={null}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Sous-total</Text>
               <Text style={styles.summaryValue}>
-                {formatCurrency(order.summary?.subtotal || order.total, order.currency)}
+                {formatAdminCurrency(order.summary?.subtotal || order.total, order.currency)}
               </Text>
             </View>
             
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Frais de livraison</Text>
               <Text style={styles.summaryValue}>
-                {formatCurrency(order.summary?.shipping || 0, order.currency)}
+                {formatAdminCurrency(order.summary?.shipping || 0, order.currency)}
               </Text>
             </View>
             
@@ -550,7 +674,7 @@ placeholder={null}
             <View style={styles.totalRow}>
               <Text style={styles.totalLabel}>TOTAL À ENCAISSER</Text>
               <Text style={styles.totalValue}>
-                {formatCurrency(order.total, order.currency)}
+                {formatAdminCurrency(order.total, order.currency)}
               </Text>
             </View>
             
@@ -573,7 +697,7 @@ placeholder={null}
                 <Text style={styles.clientName}>{order.shippingAddress?.fullName}</Text>
                 <TouchableOpacity 
                   style={styles.phoneLink}
-                  onPress={() => Linking.openURL(`tel:${order.shippingAddress?.phone}`)}
+                  onPress={() => openPhoneDialer(order.shippingAddress?.phone || "")}
                 >
                   <Ionicons name="call-outline" size={14} color="#FF6B00" />
                   <Text style={styles.clientPhone}>{order.shippingAddress?.phone}</Text>
@@ -603,37 +727,17 @@ placeholder={null}
       {/* Footer avec actions principales - fixé en bas avec SafeAreaView */}
       <SafeAreaView style={styles.footer} edges={['bottom']}>
         <View style={styles.footerContent}>
-          <View style={styles.contactButtons}>
-            <TouchableOpacity 
-              style={[styles.contactButton, { borderColor: '#3B82F6' }]} 
-              onPress={() => Linking.openURL(`tel:${order.shippingAddress?.phone}`)}
-            >
-              <Ionicons name="call" size={22} color="#3B82F6" />
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.contactButton, { borderColor: '#25D366' }]} 
-              onPress={() => { 
-                setTargetPhone(order.shippingAddress?.phone || ""); 
-                setMessage(
-                  `Bonjour ${order.shippingAddress?.fullName},\n\n` +
-                  `Nous faisons suite à votre commande ${order.orderId}.\n` +
-                  `Statut actuel: ${statusInfo.label}\n` +
-                  `N'hésitez pas à nous contacter pour plus d'informations.\n\n` +
-                  `Cordialement,\nL'équipe A2Express`
-                ); 
-                setSelectedSupplier(null);
-                setModalVisible(true); 
-              }}
-            >
-              <FontAwesome name="whatsapp" size={22} color="#25D366" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity 
+            style={[styles.contactButton, { borderColor: '#3B82F6' }]} 
+            onPress={() => openPhoneDialer(order.shippingAddress?.phone || "")}
+          >
+            <Ionicons name="call" size={22} color="#3B82F6" />
+          </TouchableOpacity>
           
-          {statusInfo.nextStatus && (
+          {canShowAdvance && nextStatus ? (
             <TouchableOpacity 
               style={[styles.actionButton, { backgroundColor: statusInfo.color }]}
-              onPress={() => updateOrderStatus(statusInfo.nextStatus)}
+              onPress={() => updateOrderStatus(nextStatus)}
               disabled={updating}
             >
               {updating ? (
@@ -645,18 +749,18 @@ placeholder={null}
                 </>
               )}
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       </SafeAreaView>
 
-      {/* Modal WhatsApp pour contacter client/fournisseur */}
+      {/* Modal : appel / SMS / copie (pas WhatsApp) */}
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>
-                  {selectedSupplier ? 'Contacter le fournisseur' : 'Contacter le client'}
+                  Contacter le fournisseur
                 </Text>
                 {selectedSupplier && (
                   <Text style={styles.modalSubtitle}>{selectedSupplier.company}</Text>
@@ -669,7 +773,7 @@ placeholder={null}
             
             <TextInput 
               style={styles.phoneInput} 
-              placeholder="Numéro de téléphone (ex: +223...)" 
+              placeholder="Numéro (ex: +223…)" 
               value={targetPhone} 
               onChangeText={setTargetPhone} 
               keyboardType="phone-pad"
@@ -681,28 +785,267 @@ placeholder={null}
               multiline 
               value={message} 
               onChangeText={setMessage} 
-              placeholder="Votre message..."
+              placeholder="Message (SMS ou à dicter au téléphone)…"
               placeholderTextColor="#999"
               textAlignVertical="top"
             />
             
+            <View style={styles.modalActionsRow}>
+              <TouchableOpacity 
+                style={[styles.modalActionBtn, styles.modalCallBtn]} 
+                onPress={() => {
+                  if (!targetPhone) {
+                    Alert.alert("Numéro manquant", "Indiquez un numéro.");
+                    return;
+                  }
+                  openPhoneDialer(targetPhone);
+                }}
+              >
+                <Ionicons name="call" size={20} color="#FFF" />
+                <Text style={styles.modalActionBtnText}>Appeler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalActionBtn, styles.modalSmsBtn]} 
+                onPress={() => {
+                  if (!targetPhone) {
+                    Alert.alert("Numéro manquant", "Indiquez un numéro.");
+                    return;
+                  }
+                  openSmsComposer(targetPhone, message);
+                  if (selectedSupplier?.company) {
+                    markSupplierNotified(selectedSupplier.company);
+                    void persistSupplierNotifiedToOrder(selectedSupplier.company);
+                  }
+                  setModalVisible(false);
+                }}
+              >
+                <Ionicons name="chatbubble-outline" size={20} color="#FFF" />
+                <Text style={styles.modalActionBtnText}>SMS</Text>
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity 
-              style={styles.sendButton} 
+              style={styles.copyButton} 
               onPress={() => {
-                if (!targetPhone) {
-                  Alert.alert('Erreur', 'Veuillez saisir un numéro de téléphone');
-                  return;
-                }
-                openWhatsApp(targetPhone, message);
-                if (selectedSupplier) {
-                  markSupplierNotified(selectedSupplier.company);
-                }
-                setModalVisible(false);
+                Clipboard.setString(message);
+                Alert.alert("Copié", "Message copié dans le presse-papiers.");
               }}
             >
-              <FontAwesome name="whatsapp" size={22} color="#FFF" />
-              <Text style={styles.sendButtonText}>Envoyer via WhatsApp</Text>
+              <Ionicons name="copy-outline" size={20} color="#374151" />
+              <Text style={styles.copyButtonText}>Copier le texte</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={productInfoVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeProductInfo}
+      >
+        <View style={styles.productDetailOverlay}>
+          <TouchableOpacity
+            style={styles.productDetailBackdrop}
+            activeOpacity={1}
+            onPress={closeProductInfo}
+          />
+          <View style={styles.productDetailSheet}>
+            <View style={styles.productDetailHeader}>
+              <Text style={styles.productDetailTitle}>Produit & boutique</Text>
+              <TouchableOpacity onPress={closeProductInfo} hitSlop={12}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            {productInfoLoading ? (
+              <View style={styles.productDetailLoading}>
+                <ActivityIndicator color="#EA580C" />
+                <Text style={styles.productDetailLoadingText}>Chargement fiche produit…</Text>
+              </View>
+            ) : null}
+            {productInfoLine ? (
+              <ScrollView
+                style={styles.productDetailScroll}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                {(() => {
+                  const line = productInfoLine as Record<string, unknown>;
+                  const doc = productInfoDoc;
+                  const img = getCleanProductImageUrl(line);
+                  const productId = pickStr(line.productId);
+                  const lineCompanyId = pickStr(line.companyId);
+                  const docCompanyId = pickStr(doc?.companyId);
+                  const docSellerId = pickStr(doc?.sellerId);
+                  const companyId = lineCompanyId || docCompanyId || docSellerId;
+                  const boutiqueName =
+                    pickStr(line.companyName) ||
+                    pickStr(doc?.companyName) ||
+                    pickStr(doc?.supplier);
+                  const boutiquePhone =
+                    pickStr(line.companyPhone) ||
+                    pickStr(doc?.companyPhone) ||
+                    pickStr(doc?.phone);
+                  const seller =
+                    pickStr(line.seller) ||
+                    pickStr(line.supplier) ||
+                    pickStr(doc?.supplier);
+                  const unit = Number(line.price) || 0;
+                  const qty = Number(line.quantity) || 0;
+                  const lineTotal = unit * qty;
+                  const desc =
+                    pickStr(doc?.description) ||
+                    pickStr(doc?.longDescription) ||
+                    pickStr(doc?.shortDescription);
+
+                  return (
+                    <>
+                      {img ? (
+                        <Image
+                          source={{ uri: img }}
+                          style={styles.productDetailHero}
+                          contentFit="contain"
+                          cachePolicy="disk"
+                        />
+                      ) : null}
+
+                      <Text style={styles.productDetailName}>
+                        {pickStr(line.name) || "Produit"}
+                      </Text>
+
+                      <View style={styles.productDetailPrices}>
+                        <Text style={styles.productDetailPriceLine}>
+                          Prix unitaire :{" "}
+                          {formatAdminCurrency(unit, order.currency)}
+                        </Text>
+                        <Text style={styles.productDetailPriceLine}>
+                          Quantité : {qty}
+                        </Text>
+                        <Text style={styles.productDetailTotal}>
+                          Sous-total ligne :{" "}
+                          {formatAdminCurrency(lineTotal, order.currency)}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.productDetailSection}>Boutique / usine</Text>
+                      {boutiqueName ? (
+                        <View style={styles.kvRow}>
+                          <Text style={styles.kvLabel}>Nom</Text>
+                          <Text style={styles.kvValue}>{boutiqueName}</Text>
+                        </View>
+                      ) : null}
+                      {boutiquePhone ? (
+                        <TouchableOpacity
+                          style={styles.kvRow}
+                          onPress={() => openPhoneDialer(boutiquePhone)}
+                        >
+                          <Text style={styles.kvLabel}>Téléphone</Text>
+                          <Text style={[styles.kvValue, styles.kvLink]}>
+                            {boutiquePhone}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {seller && seller !== boutiqueName ? (
+                        <View style={styles.kvRow}>
+                          <Text style={styles.kvLabel}>Vendeur / fournisseur</Text>
+                          <Text style={styles.kvValue}>{seller}</Text>
+                        </View>
+                      ) : null}
+                      {companyId ? (
+                        <View style={styles.kvRow}>
+                          <Text style={styles.kvLabel}>ID entreprise (Firestore)</Text>
+                          <Text style={styles.kvValue} selectable>
+                            {companyId}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {productId ? (
+                        <View style={styles.kvRow}>
+                          <Text style={styles.kvLabel}>ID produit</Text>
+                          <Text style={styles.kvValue} selectable>
+                            {productId}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {desc ? (
+                        <>
+                          <Text style={styles.productDetailSection}>Description</Text>
+                          <Text style={styles.productDetailDesc}>{desc}</Text>
+                        </>
+                      ) : null}
+
+                      {productInfoLine.specifications &&
+                      Object.keys(productInfoLine.specifications).length > 0 ? (
+                        <>
+                          <Text style={styles.productDetailSection}>Spécifications</Text>
+                          <Text style={styles.productDetailMono}>
+                            {JSON.stringify(productInfoLine.specifications, null, 2)}
+                          </Text>
+                        </>
+                      ) : null}
+
+                      <View style={styles.productDetailActions}>
+                        {productId ? (
+                          <TouchableOpacity
+                            style={styles.productDetailBtn}
+                            onPress={() => {
+                              closeProductInfo();
+                              router.push(`/product/${productId}`);
+                            }}
+                          >
+                            <Ionicons name="open-outline" size={18} color="#FFF" />
+                            <Text style={styles.productDetailBtnText}>
+                              Fiche produit
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {companyId ? (
+                          <TouchableOpacity
+                            style={[styles.productDetailBtn, styles.productDetailBtnOutline]}
+                            onPress={() => {
+                              closeProductInfo();
+                              router.push(`/company/${companyId}`);
+                            }}
+                          >
+                            <Ionicons name="storefront-outline" size={18} color="#EA580C" />
+                            <Text
+                              style={[
+                                styles.productDetailBtnText,
+                                styles.productDetailBtnTextOutline,
+                              ]}
+                            >
+                              Page boutique
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {order.userId ? (
+                          <TouchableOpacity
+                            style={[styles.productDetailBtn, styles.productDetailBtnSecondary]}
+                            onPress={() => {
+                              closeProductInfo();
+                              router.push(
+                                `/super-admin/orders?userId=${encodeURIComponent(order.userId!)}`,
+                              );
+                            }}
+                          >
+                            <Ionicons name="receipt-outline" size={18} color="#FFF" />
+                            <Text style={styles.productDetailBtnText}>
+                              Commandes de ce client
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <Text style={styles.productDetailHint}>
+                            ID client absent sur la commande — impossible de filtrer ses
+                            commandes.
+                          </Text>
+                        )}
+                      </View>
+                    </>
+                  );
+                })()}
+              </ScrollView>
+            ) : null}
           </View>
         </View>
       </Modal>
@@ -832,18 +1175,78 @@ const styles = StyleSheet.create({
     color: '#333',
     letterSpacing: 0.5,
   },
+  marketplaceHint: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+  },
+  marketplaceHintText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#7C2D12',
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  paymentWarn: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  paymentWarnText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#991B1B',
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  paymentMismatch: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  paymentMismatchText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 19,
+    fontWeight: '600',
+  },
   bulkActionContainer: {
     paddingHorizontal: 16,
     marginTop: 16,
   },
   bulkNotifyButton: {
-    backgroundColor: '#25D366',
+    backgroundColor: '#EA580C',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
     borderRadius: 12,
     gap: 10,
+  },
+  bulkNotifyDisabled: {
+    opacity: 0.45,
   },
   bulkNotifyText: {
     color: '#FFF',
@@ -860,6 +1263,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03, 
     shadowRadius: 8, 
     elevation: 2,
+  },
+  productImageTouchable: {
+    borderRadius: 12,
+    overflow: "hidden",
   },
   productImage: { 
     width: 90, 
@@ -1143,23 +1550,194 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F7F9',
     borderRadius: 12,
     padding: 15,
-    marginBottom: 20,
+    marginBottom: 16,
     fontSize: 15,
     color: '#111',
     height: 120,
   },
-  sendButton: {
-    backgroundColor: '#25D366',
+  modalActionsRow: {
     flexDirection: 'row',
-    height: 55,
+    gap: 12,
+    marginBottom: 12,
+  },
+  modalActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 50,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
-  sendButtonText: {
+  modalCallBtn: {
+    backgroundColor: '#2563EB',
+  },
+  modalSmsBtn: {
+    backgroundColor: '#EA580C',
+  },
+  modalActionBtnText: {
     color: '#FFF',
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 15,
+  },
+  copyButton: {
+    flexDirection: 'row',
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#F9FAFB',
+  },
+  copyButtonText: {
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  productDetailOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  productDetailBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  productDetailSheet: {
+    maxHeight: "88%",
+    backgroundColor: "#FFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 24,
+  },
+  productDetailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#E5E7EB",
+  },
+  productDetailTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#111",
+  },
+  productDetailScroll: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+  },
+  productDetailLoading: {
+    padding: 16,
+    alignItems: "center",
+    gap: 8,
+  },
+  productDetailLoadingText: {
+    fontSize: 13,
+    color: "#6B7280",
+  },
+  productDetailHero: {
+    width: "100%",
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+    marginBottom: 12,
+  },
+  productDetailName: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111",
+    marginBottom: 10,
+  },
+  productDetailPrices: {
+    marginBottom: 16,
+    gap: 4,
+  },
+  productDetailPriceLine: {
+    fontSize: 14,
+    color: "#4B5563",
+  },
+  productDetailTotal: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#EA580C",
+    marginTop: 4,
+  },
+  productDetailSection: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#111",
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  kvRow: {
+    marginBottom: 10,
+  },
+  kvLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#9CA3AF",
+    textTransform: "uppercase",
+    marginBottom: 2,
+  },
+  kvValue: {
+    fontSize: 15,
+    color: "#1F2937",
+    fontWeight: "600",
+  },
+  kvLink: {
+    color: "#2563EB",
+  },
+  productDetailDesc: {
+    fontSize: 14,
+    color: "#4B5563",
+    lineHeight: 21,
+  },
+  productDetailMono: {
+    fontSize: 12,
+    color: "#374151",
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    backgroundColor: "#F9FAFB",
+    padding: 10,
+    borderRadius: 8,
+  },
+  productDetailActions: {
+    marginTop: 20,
+    marginBottom: 20,
+    gap: 10,
+  },
+  productDetailBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#EA580C",
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  productDetailBtnOutline: {
+    backgroundColor: "#FFF",
+    borderWidth: 2,
+    borderColor: "#EA580C",
+  },
+  productDetailBtnSecondary: {
+    backgroundColor: "#1D4ED8",
+  },
+  productDetailBtnText: {
+    color: "#FFF",
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  productDetailBtnTextOutline: {
+    color: "#EA580C",
+  },
+  productDetailHint: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    textAlign: "center",
+    marginTop: 4,
   },
 });

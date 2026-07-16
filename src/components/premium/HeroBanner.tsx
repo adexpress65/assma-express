@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useTranslation } from 'react-i18next';
 import { collection, query, where, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase'; 
 
@@ -28,6 +29,7 @@ const BANNERS = [
 ];
 
 export default function HeroBanner() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [trendingProducts, setTrendingProducts] = useState<any[]>([]);
   const flatListBannerRef = useRef<FlatList>(null);
@@ -101,7 +103,7 @@ export default function HeroBanner() {
 
       {/* 2. TENDANCES */}
       <View style={styles.trendingContainer}>
-        <Text style={styles.sectionTitle}>Tendances Actuelles</Text>
+        <Text style={styles.sectionTitle}>{t('app.premium.heroCurrentTrends')}</Text>
         <FlatList
           ref={flatListTrendingRef}
           data={trendingProducts}

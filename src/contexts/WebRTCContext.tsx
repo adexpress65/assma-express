@@ -64,7 +64,8 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     console.log('⏳ Vérification serveur Render...');
     try {
       const controller = new AbortController();
-      setTimeout(() => controller.abort(), 5000);
+      /** Render gratuit peut mettre >5s à répondre au « cold start » */
+      setTimeout(() => controller.abort(), 15_000);
       
       // Ping le serveur (même une erreur 400 de Socket.io signifie qu'il est réveillé)
       const res = await fetch(`${SIGNALING_SERVER}/socket.io/?EIO=4&transport=polling`, {

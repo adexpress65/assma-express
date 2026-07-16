@@ -4,6 +4,8 @@ import {
   Image, Dimensions, RefreshControl, Animated, ActivityIndicator, Modal, FlatList
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedProductText } from '../../src/utils/productLocale';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
@@ -40,6 +42,7 @@ interface FlashDeal {
 
 export default function FlashDealsScreen() {
   const router = useRouter();
+  const { i18n } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deals, setDeals] = useState<FlashDeal[]>([]);
@@ -154,7 +157,14 @@ export default function FlashDealsScreen() {
       
       <View style={styles.cardBody}>
         <Text style={styles.companyName} numberOfLines={1}>{item.companyName}</Text>
-        <Text style={styles.productName} numberOfLines={2}>{item.name}</Text>
+        <Text style={styles.productName} numberOfLines={2}>
+          {getLocalizedProductText(
+            item.name,
+            'name',
+            item as unknown as Record<string, unknown>,
+            i18n.language,
+          )}
+        </Text>
         <View style={styles.priceRow}>
           <Text style={styles.price}>{item.price.toLocaleString()} F</Text>
           {item.originalPrice > item.price && <Text style={styles.oldPrice}>{item.originalPrice.toLocaleString()} F</Text>}
