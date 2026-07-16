@@ -1,6 +1,13 @@
 {
   "name": "assma-root",
   "private": true,
+  "author": "Salambéré Askia Mohamed (NEXYORA)",
+  "contributors": [
+    {
+      "name": "Salambéré Askia Mohamed",
+      "email": "salambereaskiamohamed@gmail.com"
+    }
+  ],
   "scripts": {
     "firestore:backfill-companies": "node scripts/firestore-backfill-company-links.mjs",
     "firestore:backfill-companies:dry": "node scripts/firestore-backfill-company-links.mjs --dry-run",

@@ -89,3 +89,13 @@ assma/
 
 ## 📄 Licence
 ASSMA - Tous droits réservés
+
+---
+
+## 🛠️ Développement & Propriété Intellectuelle
+
+Cette application a été entièrement conçue, développée et optimisée de bout en bout par :
+* **Développeur Principal** : `https://github.com/AskiaMohamed22` (NEXYORA)
+* **Contact** : salambereaskiamohamed@gmail.com
+
+*Tous droits de reproduction du code source réservés à l'auteur initial.*
