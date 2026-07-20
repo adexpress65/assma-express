@@ -15,10 +15,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   collection,
+  doc,
   query,
   orderBy,
   limit,
   onSnapshot,
+  serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "@/config/firebase";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -58,6 +61,16 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "delivered", label: "Livrées" },
   { key: "issues", label: "Annul. / échec" },
 ];
+
+const EXCLUDED_ORDER_STATUSES = new Set(["cancelled", "failed", "draft"]);
+const EXCLUDED_PAYMENT_STATUSES = new Set(["cancelled", "failed", "declined"]);
+const VALID_VISIBLE_ORDER_STATUSES = new Set([
+  "paid",
+  "confirmed",
+  "processing",
+  "shipped",
+  "delivered",
+]);
 
 export type AdminOrderRow = {
   id: string;
@@ -127,6 +140,29 @@ function paramUserId(
   return t || undefined;
 }
 
+function shouldDisplayOrderInAdminList(data: Record<string, unknown>): boolean {
+  const rawStatus = String(data.status ?? "")
+    .toLowerCase()
+    .trim();
+  const rawPaymentStatus = String(data.paymentStatus ?? data.paymentState ?? "")
+    .toLowerCase()
+    .trim();
+
+  if (EXCLUDED_ORDER_STATUSES.has(rawStatus)) {
+    return false;
+  }
+  if (EXCLUDED_PAYMENT_STATUSES.has(rawPaymentStatus)) {
+    return false;
+  }
+
+  const paymentConfirmed = isOrderPaymentConfirmed(data);
+  if (rawStatus === "paid" || rawPaymentStatus === "paid" || paymentConfirmed) {
+    return true;
+  }
+
+  return VALID_VISIBLE_ORDER_STATUSES.has(rawStatus);
+}
+
 export default function SuperAdminOrdersScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ userId?: string | string[] }>();
@@ -137,6 +173,7 @@ export default function SuperAdminOrdersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterKey>("all");
   const [search, setSearch] = useState("");
+  const [bulkValidating, setBulkValidating] = useState(false);
 
   useEffect(() => {
     if (!user || !isSuperAdmin) {
@@ -155,8 +192,12 @@ export default function SuperAdminOrdersScreen() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const list: AdminOrderRow[] = snap.docs.map((d) => {
+        const list: AdminOrderRow[] = snap.docs.flatMap((d) => {
           const data = d.data() as Record<string, unknown>;
+          if (!shouldDisplayOrderInAdminList(data)) {
+            return [];
+          }
+
           const rawNotified = data.notifiedSupplierCompanies;
           const notifiedSupplierCompanies = Array.isArray(rawNotified)
             ? rawNotified.filter((x): x is string => typeof x === "string")
@@ -167,7 +208,7 @@ export default function SuperAdminOrdersScreen() {
             String(data.status ?? ""),
             data,
           );
-          return {
+          return [{
             id: d.id,
             orderId: typeof data.orderId === "string" ? data.orderId : undefined,
             status: normalizeAdminOrderStatus(data.status),
@@ -183,7 +224,7 @@ export default function SuperAdminOrdersScreen() {
             notifiedSupplierCompanies,
             paymentOk,
             paymentMismatch,
-          };
+          }];
         });
         setRows(list);
         setLoading(false);
@@ -229,6 +270,12 @@ export default function SuperAdminOrdersScreen() {
     });
   }, [rows, filter, search, filterUserId]);
 
+  const bulkEligibleRows = useMemo(() => {
+    return filtered.filter(
+      (row) => row.paymentOk && !row.paymentMismatch && row.status === "pending",
+    );
+  }, [filtered]);
+
   const counts = useMemo(() => {
     const c = {
       all: rows.length,
@@ -247,6 +294,68 @@ export default function SuperAdminOrdersScreen() {
     }
     return c;
   }, [rows]);
+
+  const commitBulkValidation = useCallback(async () => {
+    if (!bulkEligibleRows.length || bulkValidating) return;
+
+    try {
+      setBulkValidating(true);
+      const batch = writeBatch(db);
+
+      for (const row of bulkEligibleRows) {
+        batch.update(doc(db, "orders", row.id), {
+          status: "confirmed",
+          paymentStatus: "paid",
+          paidAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+
+      Alert.alert(
+        "Succès",
+        `${bulkEligibleRows.length} commande${
+          bulkEligibleRows.length > 1 ? "s ont été validées" : " a été validée"
+        }.`,
+      );
+    } catch (error) {
+      console.error("[super-admin/orders][bulk-validate]", error);
+      Alert.alert(
+        "Erreur",
+        "La validation en masse a échoué. Réessayez dans un instant.",
+      );
+    } finally {
+      setBulkValidating(false);
+    }
+  }, [bulkEligibleRows, bulkValidating]);
+
+  const onPressBulkValidate = useCallback(() => {
+    if (!bulkEligibleRows.length) {
+      Alert.alert(
+        "Aucune commande à valider",
+        "Aucune commande payée en attente de confirmation n'est visible avec les filtres actuels.",
+      );
+      return;
+    }
+
+    Alert.alert(
+      "Valider les commandes payées",
+      `Confirmer ${bulkEligibleRows.length} commande${
+        bulkEligibleRows.length > 1 ? "s" : ""
+      } visibles et payées ?`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Valider",
+          style: "default",
+          onPress: () => {
+            void commitBulkValidation();
+          },
+        },
+      ],
+    );
+  }, [bulkEligibleRows, commitBulkValidation]);
 
   const renderItem = useCallback(
     ({ item }: { item: AdminOrderRow }) => {
@@ -432,6 +541,30 @@ export default function SuperAdminOrdersScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
+
+      <View style={styles.bulkActionWrap}>
+        <TouchableOpacity
+          style={[
+            styles.bulkActionButton,
+            (bulkValidating || bulkEligibleRows.length === 0) &&
+              styles.bulkActionButtonDisabled,
+          ]}
+          onPress={onPressBulkValidate}
+          activeOpacity={0.9}
+          disabled={bulkValidating}
+        >
+          <View style={styles.bulkActionContent}>
+            <Ionicons name="checkmark-done-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.bulkActionText}>
+              {bulkValidating
+                ? "Validation en cours..."
+                : bulkEligibleRows.length > 0
+                  ? `Valider les commandes payées (${bulkEligibleRows.length})`
+                  : "Valider les commandes payées"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.searchWrap}>
         <Ionicons name="search" size={18} color="#9CA3AF" />
@@ -619,6 +752,40 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     backgroundColor: "#F3F4F6",
+  },
+  bulkActionWrap: {
+    marginHorizontal: 16,
+    marginTop: 12,
+  },
+  bulkActionButton: {
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: "#EA580C",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 4,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+  bulkActionButtonDisabled: {
+    opacity: 0.6,
+  },
+  bulkActionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bulkActionText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
   },
   searchInput: {
     flex: 1,
