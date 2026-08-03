@@ -159,16 +159,22 @@ export default function OrderDetailScreen() {
     }, [order]
   );
 
-  const address = useMemo(() => 
-    order?.address || {
-      fullName: 'Non spécifié',
-      street: 'Non spécifié',
-      city: 'Non spécifié',
-      postalCode: 'Non spécifié',
-      country: 'Non spécifié',
-      phone: 'Non spécifié'
-    }, [order]
-  );
+  // Correction : lecture prioritaire de shippingAddress (Firestore)
+  const address = useMemo(() => {
+    const raw = (order as any)?.shippingAddress || (order as any)?.address || (order as any)?.shippingDetails;
+    return {
+      fullName: raw?.fullName || 'Non spécifié',
+      street: raw?.street || 'Non spécifié',
+      apartment: raw?.apartment || '',
+      building: raw?.building || '',
+      floor: raw?.floor || '',
+      city: raw?.city || 'Non spécifié',
+      postalCode: raw?.postalCode || '',
+      country: raw?.country || 'Non spécifié',
+      phone: raw?.phone || 'Non spécifié',
+      companyName: raw?.companyName || '',
+    };
+  }, [order]);
 
   const wholesale = useMemo(() => 
     order?.wholesale || {
@@ -371,7 +377,7 @@ export default function OrderDetailScreen() {
       {(() => {
         const company =
           String((order as any).companyName ?? (order as any).buyerCompany ?? '').trim() ||
-          String((address as any).companyName ?? '').trim();
+          String(address.companyName ?? '').trim();
         if (!company) return null;
         return (
           <View style={styles.b2bBanner}>
@@ -392,8 +398,19 @@ export default function OrderDetailScreen() {
         <View style={styles.cardContent}>
           <Text style={styles.addressName}>{address.fullName}</Text>
           <Text style={styles.addressText}>{address.street}</Text>
+          {(!!address.building || !!address.floor || !!address.apartment) && (
+            <Text style={styles.addressText}>
+              {[
+                address.building ? `Bâtiment : ${address.building}` : null,
+                address.floor ? `Étage : ${address.floor}` : null,
+                address.apartment ? `Appt : ${address.apartment}` : null,
+              ]
+                .filter(Boolean)
+                .join(' • ')}
+            </Text>
+          )}
           <Text style={styles.addressText}>
-            {address.postalCode} {address.city}
+            {address.postalCode ? `${address.postalCode} ` : ''}{address.city}
           </Text>
           <Text style={styles.addressText}>{address.country}</Text>
           <View style={styles.phoneContainer}>

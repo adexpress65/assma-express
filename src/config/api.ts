@@ -18,9 +18,35 @@ export const PAYMENT_API_URL =
 
 export const PAYMENT_ENDPOINTS = {
   ngenius: `${PAYMENT_API_URL}/create-payment`,
+  ngeniusVerify: `${PAYMENT_API_URL}/verify-ngenius-payment`,
   fedapay: `${PAYMENT_API_URL}/create-fedapay-payment`,
   paydunya: `${PAYMENT_API_URL}/create-paydunya-payment`,
 } as const;
+
+/**
+ * Pages de retour déclarées dans `merchantAttributes` côté backend NGenius.
+ * NGenius renvoie vers `redirect` aussi bien après un succès qu'après un refus
+ * bancaire : le nom du chemin ne prouve donc jamais que le paiement a abouti.
+ */
+export const NGENIUS_RETURN_HOSTS = ["a2-expres.com"] as const;
+
+export const NGENIUS_RETURN_PATHS = {
+  /** Page de retour canonique : nom neutre, aucune issue de paiement implicite. */
+  redirect: "/payment/return.html",
+  /**
+   * Ancienne page de retour. Son nom laisse croire à un succès alors que NGenius
+   * y renvoie aussi les refus : elle reste interceptée et soumise à la même
+   * vérification serveur tant que `NG_REDIRECT_URL` n'a pas basculé côté backend.
+   */
+  legacyRedirect: "/payment/success.html",
+  cancel: "/payment/cancel.html",
+} as const;
+
+/** Chemins de retour qui exigent une vérification serveur avant tout succès. */
+export const NGENIUS_VERIFIABLE_RETURN_PATHS = [
+  NGENIUS_RETURN_PATHS.redirect,
+  NGENIUS_RETURN_PATHS.legacyRedirect,
+] as const;
 
 /* ===============================
    🧩 INTERFACES TYPESCRIPT

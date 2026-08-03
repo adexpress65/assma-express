@@ -135,12 +135,31 @@ export default function OrdersScreen() {
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 🟢 CONDITION STRICTE : Statut valide (ex: confirmed, processing, delivered) ET paymentStatus à "paid"
+  const validOrders = useMemo(() => {
+    if (!Array.isArray(orders)) return [];
+    
+    return orders.filter((o: any) => {
+      const status = String(o.status ?? '').toLowerCase().trim();
+      const paymentStatus = String(o.paymentStatus ?? o.paymentState ?? '').toLowerCase().trim();
+
+      // 1. Vérification du paiement (Paid / Success / Confirmed)
+      const isPaid = paymentStatus === 'paid' || paymentStatus === 'confirmed' || paymentStatus === 'success';
+
+      // 2. Vérification du statut de la commande dans la base de données
+      const isConfirmedOrValid = ['confirmed', 'processing', 'shipped', 'delivered'].includes(status);
+
+      return isPaid && isConfirmedOrValid;
+    });
+  }, [orders]);
+
+  // 🟢 Filtrer selon l'onglet sélectionné parmi les commandes valides uniquement
   const filteredOrders = useMemo(() => {
-    if (!selectedStatus) return orders;
-    return orders.filter((o: any) => 
+    if (!selectedStatus) return validOrders;
+    return validOrders.filter((o: any) => 
       o.status?.toLowerCase().trim() === selectedStatus.toLowerCase().trim()
     );
-  }, [orders, selectedStatus]);
+  }, [validOrders, selectedStatus]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -167,16 +186,17 @@ export default function OrdersScreen() {
     );
   };
 
+  // 🟢 Calcul des statistiques sur les commandes valides uniquement
   const stats = useMemo(() => {
-    const delivered = orders.filter((o: any) => o.status?.toLowerCase() === 'delivered');
+    const delivered = validOrders.filter((o: any) => o.status?.toLowerCase() === 'delivered');
     const totalAmount = delivered.reduce((sum: number, o: any) => sum + (Number(o.total) || 0), 0);
     
     return {
-      count: orders.length,
+      count: validOrders.length,
       deliveredCount: delivered.length,
       spent: formatCurrency(totalAmount)
     };
-  }, [orders]);
+  }, [validOrders]);
 
   if (loading) return (
     <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.primary} /></View>
@@ -211,18 +231,20 @@ export default function OrdersScreen() {
             <FilterChip 
               active={!selectedStatus} 
               label="Toutes" 
-              count={orders.length} 
+              count={validOrders.length} 
               onPress={() => setSelectedStatus(null)} 
             />
-            {Object.entries(ORDER_STATUS_CONFIG).map(([key, cfg]) => (
-              <FilterChip 
-                key={key} 
-                active={selectedStatus === key} 
-                label={cfg.label} 
-                count={orders.filter((o: any) => o.status?.toLowerCase() === key.toLowerCase()).length}
-                onPress={() => setSelectedStatus(key)} 
-              />
-            ))}
+            {Object.entries(ORDER_STATUS_CONFIG)
+              .filter(([key]) => key.toLowerCase() !== 'pending') // Masque l'onglet "En attente"
+              .map(([key, cfg]) => (
+                <FilterChip 
+                  key={key} 
+                  active={selectedStatus === key} 
+                  label={cfg.label} 
+                  count={validOrders.filter((o: any) => o.status?.toLowerCase() === key.toLowerCase()).length}
+                  onPress={() => setSelectedStatus(key)} 
+                />
+              ))}
           </ScrollView>
         </View>
       </View>

@@ -1,3 +1,13 @@
+/**
+ * @file _layout.tsx
+ * @description Code source de l'application ASSMA Express.
+ * @author Salambéré Askia Mohamed (NEXYORA)
+ * @date Juillet 2026
+ * 
+ * Ce code a été écrit et structuré de bout en bout par Salambéré Askia Mohamed.
+ * Toute modification ultérieure doit mentionner l'auteur original.
+ */
+
 import {
   registerSentryNavigationContainer,
   wrapRootComponent,
@@ -32,7 +42,7 @@ import { auth, db } from "../src/config/firebase";
 import i18n from "../src/services/i18n";
 import { applyLayoutDirectionForLanguage } from "../src/utils/layoutDirection";
 
-import { AuthProvider } from "../src/contexts/AuthContext";
+import { AuthProvider, useAuth } from "../src/contexts/AuthContext";
 import { CartProvider } from "../src/contexts/CartContext";
 import { CheckoutProvider } from "../src/contexts/CheckoutContext";
 import { OrderProvider } from "../src/contexts/OrderContext";
@@ -187,21 +197,18 @@ function AppInitializer({ children }: { children: ReactNode }) {
       console.log("--------------------------");
 
       const userRef = doc(db, "users", uid);
-      // setDoc + merge : updateDoc échouait si users/{uid} n’existait pas encore → aucun token → aucune push.
-try {
-  // On tente d'abord la mise à jour ciblée (ne touchera JAMAIS au rôle)
-  await updateDoc(userRef, {
-    pushToken: token,
-    lastActive: serverTimestamp(),
-  });
-} catch (error) {
-  // Si le document n'existe pas encore du tout, on le crée avec le rôle par défaut
-  await setDoc(userRef, {
-    pushToken: token,
-    lastActive: serverTimestamp(),
-    role: "customer", // Rôle initial uniquement à la toute première création
-  }, { merge: true });
-}
+      try {
+        await updateDoc(userRef, {
+          pushToken: token,
+          lastActive: serverTimestamp(),
+        });
+      } catch (error) {
+        await setDoc(userRef, {
+          pushToken: token,
+          lastActive: serverTimestamp(),
+          role: "customer",
+        }, { merge: true });
+      }
       console.log("Token push enregistré (Firestore) pour :", uid);
     } catch (e) {
       console.warn("[push] Erreur enregistrement token :", e);
@@ -256,6 +263,21 @@ try {
   return <>{children}</>;
 }
 
+/** Composant intermédiaire pour injecter l'utilisateur connecté dans MessagesProvider */
+function AuthenticatedProviders({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+
+  return (
+    <MessagesProvider user={user}>
+      <LiveProvider>
+        <WebRTCProvider>
+          {children}
+        </WebRTCProvider>
+      </LiveProvider>
+    </MessagesProvider>
+  );
+}
+
 function RootLayout() {
   const navigationRef = useNavigationContainerRef();
   const [isAppReady, setIsAppReady] = useState(false);
@@ -284,13 +306,11 @@ function RootLayout() {
   }, [isAppReady]);
 
   if (!isAppReady) {
-    // Pas de rendu React intermédiaire: le splash natif reste visible.
     return null;
   }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
-      {/* PortalProvider enveloppe tout pour permettre aux composants de "sortir" du layout standard */}
       <PortalProvider>
         <SafeAreaProvider>
           <I18nextProvider i18n={i18n}>
@@ -301,28 +321,24 @@ function RootLayout() {
                   <CurrencyProvider>
                     <CartProvider>
                       <CheckoutProvider>
-                      <OrderProvider>
-                        <MessagesProvider>
-                          <LiveProvider>
-                            <WebRTCProvider>
-                              <Stack
-                                screenOptions={{
+                        <OrderProvider>
+                          <AuthenticatedProviders>
+                            <Stack
+                              screenOptions={{
+                                headerShown: false,
+                                animation: "fade",
+                              }}
+                            >
+                              <Stack.Screen
+                                name="profile"
+                                options={{
                                   headerShown: false,
-                                  animation: "fade",
+                                  animation: "slide_from_right",
                                 }}
-                              >
-                                <Stack.Screen
-                                  name="profile"
-                                  options={{
-                                    headerShown: false,
-                                    animation: "slide_from_right",
-                                  }}
-                                />
-                              </Stack>
-                            </WebRTCProvider>
-                          </LiveProvider>
-                        </MessagesProvider>
-                      </OrderProvider>
+                              />
+                            </Stack>
+                          </AuthenticatedProviders>
+                        </OrderProvider>
                       </CheckoutProvider>
                     </CartProvider>
                   </CurrencyProvider>

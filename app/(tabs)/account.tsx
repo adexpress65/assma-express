@@ -19,7 +19,7 @@ import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import LoginModal from '@/components/account/LoginModal';
 import { useRouter } from 'expo-router';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit, getDoc, doc } from 'firebase/firestore';
 import { db, auth } from '@/config/firebase';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -60,7 +60,6 @@ const normalizeRole = (role: unknown): NormalizedRole => {
 export default function AccountScreen() {
   const { t, i18n } = useTranslation();
   
-  // loading: état global du contexte (si disponible) pour savoir si le profil est en cours de chargement
   const { 
     user, 
     userRole, 
@@ -70,8 +69,8 @@ export default function AccountScreen() {
     isSuperAdmin,
     isAdmin,
     isSeller,
-    loading: authLoading 
-  } = useAuth() as any;
+    isLoading: authLoading 
+  } = useAuth();
   
   const { orders } = useOrders() as any;
   const [loginModalVisible, setLoginModalVisible] = useState(false);
@@ -83,16 +82,45 @@ export default function AccountScreen() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loadingLogin, setLoadingLogin] = useState(false);
+  const [companyAccountAvailable, setCompanyAccountAvailable] = useState(false);
+  const [companyDisplayName, setCompanyDisplayName] = useState<string | null>(null);
 
   const router = useRouter();
 
-  // Détermination robuste des rôles
+  useEffect(() => {
+    const checkCompanyAccount = async () => {
+      const uid = auth.currentUser?.uid || user?.uid;
+      if (!uid) {
+        setCompanyAccountAvailable(false);
+        setCompanyDisplayName(null);
+        return;
+      }
+      try {
+        const companyDoc = await getDoc(doc(db, 'companies', uid));
+        if (companyDoc.exists()) {
+          setCompanyAccountAvailable(true);
+          const companyData = companyDoc.data() as any;
+          setCompanyDisplayName(companyData?.name || null);
+        } else {
+          setCompanyAccountAvailable(false);
+          setCompanyDisplayName(null);
+        }
+      } catch (error) {
+        console.error('Erreur de vérification company:', error);
+        setCompanyAccountAvailable(false);
+        setCompanyDisplayName(null);
+      }
+    };
+    checkCompanyAccount();
+  }, [user?.uid]);
+
+  // Évaluation unifiée et absolue des privilèges
   const rawRole = userProfile?.role || userRole;
   const normalizedRole = normalizeRole(rawRole);
   
-  const isSuperAdminRole = isSuperAdmin === true || normalizedRole === 'super-admin';
-  const isAdminRole = isAdmin === true || isSuperAdminRole || normalizedRole === 'admin';
-  const isSellerRole = isSeller === true || normalizedRole === 'seller';
+  const isSuperAdminRole = isSuperAdmin || normalizedRole === 'super-admin';
+  const isAdminRole = isAdmin || isSuperAdminRole || normalizedRole === 'admin';
+  const isSellerRole = isSeller || companyAccountAvailable || normalizedRole === 'seller';
 
   useEffect(() => {
     if (user?.email) setEmailForReset(user.email);
@@ -144,8 +172,6 @@ export default function AccountScreen() {
     fetchTrendingProducts();
   }, []);
 
-  // 🔄 Si l'authentification ou le profil Firestore est encore en cours de chargement, on affiche un loader
-  // Cela évite de calculer prématurément un rôle 'customer' par défaut
   if (authLoading) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -212,6 +238,15 @@ export default function AccountScreen() {
 
   const ProfileHeader = () => {
     const getRoleLabel = () => {
+      if (isSuperAdminRole) {
+        return 'Super Admin';
+      }
+      if (normalizedRole === 'admin') {
+        return 'Admin';
+      }
+      if (companyAccountAvailable) {
+        return companyDisplayName || 'Fournisseur';
+      }
       return t(`app.account.roles.${normalizedRole}`, { defaultValue: normalizedRole });
     };
 
@@ -285,7 +320,7 @@ export default function AccountScreen() {
   };
 
   const SellerSection = () => {
-    const showSeller = isSellerRole || isAdminRole || isSuperAdminRole;
+    const showSeller = companyAccountAvailable || isSellerRole || isAdminRole || isSuperAdminRole;
     return (
       <View style={sellerStyles.container}>
         <LinearGradient colors={showSeller ? ['#FFF9F0', '#FFFFFF'] : ['#F8F9FA', '#FFFFFF']} style={sellerStyles.gradient}>
@@ -302,8 +337,12 @@ export default function AccountScreen() {
             <View style={sellerStyles.sellerContent}>
               <Text style={sellerStyles.welcomeText}>{t('app.account.sellerWelcome')}</Text>
               <View style={sellerStyles.actionsGrid}>
-                <TouchableOpacity style={sellerStyles.actionCard} onPress={() => setProModalVisible(true)} activeOpacity={0.7}>
-                  <View style={[sellerStyles.actionIcon, { backgroundColor: '#FFF0E6' }]}>
+                <TouchableOpacity
+                  style={sellerStyles.actionCard}
+                  onPress={() => companyAccountAvailable ? router.push('/suppliers/dashboard') : setProModalVisible(true)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[sellerStyles.actionIcon, { backgroundColor: '#FFF0E6' }]}> 
                     <Ionicons name="grid-outline" size={24} color="#FF6B00" />
                   </View>
                   <Text style={sellerStyles.actionTitle}>{t('app.account.sellerDashboards')}</Text>
@@ -399,8 +438,17 @@ export default function AccountScreen() {
     const services: { icon: IoniconsName; title: string; color: string; count: number | null; onPress: () => void }[] = [
       { icon: 'cube-outline', title: 'Commandes', color: '#4CAF50', count: user ? (orders?.length || 0) : 0, onPress: navigateToOrders },
       { icon: 'chatbubble-outline', title: 'Messages', color: '#2196F3', count: 0, onPress: navigateToMessages },
-      { icon: 'card-outline', title: 'Paiement', color: '#FF9800', count: null, onPress: navigateToPayment },
     ];
+
+    if (companyAccountAvailable) {
+      services.unshift({
+        icon: 'storefront-outline',
+        title: 'Tableau fournisseur',
+        color: '#2563EB',
+        count: null,
+        onPress: () => router.push('/suppliers/dashboard'),
+      });
+    }
     if (isAdminRole || isSuperAdminRole) {
       services.unshift({
         icon: 'shield-checkmark-outline',
@@ -493,8 +541,8 @@ export default function AccountScreen() {
       <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <ProfileHeader />
-        <SellerSection />
         <SuperAdminSection />
+        <SellerSection />
         <ServicesSection />
         <ProductsSection />
       </ScrollView>
@@ -624,7 +672,7 @@ const profileStyles = StyleSheet.create({
   gradient: { padding: 16 },
   content: { width: '100%' },
   avatarSection: { flexDirection: 'row', alignItems: 'center', width: '100%' },
-  avatarTouchable: { activeOpacity: 0.75 },
+  avatarTouchable: {},
   avatarContainer: { position: 'relative' },
   avatarImage: { width: 64, height: 64, borderRadius: 32 },
   avatar: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center' },
@@ -632,85 +680,85 @@ const profileStyles = StyleSheet.create({
   userInfo: { marginLeft: 16, flex: 1 },
   userName: { fontSize: 18, fontWeight: 'bold', color: '#222' },
   roleContainer: { marginTop: 4 },
-  userRole: { fontSize: 13, color: '#666' },
-  loginButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF0E6', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  loginText: { color: '#FF6B00', fontWeight: '600', marginRight: 4, fontSize: 13 },
-  profileLinkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderColor: '#EEE' },
-  profileLinkText: { flex: 1, marginLeft: 10, fontSize: 14, color: '#444', fontWeight: '500' },
-  statsContainer: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 16, backgroundColor: '#FAFAFA', paddingVertical: 12, borderRadius: 12 },
-  statItem: { alignItems: 'center', flex: 1 },
-  statValue: { fontSize: 16, fontWeight: 'bold', color: '#222' },
+  userRole: { fontSize: 13, color: '#666', fontWeight: '500' },
+  loginButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#FF6B00' },
+  loginText: { color: '#FF6B00', fontWeight: 'bold', fontSize: 13, marginRight: 4 },
+  profileLinkRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEE' },
+  profileLinkText: { flex: 1, marginLeft: 10, fontSize: 14, fontWeight: '600', color: '#333' },
+  statsContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#EEE' },
+  statItem: { flex: 1, alignItems: 'center' },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: '#FF6B00' },
   statLabel: { fontSize: 12, color: '#777', marginTop: 2 },
-  statDivider: { width: 1, height: 24, backgroundColor: '#EAEAEA' }
+  statDivider: { width: 1, height: 24, backgroundColor: '#DDD' }
 });
 
 const sellerStyles = StyleSheet.create({
-  container: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 6 },
+  container: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
   gradient: { padding: 16 },
   header: { marginBottom: 12 },
   titleContainer: { flexDirection: 'row', alignItems: 'center' },
-  iconContainer: { marginRight: 8 },
+  iconContainer: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFF0E6', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   title: { fontSize: 16, fontWeight: 'bold', color: '#222' },
-  sellerContent: { width: '100%' },
+  sellerContent: {},
   welcomeText: { fontSize: 13, color: '#666', marginBottom: 12 },
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  actionCard: { backgroundColor: 'white', width: '48%', padding: 12, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#F0F0F0', alignItems: 'center' },
-  actionIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
-  actionTitle: { fontSize: 14, fontWeight: 'bold', color: '#333', textAlign: 'center' },
-  actionSubtitle: { fontSize: 11, color: '#777', marginTop: 2, textAlign: 'center' },
-  nonSellerContent: { width: '100%', paddingVertical: 8 },
-  description: { fontSize: 14, color: '#555', lineHeight: 20, marginBottom: 16 },
-  benefitsList: { marginBottom: 20 },
-  benefitItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  benefitText: { marginLeft: 8, fontSize: 13, color: '#444' },
+  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  actionCard: { flex: 1, minWidth: '45%', backgroundColor: 'white', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#EEE' },
+  actionIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  actionTitle: { fontSize: 14, fontWeight: 'bold', color: '#333' },
+  actionSubtitle: { fontSize: 11, color: '#888', marginTop: 2 },
+  nonSellerContent: {},
+  description: { fontSize: 13, color: '#555', marginBottom: 12, lineHeight: 18 },
+  benefitsList: { marginBottom: 16 },
+  benefitItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  benefitText: { fontSize: 12, color: '#444', marginLeft: 8 },
   ctaButton: { borderRadius: 10, overflow: 'hidden' },
-  ctaGradient: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 20 },
-  ctaText: { color: 'white', fontSize: 15, fontWeight: 'bold', marginRight: 8 }
+  ctaGradient: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingVertical: 12 },
+  ctaText: { color: 'white', fontWeight: 'bold', fontSize: 14, marginRight: 8 }
 });
 
 const superAdminStyles = StyleSheet.create({
-  container: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.03, shadowRadius: 6 },
+  container: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
   gradient: { padding: 16 },
   header: { marginBottom: 12 },
   titleContainer: { flexDirection: 'row', alignItems: 'center' },
-  iconContainer: { marginRight: 8 },
+  iconContainer: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFEDEE', justifyContent: 'center', alignItems: 'center', marginRight: 10 },
   title: { fontSize: 16, fontWeight: 'bold', color: '#FF4444' },
-  dashboardCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#FFEBEB', justifyContent: 'space-between' },
+  dashboardCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'white', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#FFCDD2' },
   cardContent: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  cardIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#FFEDEE', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  cardIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFEDEE', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   cardText: { flex: 1 },
   cardTitle: { fontSize: 15, fontWeight: 'bold', color: '#222' },
   cardSubtitle: { fontSize: 12, color: '#666', marginTop: 2 }
 });
 
 const servicesStyles = StyleSheet.create({
-  container: { marginHorizontal: 16, marginBottom: 20 },
+  container: { marginHorizontal: 16, marginBottom: 16 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#222', marginBottom: 12 },
-  servicesGrid: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: 'white', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#F0F0F0' },
-  serviceCard: { alignItems: 'center', flex: 1 },
-  iconWrapper: { position: 'relative', width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
-  countBadge: { position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
+  servicesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  serviceCard: { width: (screenWidth - 32 - 10) / 2, backgroundColor: 'white', padding: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1, borderColor: '#EEE' },
+  iconWrapper: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 8, position: 'relative' },
+  countBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 },
   countText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
-  serviceTitle: { fontSize: 13, color: '#444', fontWeight: '500' }
+  serviceTitle: { fontSize: 13, fontWeight: '600', color: '#333', textAlign: 'center' }
 });
 
 const productsStyles = StyleSheet.create({
-  container: { marginBottom: 30 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 12 },
-  title: { fontSize: 17, fontWeight: 'bold', color: '#222' },
-  seeAllText: { fontSize: 13, color: '#FF6B00', fontWeight: '600' },
-  scrollContent: { paddingHorizontal: 16 },
-  productCard: { backgroundColor: 'white', width: screenWidth * 0.42, marginRight: 12, borderRadius: 14, borderWidth: 1, borderColor: '#F0F0F0', overflow: 'hidden' },
-  imageContainer: { width: '100%', height: screenWidth * 0.38, backgroundColor: '#FAFAFA' },
+  container: { marginHorizontal: 16, marginBottom: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  title: { fontSize: 16, fontWeight: 'bold', color: '#222' },
+  seeAllText: { fontSize: 13, color: '#FF6B00', fontWeight: 'bold' },
+  scrollContent: { paddingRight: 16 },
+  loadingContainer: { height: 150, justifyContent: 'center', alignItems: 'center' },
+  emptyContainer: { height: 150, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, borderWidth: 1, borderColor: '#EEE' },
+  emptyText: { marginTop: 8, color: '#888', fontSize: 13 },
+  productCard: { width: 150, backgroundColor: 'white', borderRadius: 12, marginRight: 12, borderWidth: 1, borderColor: '#EEE', overflow: 'hidden' },
+  imageContainer: { width: '100%', height: 130, backgroundColor: '#FAFAFA' },
   productImage: { width: '100%', height: '100%' },
-  imagePlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  imagePlaceholder: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   productInfo: { padding: 10 },
-  productName: { fontSize: 13, fontWeight: '600', color: '#333', height: 36, lineHeight: 18 },
-  supplierName: { fontSize: 11, color: '#888', marginTop: 2 },
-  productPrice: { fontSize: 14, fontWeight: 'bold', color: '#FF6B00', marginTop: 4 },
-  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#FFE6D5', borderRadius: 8, paddingVertical: 6, marginTop: 10, backgroundColor: '#FFFBF8' },
-  addButtonText: { color: '#FF6B00', fontSize: 11, fontWeight: '600', marginLeft: 4 },
-  loadingContainer: { paddingVertical: 40, justifyContent: 'center', alignItems: 'center' },
-  emptyContainer: { paddingVertical: 40, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { color: '#999', fontSize: 14, marginTop: 8 }
+  productName: { fontSize: 12, fontWeight: '600', color: '#333', height: 32, lineHeight: 16 },
+  supplierName: { fontSize: 10, color: '#888', marginTop: 2, marginBottom: 4 },
+  productPrice: { fontSize: 13, fontWeight: 'bold', color: '#FF6B00' },
+  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8, paddingVertical: 6, borderRadius: 6, backgroundColor: '#FFF0E6' },
+  addButtonText: { fontSize: 11, fontWeight: 'bold', color: '#FF6B00', marginLeft: 4 }
 });

@@ -22,7 +22,12 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
 
   const initOrder = useCallback((data: OrderData) => {
-    setOrderData(data);
+    setOrderData((prev) => ({
+      ...prev,
+      ...data,
+      // Sécurité : Conserve l'ancienne adresse si la nouvelle ne la fournit pas explicitement
+      shippingAddress: data.shippingAddress ?? prev?.shippingAddress,
+    }));
   }, []);
 
   const setShippingAddress = useCallback((address: ShippingAddress) => {
@@ -42,7 +47,7 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
       const subtotal =
         Number.isFinite(computedSubtotal) && computedSubtotal >= 0
           ? computedSubtotal
-          : Number(prev.summary.subtotal) || 0;
+          : Number(prev.summary?.subtotal) || 0;
       const shipping = Number(selection.cost) || 0;
       const discount = 0;
       const newTotal = subtotal + shipping;

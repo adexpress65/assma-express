@@ -12,8 +12,8 @@ const expoConfig = {
   expo: {
     name: "A2Express",
     slug: "assma-express",
-    // ✅ PASSAGE EN 1.0.8 (Correction de la clé Gemini pour les clients)
-    version: "1.0.8",
+    // ✅ PASSAGE EN 1.0.9 (Correction de la clé Gemini pour les clients)
+    version: "1.0.9",
     orientation: "portrait",
     userInterfaceStyle: "light",
     jsEngine: "hermes",
@@ -66,7 +66,7 @@ const expoConfig = {
       // ✅ LIEN NATIF VERS FIREBASE
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON,
       // ✅ VERSION 10 (Indispensable pour écraser la version 9 envoyée précédemment)
-      versionCode: 15,
+      versionCode: 16,
       softwareKeyboardLayoutMode: "pan",
       supportsRtl: false,
       adaptiveIcon: {
@@ -99,7 +99,7 @@ const expoConfig = {
       supportsTablet: false,
       bundleIdentifier: "com.askia1.assmaexpress",
       // ✅ ALIGNÉ SUR LE CODE ANDROID
-      buildNumber: "16",
+      buildNumber: "17",
       supportsRtl: false,
 	  googleServicesFile: "./google-services-ios.json",
 	  // 🔴 AJOUT CRUCIAL DES ENTITLEMENTS POUR APPLE SIGN-IN

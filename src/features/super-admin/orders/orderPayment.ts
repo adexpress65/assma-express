@@ -25,6 +25,40 @@ export function isOrderPaymentConfirmed(data: Record<string, unknown>): boolean 
   return false;
 }
 
+const REJECTED_STATUSES = [
+  "failed",
+  "cancelled",
+  "canceled",
+  "payment_failed",
+  "payment_cancelled",
+  "declined",
+  "rejected",
+  "expired",
+];
+
+/** Paiement explicitement refusé, annulé ou expiré. */
+export function isOrderPaymentRejected(data: Record<string, unknown>): boolean {
+  const status = String(data.status ?? "").toLowerCase().trim();
+  const paymentStatus = String(data.paymentStatus ?? data.paymentState ?? "")
+    .toLowerCase()
+    .trim();
+
+  return (
+    REJECTED_STATUSES.includes(status) || REJECTED_STATUSES.includes(paymentStatus)
+  );
+}
+
+/**
+ * Seule porte d'entrée autorisée pour présenter une commande comme payée dans le
+ * tunnel de checkout : un signal de paiement positif ET aucun signal de refus.
+ */
+export function isCheckoutPaymentConfirmed(
+  data: Record<string, unknown> | undefined | null,
+): boolean {
+  if (!data) return false;
+  return isOrderPaymentConfirmed(data) && !isOrderPaymentRejected(data);
+}
+
 /** Statuts qui ne doivent pas exister sans paiement (sauf annulation / échec). */
 const STATUSES_REQUIRING_PAYMENT: string[] = [
   "confirmed",

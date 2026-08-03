@@ -8,7 +8,7 @@ import {
   onSnapshot,
   addDoc,
   updateDoc,
-  deleteDoc, // ✅ Ajouté pour la suppression
+  deleteDoc,
   doc,
   serverTimestamp,
   Timestamp,
@@ -28,6 +28,7 @@ import {
 ======================= */
 export interface Order {
   id: string;
+  orderId?: string;
   userId: string;
   items: any[];
   status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled" | "failed";
@@ -96,78 +97,89 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-      const data = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data();
+        const data = snapshot.docs.map((docSnap) => {
+          const d = docSnap.data();
 
-        const rawItems = pickOrderItemsArray(d as Record<string, unknown>);
+          const rawItems = pickOrderItemsArray(d as Record<string, unknown>);
 
-        const normalizedItems = rawItems.map((item: any) => {
-          let cleanImage = item.image || item.imageUrl || null;
+          const normalizedItems = rawItems.map((item: any) => {
+            let cleanImage = item.image || item.imageUrl || null;
 
-          if (cleanImage && typeof cleanImage === "string") {
-            cleanImage = cleanImage.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, "");
-            if (cleanImage.includes("/products/") && !cleanImage.includes("products%2F")) {
-              cleanImage = cleanImage.replace("/products/", "/products%2F");
+            if (cleanImage && typeof cleanImage === "string") {
+              cleanImage = cleanImage.trim().replace(/[\s\u0000-\u001F\u007F-\u009F\uFEFF]+/g, "");
+              if (cleanImage.includes("/products/") && !cleanImage.includes("products%2F")) {
+                cleanImage = cleanImage.replace("/products/", "/products%2F");
+              }
             }
-          }
+
+            return {
+              ...item,
+              image: cleanImage,
+              name: item.name || item.productName || "Produit sans nom",
+              price: Number(item.price) || 0,
+              quantity: Number(item.quantity) || 1,
+            };
+          });
+
+          const dedupedItems = dedupeOrderLineItems(normalizedItems) as any[];
+
+          const cr = d.customerReview as Record<string, unknown> | undefined;
+          const customerReview =
+            cr && typeof cr === "object"
+              ? {
+                  rating: Number(cr.rating) || 0,
+                  comment: typeof cr.comment === "string" ? cr.comment : undefined,
+                  createdAt:
+                    cr.createdAt instanceof Timestamp
+                      ? cr.createdAt.toDate()
+                      : null,
+                }
+              : undefined;
+
+          const rawStatus = d.status ? String(d.status).toLowerCase().trim() : "pending";
+          // Normalisation : le backend/PC peut stocker "paid" ou "pending_payment"
+          const normalizedStatus =
+            rawStatus === "paid"
+              ? "confirmed"
+              : rawStatus === "pending_payment"
+                ? "pending"
+                : rawStatus;
 
           return {
-            ...item,
-            image: cleanImage,
-            name: item.name || item.productName || "Produit sans nom",
-            price: Number(item.price) || 0,
-            quantity: Number(item.quantity) || 1,
-          };
+            id: docSnap.id,
+            ...d,
+            items: dedupedItems,
+            total: Number(d.total) || 0,
+            status: normalizedStatus,
+            customerReview,
+            createdAt: d.createdAt instanceof Timestamp
+              ? d.createdAt.toDate()
+              : new Date()
+          } as Order;
         });
 
-        const dedupedItems = dedupeOrderLineItems(normalizedItems) as any[];
+        // 1. Tri par date décroissante
+        data.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
 
-        const cr = d.customerReview as Record<string, unknown> | undefined;
-        const customerReview =
-          cr && typeof cr === "object"
-            ? {
-                rating: Number(cr.rating) || 0,
-                comment: typeof cr.comment === "string" ? cr.comment : undefined,
-                createdAt:
-                  cr.createdAt instanceof Timestamp
-                    ? cr.createdAt.toDate()
-                    : null,
-              }
-            : undefined;
+        // 2. ✅ FILTRE DE DÉDUPLICATION AUTOMATIQUE
+        const seenKeys = new Set<string>();
+        const uniqueOrders = data.filter((order) => {
+          // Clé unique basée prioritairement sur orderId (ex: ORD-170000) ou sur l'id de document
+          const uniqueKey = order.orderId || order.id;
+          if (seenKeys.has(uniqueKey)) {
+            return false; // Ignore le doublon
+          }
+          seenKeys.add(uniqueKey);
+          return true;
+        });
 
-        const rawStatus = d.status ? String(d.status).toLowerCase().trim() : "pending";
-        // Normalisation : le backend/PC peut stocker "paid" ou "pending_payment"
-        const normalizedStatus =
-          rawStatus === "paid"
-            ? "confirmed"
-            : rawStatus === "pending_payment"
-              ? "pending"
-              : rawStatus;
-
-        return {
-          id: docSnap.id,
-          ...d,
-          items: dedupedItems,
-          total: Number(d.total) || 0,
-          status: normalizedStatus,
-          customerReview,
-          createdAt: d.createdAt instanceof Timestamp
-            ? d.createdAt.toDate()
-            : new Date()
-        } as Order;
-      });
-
-      // Tri par date décroissante
-      data.sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
-
-      setOrders(data);
-      setLoading(false);
-    },
-    (err) => {
-      console.error("[OrderContext] onSnapshot orders:", err);
-      setLoading(false);
-      // Index manquant possible : créer l’index composite userId + createdAt (lien dans la console Firebase)
-    }
+        setOrders(uniqueOrders);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("[OrderContext] onSnapshot orders:", err);
+        setLoading(false);
+      }
     );
 
     return unsubscribe;
@@ -191,7 +203,6 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
-  // ✅ NOUVELLE FONCTION : Suppression de commande
   const deleteOrder = async (orderId: string) => {
     try {
       await deleteDoc(doc(db, "orders", orderId));

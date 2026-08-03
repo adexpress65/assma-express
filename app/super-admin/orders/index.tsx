@@ -47,7 +47,6 @@ const ORDERS_ADMIN_LISTEN_LIMIT = 200;
 
 type FilterKey =
   | "all"
-  | "pending"
   | "active"
   | "shipped"
   | "delivered"
@@ -55,14 +54,13 @@ type FilterKey =
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: "all", label: "Toutes" },
-  { key: "pending", label: "En attente" },
   { key: "active", label: "Confirmée / prépa." },
   { key: "shipped", label: "Expédiées" },
   { key: "delivered", label: "Livrées" },
   { key: "issues", label: "Annul. / échec" },
 ];
 
-const EXCLUDED_ORDER_STATUSES = new Set(["cancelled", "failed", "draft"]);
+const EXCLUDED_ORDER_STATUSES = new Set(["pending", "cancelled", "failed", "draft"]);
 const EXCLUDED_PAYMENT_STATUSES = new Set(["cancelled", "failed", "declined"]);
 const VALID_VISIBLE_ORDER_STATUSES = new Set([
   "paid",
@@ -116,8 +114,6 @@ function rowMatchesFilter(row: AdminOrderRow, filter: FilterKey): boolean {
   switch (filter) {
     case "all":
       return true;
-    case "pending":
-      return s === "pending";
     case "active":
       return s === "confirmed" || s === "processing";
     case "shipped":
@@ -140,6 +136,7 @@ function paramUserId(
   return t || undefined;
 }
 
+// 🟢 SOLUTION 1 : Exclusion stricte des commandes "pending" / non payées
 function shouldDisplayOrderInAdminList(data: Record<string, unknown>): boolean {
   const rawStatus = String(data.status ?? "")
     .toLowerCase()
@@ -148,6 +145,7 @@ function shouldDisplayOrderInAdminList(data: Record<string, unknown>): boolean {
     .toLowerCase()
     .trim();
 
+  // Masquer si la commande est pending, annulée, échouée, etc.
   if (EXCLUDED_ORDER_STATUSES.has(rawStatus)) {
     return false;
   }
@@ -257,7 +255,6 @@ export default function SuperAdminOrdersScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    // onSnapshot se met à jour seul ; court délai pour le feedback visuel
     setTimeout(() => setRefreshing(false), 600);
   }, []);
 
@@ -272,21 +269,19 @@ export default function SuperAdminOrdersScreen() {
 
   const bulkEligibleRows = useMemo(() => {
     return filtered.filter(
-      (row) => row.paymentOk && !row.paymentMismatch && row.status === "pending",
+      (row) => row.paymentOk && !row.paymentMismatch && row.status === "confirmed",
     );
   }, [filtered]);
 
   const counts = useMemo(() => {
     const c = {
       all: rows.length,
-      pending: 0,
       active: 0,
       shipped: 0,
       delivered: 0,
       issues: 0,
     };
     for (const r of rows) {
-      if (r.status === "pending") c.pending += 1;
       if (r.status === "confirmed" || r.status === "processing") c.active += 1;
       if (r.status === "shipped") c.shipped += 1;
       if (r.status === "delivered") c.delivered += 1;
@@ -304,9 +299,7 @@ export default function SuperAdminOrdersScreen() {
 
       for (const row of bulkEligibleRows) {
         batch.update(doc(db, "orders", row.id), {
-          status: "confirmed",
-          paymentStatus: "paid",
-          paidAt: serverTimestamp(),
+          status: "processing",
           updatedAt: serverTimestamp(),
         });
       }
@@ -316,14 +309,14 @@ export default function SuperAdminOrdersScreen() {
       Alert.alert(
         "Succès",
         `${bulkEligibleRows.length} commande${
-          bulkEligibleRows.length > 1 ? "s ont été validées" : " a été validée"
+          bulkEligibleRows.length > 1 ? "s ont été passées en traitement" : " a été passée en traitement"
         }.`,
       );
     } catch (error) {
       console.error("[super-admin/orders][bulk-validate]", error);
       Alert.alert(
         "Erreur",
-        "La validation en masse a échoué. Réessayez dans un instant.",
+        "La mise à jour en masse a échoué. Réessayez dans un instant.",
       );
     } finally {
       setBulkValidating(false);
@@ -333,21 +326,21 @@ export default function SuperAdminOrdersScreen() {
   const onPressBulkValidate = useCallback(() => {
     if (!bulkEligibleRows.length) {
       Alert.alert(
-        "Aucune commande à valider",
-        "Aucune commande payée en attente de confirmation n'est visible avec les filtres actuels.",
+        "Aucune commande à traiter",
+        "Aucune commande confirmée éligible n'est visible avec les filtres actuels.",
       );
       return;
     }
 
     Alert.alert(
-      "Valider les commandes payées",
-      `Confirmer ${bulkEligibleRows.length} commande${
+      "Passer en préparation",
+      `Mettre ${bulkEligibleRows.length} commande${
         bulkEligibleRows.length > 1 ? "s" : ""
-      } visibles et payées ?`,
+      } en cours de traitement ?`,
       [
         { text: "Annuler", style: "cancel" },
         {
-          text: "Valider",
+          text: "Confirmer",
           style: "default",
           onPress: () => {
             void commitBulkValidation();
@@ -385,7 +378,6 @@ export default function SuperAdminOrdersScreen() {
           notifyLabel = `Contactés ${notifiedCount}/${supplierCount}`;
           notifyStyle = "partial";
         } else if (
-          item.status === "pending" ||
           item.status === "confirmed" ||
           item.status === "processing"
         ) {
@@ -437,10 +429,10 @@ export default function SuperAdminOrdersScreen() {
                 styles.notifyPill,
                 notifyStyle === "ok" && styles.notifyPillOk,
                 notifyStyle === "partial" && styles.notifyPillPartial,
-                  notifyStyle === "todo" && styles.notifyPillTodo,
-                  notifyStyle === "blocked" && styles.notifyPillBlocked,
-                ]}
-              >
+                notifyStyle === "todo" && styles.notifyPillTodo,
+                notifyStyle === "blocked" && styles.notifyPillBlocked,
+              ]}
+            >
               <Ionicons
                 name={
                   notifyStyle === "ok"
@@ -506,8 +498,8 @@ export default function SuperAdminOrdersScreen() {
         <View style={styles.topTitleBlock}>
           <Text style={styles.title}>Commandes clients</Text>
           <Text style={styles.subtitle}>
-            {counts.all} commande{counts.all > 1 ? "s" : ""} (max{" "}
-            {ORDERS_ADMIN_LISTEN_LIMIT}) · relais fournisseurs depuis la fiche
+            {counts.all} commande{counts.all > 1 ? "s" : ""} payée{counts.all > 1 ? "s" : ""} (max{" "}
+            {ORDERS_ADMIN_LISTEN_LIMIT})
           </Text>
         </View>
         <View style={styles.backBtn} />
@@ -516,9 +508,7 @@ export default function SuperAdminOrdersScreen() {
       <View style={styles.infoBanner}>
         <Ionicons name="information-circle-outline" size={18} color="#9A3412" />
         <Text style={styles.infoBannerText}>
-          Vue marketplace : une commande peut regrouper plusieurs boutiques. Seules les
-          commandes avec paiement confirmé doivent être traitées. Ouvrez une ligne pour
-          appeler / SMS aux fournisseurs.
+          Vue marketplace : Seules les commandes validées avec un paiement effectif apparaissent ici.
         </Text>
       </View>
 
@@ -541,30 +531,6 @@ export default function SuperAdminOrdersScreen() {
           </TouchableOpacity>
         </View>
       ) : null}
-
-      <View style={styles.bulkActionWrap}>
-        <TouchableOpacity
-          style={[
-            styles.bulkActionButton,
-            (bulkValidating || bulkEligibleRows.length === 0) &&
-              styles.bulkActionButtonDisabled,
-          ]}
-          onPress={onPressBulkValidate}
-          activeOpacity={0.9}
-          disabled={bulkValidating}
-        >
-          <View style={styles.bulkActionContent}>
-            <Ionicons name="checkmark-done-outline" size={18} color="#FFFFFF" />
-            <Text style={styles.bulkActionText}>
-              {bulkValidating
-                ? "Validation en cours..."
-                : bulkEligibleRows.length > 0
-                  ? `Valider les commandes payées (${bulkEligibleRows.length})`
-                  : "Valider les commandes payées"}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      </View>
 
       <View style={styles.searchWrap}>
         <Ionicons name="search" size={18} color="#9CA3AF" />
@@ -590,15 +556,13 @@ export default function SuperAdminOrdersScreen() {
           const count =
             f.key === "all"
               ? counts.all
-              : f.key === "pending"
-                ? counts.pending
-                : f.key === "active"
-                  ? counts.active
-                  : f.key === "shipped"
-                    ? counts.shipped
-                    : f.key === "delivered"
-                      ? counts.delivered
-                      : counts.issues;
+              : f.key === "active"
+                ? counts.active
+                : f.key === "shipped"
+                  ? counts.shipped
+                  : f.key === "delivered"
+                    ? counts.delivered
+                    : counts.issues;
           return (
             <TouchableOpacity
               key={f.key}
@@ -643,7 +607,7 @@ export default function SuperAdminOrdersScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="receipt-outline" size={48} color="#D1D5DB" />
-              <Text style={styles.emptyTitle}>Aucune commande</Text>
+              <Text style={styles.emptyTitle}>Aucune commande trouvée</Text>
               <Text style={styles.emptyHint}>
                 Ajustez les filtres ou la recherche.
               </Text>
@@ -659,7 +623,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#F9FAFB" },
   center: {
     flex: 1,
-    justifyContent: "center",
+    justify: "center",
     alignItems: "center",
     padding: 24,
   },
@@ -752,40 +716,6 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     backgroundColor: "#F3F4F6",
-  },
-  bulkActionWrap: {
-    marginHorizontal: 16,
-    marginTop: 12,
-  },
-  bulkActionButton: {
-    minHeight: 46,
-    borderRadius: 12,
-    backgroundColor: "#EA580C",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 4,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  bulkActionButtonDisabled: {
-    opacity: 0.6,
-  },
-  bulkActionContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  bulkActionText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
   },
   searchInput: {
     flex: 1,

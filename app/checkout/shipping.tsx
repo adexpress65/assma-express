@@ -277,7 +277,17 @@ export default function CheckoutShipping() {
       details: `${selectedOption.name} - ${selectedOption.deliveryTime}`,
     });
 
-    router.push({ pathname: '/checkout/payment' });
+    router.push({
+      pathname: '/checkout/payment',
+      params: {
+        shippingFee: String(Number(selectedOption.price) || 0),
+        shippingMethod: selectedShipping,
+        shippingOptionName: selectedOption.name,
+        shippingDetails: `${selectedOption.name} - ${selectedOption.deliveryTime}`,
+        subtotal: String(subtotal),
+        total: String(normalizedSummary.total),
+      },
+    });
   };
 
   const renderShippingCalculations = () => (

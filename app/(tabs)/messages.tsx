@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,6 +19,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/contexts/AuthContext";
+import ConversationProfileModal from "../../src/components/ConversationProfileModal";
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../src/config/firebase';
 import {
   useMessages,
   type Conversation,
@@ -124,36 +127,142 @@ function iconForType(type: Conversation["type"]): keyof typeof Ionicons.glyphMap
   }
 }
 
-function peerUserId(conv: Conversation, uid: string | undefined): string | null {
-  if (!uid || !conv.participants?.length) return null;
-  const other = conv.participants.find((p) => p !== uid);
-  return other ?? null;
+// 1. Déterminer si l'utilisateur connecté est le VENDEUR/BOUTIQUE
+// 🟢 1. Déterminer si l'utilisateur connecté est le VENDEUR / la BOUTIQUE
+// 🟢 1. Détecter de façon STRICTE si l'utilisateur est le vendeur/boutique
+// 🟢 1. Détection du rôle
+function isCurrentUserSeller(conv: Conversation, uid: string | undefined): boolean {
+  if (!conv || !uid) return false;
+
+  const isCompanyOwner = conv.companyId === uid || conv.sellerUid === uid;
+  const isAdmin = Array.isArray(conv.admins) && conv.admins.includes(uid);
+
+  // 🛑 Garde-fou : si c'est VOUS qui avez initié la conversation en tant que
+  // client (createdBy ou clientUid = votre uid), vous ne pouvez PAS être en
+  // même temps le vendeur — même si votre uid traîne dans "admins" (souvent
+  // une liste globale de modération, pas spécifique à cette boutique).
+  const isConversationCreator =
+    (conv as any).createdBy === uid || (conv as any).clientUid === uid;
+
+  if (isConversationCreator && !isCompanyOwner) {
+    return false;
+  }
+
+  return Boolean(isCompanyOwner || isAdmin);
 }
 
+// 🟢 2. Trouver l'UID de l'interlocuteur
+function peerUserId(
+  conv: Conversation,
+  uid: string | undefined,
+): string | null {
+  if (!conv || !uid) return null;
+  if (isCurrentUserSeller(conv, uid)) {
+    // ➔ Vendeur -> Chercher l'ID du Client
+    return (conv as any).clientUid || (conv as any).createdBy || null;
+  } else {
+    // ➔ Client -> Chercher l'ID de la Boutique/Vendeur
+    return conv.sellerUid || conv.companyId || null;
+  }
+}
+
+// 🟢 3. Trouver le Nom à afficher
+function peerDisplayName(
+  conv: Conversation | null | undefined,
+  uid: string | undefined,
+): string | null {
+  if (!conv || !uid) return null;
+
+  if (isCurrentUserSeller(conv, uid)) {
+    // ➔ ON EST LA BOUTIQUE : Afficher le nom du client
+    const clientUid = (conv as any).clientUid || (conv as any).createdBy;
+    const clientName =
+      (conv as any).clientName ||
+      (conv as any).customerName ||
+      (conv as any).userName ||
+      (conv as any).senderName ||
+      (clientUid && conv.participantNames?.[clientUid]);
+
+    if (typeof clientName === "string" && clientName.trim()) {
+      return clientName.trim();
+    }
+    return "Client";
+  } else {
+    // ➔ ON EST LE CLIENT : Afficher le nom de la BOUTIQUE
+    const sellerUid = conv.sellerUid || conv.companyId;
+    const storeName =
+      conv.companyName ||
+      (conv as any).shopName ||
+      (conv as any).storeName ||
+      (conv as any).sellerName ||
+      (sellerUid && conv.participantNames?.[sellerUid]);
+
+    if (
+      typeof storeName === "string" &&
+      storeName.trim() &&
+      storeName.trim().toLowerCase() !== uid.toLowerCase() && // 🛑 jamais l'uid courant
+      storeName.trim().toLowerCase() !== "conversation"
+    ) {
+      return storeName.trim();
+    }
+
+    // ⚠️ On NE retombe PAS sur conv.title : ce champ contenait le nom
+    // de l'utilisateur connecté et causait le bug "superadmin".
+    return "Boutique"; // fallback neutre garanti
+  }
+}
+
+// 🟢 4. Gestion de l'Avatar de l'interlocuteur
 function peerAvatarUrl(
   conv: Conversation,
   uid: string | undefined,
 ): string | null {
-  const pid = peerUserId(conv, uid);
-  if (!pid || !conv.participantAvatars) return null;
-  const u = conv.participantAvatars[pid];
-  return typeof u === "string" && u.length > 0 ? u : null;
-}
+  if (!conv || !uid) return null;
 
-function peerDisplayName(
-  conv: Conversation,
-  uid: string | undefined,
-): string | null {
-  const pid = peerUserId(conv, uid);
-  if (!pid || !conv.participantNames) return null;
-  const n = conv.participantNames[pid];
-  return typeof n === "string" && n.trim() ? n.trim() : null;
-}
+  let rawPic: string | undefined | null = null;
 
+  if (isCurrentUserSeller(conv, uid)) {
+    // ➔ ON EST LA BOUTIQUE : Photo du client
+    const clientUid = (conv as any).clientUid || (conv as any).createdBy;
+    rawPic =
+      (conv as any).clientAvatar ||
+      (conv as any).userAvatar ||
+      (clientUid && conv.participantAvatars?.[clientUid]);
+  } else {
+    // ➔ ON EST LE CLIENT : Photo / Logo de la boutique
+    const sellerUid = conv.sellerUid || conv.companyId;
+    rawPic =
+      conv.companyLogo ||
+      (conv as any).logo ||
+      (conv as any).sellerAvatar ||
+      (sellerUid && conv.participantAvatars?.[sellerUid]);
+  }
+
+  // 🛑 NETTOYAGE STRICT : Valide uniquement si c'est une vraie URL HTTP(S) ou locale
+  if (
+    typeof rawPic === "string" &&
+    rawPic.trim().length > 10 &&
+    (rawPic.startsWith("http://") || rawPic.startsWith("https://") || rawPic.startsWith("file://"))
+  ) {
+    return rawPic.trim();
+  }
+
+  // Renvoie STRICTEMENT null pour forcer le fallback sur les initiales
+  return null;
+}
 export default function MessagesTabScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [profileToShow, setProfileToShow] = useState<{
+    id: string;
+    name: string;
+    role: string;
+    avatarUrl?: string | null;
+    subtitle?: string;
+    details?: { label: string; value: string }[];
+  } | null>(null);
   const {
     conversations,
     loading,
@@ -323,113 +432,397 @@ export default function MessagesTabScreen() {
     [],
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: Conversation }) => {
-      const unread = item.unreadCount?.[user?.uid || ""] || 0;
-      const peerName = peerDisplayName(item, user?.uid);
-      const title = (
-        (item.type === "direct" && peerName) ||
-        item.title ||
-        t("app.messages.fallbackConversationTitle")
-      ).trim();
-      const avatarUrl = peerAvatarUrl(item, user?.uid);
-      const typeLabel = t(`app.messages.types.${item.type}`, {
-        defaultValue: item.type,
-      });
-      const preview =
-        (item.lastMessage || "").trim() || t("app.messages.noPreviewYet");
-      const isSelected = Boolean(selectedIds[item.id]);
+const openProfileFromConversation = useCallback(
+  async (c: Conversation) => {
+    if (selectMode) return;
+    const pid = peerUserId(c, user?.uid);
 
-      return (
-        <Pressable
-          onPress={() => onRowPress(item)}
-          onLongPress={() => onRowLongPress(item)}
-          delayLongPress={380}
-          style={({ pressed }) => [
-            styles.row,
-            unread > 0 && styles.rowUnread,
-            pressed && styles.rowPressed,
-            selectMode && isSelected && styles.rowSelected,
-          ]}
-        >
-          {selectMode ? (
-            <View
-              style={styles.selectMark}
-              accessibilityLabel={isSelected ? t("app.messages.deselectRow") : t("app.messages.selectRow")}
-            >
-              <Ionicons
-                name={isSelected ? "checkbox" : "square-outline"}
-                size={24}
-                color={isSelected ? "#EA580C" : "#9CA3AF"}
-              />
-            </View>
-          ) : null}
-          <View style={styles.avatarWrap}>
-            {avatarUrl ? (
-              <Image
-                source={{ uri: avatarUrl }}
-                style={styles.avatarImage}
-                contentFit="cover"
-                transition={120}
-                cachePolicy="memory-disk"
-              />
-            ) : (
+    // 🟢 1. Déterminer l'interlocuteur réel (Client vs Boutique)
+    const isCurrentSeller = isCurrentUserSeller(c, user?.uid);
+
+    // 🟢 2. Fix Ultime : Récupération exhaustive de l'UID client
+    const clientUidForProfile =
+      (c as any).clientUid ||
+      (c as any).createdBy ||
+      (c as any).customerUid ||
+      (c as any).userUid ||
+      c.participants?.find(
+        (id: string) => id !== user?.uid && id !== c.companyId && id !== c.sellerUid
+      ) ||
+      c.participants?.find((id: string) => id !== user?.uid) ||
+      user?.uid;
+
+    let liveClientProfile = clientUidForProfile
+      ? clientProfiles[clientUidForProfile]
+      : undefined;
+
+    // 🛑 SECOURISME EN DIRECT : Si absente du cache, on fetch immédiatement dans Firestore !
+    if (!liveClientProfile && clientUidForProfile) {
+      try {
+        const userSnap = await getDoc(doc(db, "users", clientUidForProfile));
+        if (userSnap.exists()) {
+          const uData = userSnap.data();
+          liveClientProfile = {
+            name: uData?.displayName || uData?.name || uData?.fullName,
+            photoURL: uData?.photoURL || uData?.avatar || uData?.avatarUrl || uData?.photo,
+          };
+          // Mise à jour de l'état pour les futurs clics
+          setClientProfiles((prev) => ({ ...prev, [clientUidForProfile]: liveClientProfile! }));
+        }
+      } catch (err) {
+        console.log("Erreur de récupération directe du profil client :", err);
+      }
+    }
+
+    // 🔍 CONSOLE LOGS DE DÉBOGAGE (Visible dans votre terminal Metro)
+    console.log("-----------------------------------------");
+    console.log("🔍 UID Client identifié :", clientUidForProfile);
+    console.log("🔍 Profil chargé depuis Firestore :", liveClientProfile);
+
+    // 1. Récupérer l'image si elle est présente dans la conversation
+    let companyLogo = c.logo || c.companyLogo || c.coverImage;
+    let companyPhone: string | undefined;
+    let companyEmail: string | undefined;
+    let companyAddress: string | undefined;
+
+    // 2. Récupérer les infos complètes de la boutique si l'interlocuteur est la boutique
+    if (!isCurrentSeller && c.companyId) {
+      try {
+        const companyDoc = await getDoc(doc(db, "companies", c.companyId));
+        if (companyDoc.exists()) {
+          const data = companyDoc.data();
+          companyLogo = companyLogo || data?.logo || data?.coverImage;
+          companyPhone = data?.phone && data.phone.trim() ? data.phone.trim() : undefined;
+          companyEmail = data?.email && data.email.trim() ? data.email.trim() : undefined;
+
+          const addr = data?.address;
+          if (addr) {
+            companyAddress = [addr.street, addr.city, addr.country]
+              .filter((part: string) => part && part.trim())
+              .join(", ");
+          } else if (data?.location) {
+            companyAddress = data.location;
+          }
+        }
+      } catch (error) {
+        console.log("Erreur lors de la récupération des infos de l'entreprise:", error);
+      }
+    }
+
+    // 🟢 3. Résolution dynamique du nom
+    let displayName = "Contact";
+
+    if (isCurrentSeller) {
+      const clientUid = c.participants?.find(
+        (id: string) =>
+          id !== user?.uid && id !== c.companyId && id !== c.sellerUid
+      );
+
+      displayName =
+        liveClientProfile?.name ||
+        (clientUid && c.participantNames?.[clientUid]) ||
+        c.clientName ||
+        c.userName ||
+        c.customerName ||
+        c.senderName ||
+        peerDisplayName(c, user?.uid) ||
+        "Client";
+    } else {
+      displayName =
+        (c.companyName && c.companyName.toLowerCase() !== "conversation" ? c.companyName : null) ||
+        c.title ||
+        peerDisplayName(c, user?.uid) ||
+        "Boutique";
+    }
+
+    console.log("🔍 Nom retenu pour affichage :", displayName);
+    console.log("-----------------------------------------");
+
+    // 🟢 4. Résolution dynamique de l'avatar
+    const avatar = isCurrentSeller
+      ? (liveClientProfile?.photoURL || c.clientAvatar || c.userAvatar || peerAvatarUrl(c, user?.uid))
+      : (companyLogo || peerAvatarUrl(c, user?.uid));
+
+    const conversationType = c.type || "direct";
+
+    let roleLabel = "Contact";
+    switch (conversationType) {
+      case "seller":
+      case "entrepreneur":
+        roleLabel = isCurrentSeller ? "Client acheteur" : "Boutiquier / Fournisseur";
+        break;
+      case "order":
+      case "delivery":
+      case "return":
+        roleLabel = "Service commercial";
+        break;
+      case "support":
+        roleLabel = "Support client";
+        break;
+      case "promo":
+      case "channel":
+      case "subscription":
+      case "premium":
+        roleLabel = "Canal professionnel";
+        break;
+      case "direct":
+        roleLabel = pid ? "Client" : "Contact direct";
+        break;
+      case "group":
+        roleLabel = "Discussion de groupe";
+        break;
+      default:
+        roleLabel = "Interlocuteur";
+    }
+
+    const details: { label: string; value: string }[] = [
+      {
+        label: "Type de discussion",
+        value: t(`app.messages.types.${conversationType}`, {
+          defaultValue: conversationType,
+        }),
+      },
+    ];
+
+    if (companyPhone) {
+      details.push({ label: "Téléphone", value: companyPhone });
+    }
+    if (companyEmail) {
+      details.push({ label: "Email", value: companyEmail });
+    }
+    if (companyAddress) {
+      details.push({ label: "Adresse", value: companyAddress });
+    }
+
+    if (c.companyId) {
+      details.push({ label: "Boutique (ID)", value: String(c.companyId) });
+    }
+    if (pid) {
+      details.push({ label: "Utilisateur (UID)", value: pid });
+    }
+    details.push({ label: "Conversation (ID)", value: c.id });
+    if (c.lastMessageTime) {
+      try {
+        details.push({
+          label: "Dernière activité",
+          value: formatMessageTime(c.lastMessageTime, dateLocale, t),
+        });
+      } catch {}
+    }
+
+    setProfileToShow({
+      id: pid || c.id,
+      name: displayName,
+      role: roleLabel,
+      avatarUrl: avatar,
+      logo: isCurrentSeller ? undefined : companyLogo,
+      phone: companyPhone,
+      address: companyAddress,
+      subtitle: isCurrentSeller
+        ? `Client: ${displayName}`
+        : c.companyName
+        ? `Entreprise: ${c.companyName}`
+        : pid
+        ? `UID: ${pid}`
+        : `Conversation: ${c.title || c.id}`,
+      details,
+    });
+    setProfileModalVisible(true);
+  },
+  [dateLocale, selectMode, t, user?.uid, clientProfiles],
+);
+
+const closeProfileModal = useCallback(() => {
+    setProfileModalVisible(false);
+  }, []);
+
+// Au lieu d'un Set<string> d'ids, on stocke une Map id -> url qui a échoué
+const [failedAvatars, setFailedAvatars] = useState<Record<string, string>>({});
+
+const [clientProfiles, setClientProfiles] = useState<Record<string, { name?: string; photoURL?: string }>>({});
+
+
+
+useEffect(() => {
+  // 🟢 On récupère tous les UIDs des clients des conversations
+  const missingUids = conversations
+    .filter((c) => isCurrentUserSeller(c, user?.uid))
+    .map((c) => (c as any).clientUid || (c as any).createdBy)
+    .filter((uid): uid is string => Boolean(uid));
+
+  const uniqueUids = Array.from(new Set(missingUids));
+  if (uniqueUids.length === 0) return;
+
+  (async () => {
+    const updates: Record<string, { name?: string; photoURL?: string }> = {};
+    await Promise.all(
+      uniqueUids.map(async (uid) => {
+        try {
+          // 🟢 On va chercher le profil FRAIS dans Firestore
+          const snap = await getDoc(doc(db, "users", uid));
+          if (snap.exists()) {
+            const data = snap.data();
+            updates[uid] = {
+              name: data?.displayName || data?.name || data?.fullName,
+              photoURL: data?.photoURL || data?.avatar || data?.avatarUrl,
+            };
+          }
+        } catch {}
+      })
+    );
+    if (Object.keys(updates).length > 0) {
+      setClientProfiles((prev) => ({ ...prev, ...updates }));
+    }
+  })();
+}, [conversations, user?.uid]); // Met à jour l'état clientProfiles avec les vraies données Firestore
+
+const renderItem = useCallback(
+  ({ item }: { item: Conversation }) => {
+    // 🟢 Résolution du profil client à jour (si je suis vendeur)
+    const clientUid = (item as any).clientUid || (item as any).createdBy;
+    const liveClientProfile = clientUid ? clientProfiles[clientUid] : undefined;
+
+    // 🟢 1. Priorité au nom de l'interlocuteur réel (Client si Boutique, Boutique si Client)
+    const title =
+      (isCurrentUserSeller(item, user?.uid) && liveClientProfile?.name) ||
+      peerDisplayName(item, user?.uid) ||
+      item.companyName ||
+      item.shopName ||
+      item.storeName ||
+      item.name ||
+      "Contact";
+
+    // 🟢 2. Priorité à la photo de l'interlocuteur SANS fallback sur la boutique
+    // Si le client n'a pas de photo, peerAvatarUrl renvoie null,
+    // ce qui déclenche automatiquement le bloc <View style={styles.avatarFallback}> avec les initiales !
+    const avatarUrl =
+      (isCurrentUserSeller(item, user?.uid) ? liveClientProfile?.photoURL : null) ||
+      peerAvatarUrl(item, user?.uid);
+
+    // 🛑 On ignore l'URL si elle a déjà échoué au chargement (image cassée/supprimée)
+    const showImage = Boolean(avatarUrl) && failedAvatars[item.id] !== avatarUrl;
+    const unread = item.unreadCount?.[user?.uid || ""] || 0;
+    const conversationKind = item.type || item.lastMessageType || 'direct';
+    const typeLabel =
+      item.lastMessageType === 'image'
+        ? t('app.messages.types.image', { defaultValue: 'Photo du colis' })
+        : t(`app.messages.types.${conversationKind}`, {
+            defaultValue: conversationKind,
+          });
+    const preview =
+      (item.lastMessage || "").trim() || t("app.messages.noPreviewYet");
+    const isSelected = Boolean(selectedIds[item.id]);
+    const openProfile = () => openProfileFromConversation(item);
+
+    return (
+      <Pressable
+        onPress={() => onRowPress(item)}
+        onLongPress={() => onRowLongPress(item)}
+        delayLongPress={380}
+        style={({ pressed }) => [
+          styles.row,
+          unread > 0 && styles.rowUnread,
+          pressed && styles.rowPressed,
+          selectMode && isSelected && styles.rowSelected,
+        ]}
+      >
+        {selectMode ? (
+          <View
+            style={styles.selectMark}
+            accessibilityLabel={isSelected ? t("app.messages.deselectRow") : t("app.messages.selectRow")}
+          >
+            <Ionicons
+              name={isSelected ? "checkbox" : "square-outline"}
+              size={24}
+              color={isSelected ? "#EA580C" : "#9CA3AF"}
+            />
+          </View>
+        ) : null}
+        <View style={styles.avatarWrap}>
+          {showImage ? (
+            <Pressable onPress={openProfile} hitSlop={8}>
+<Image
+  source={{ uri: avatarUrl! }}
+  style={styles.avatarImage}
+  contentFit="cover"
+  transition={120}
+  cachePolicy="memory-disk"
+  onError={() => {
+    setFailedAvatars((prev) => ({ ...prev, [item.id]: avatarUrl! }));
+  }}
+/>
+            </Pressable>
+          ) : (
+            /* 🟢 SI PAS DE PHOTO (ou photo cassée) : Affiche les initiales du client (ex: "A") */
+            <Pressable onPress={openProfile} hitSlop={8}>
               <View style={styles.avatarFallback}>
                 <Text style={styles.avatarInitials}>
                   {initialsFromTitle(title)}
                 </Text>
               </View>
-            )}
+            </Pressable>
+          )}
+          {unread > 0 ? (
+            <View style={styles.unreadDot} accessibilityLabel={t("app.messages.a11yUnread", { count: unread })} />
+          ) : null}
+        </View>
+
+        <View style={styles.rowBody}>
+          <View style={styles.rowTop}>
+            <Text
+              style={[styles.rowTitle, unread > 0 && styles.rowTitleUnread]}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
+            <Text style={styles.rowTime}>
+              {formatMessageTime(item.lastMessageTime, dateLocale, t)}
+            </Text>
+          </View>
+          <Text
+            style={[styles.rowPreview, unread > 0 && styles.rowPreviewUnread]}
+            numberOfLines={2}
+          >
+            {preview}
+          </Text>
+          <View style={styles.rowMeta}>
+            <View style={styles.typeChip}>
+              <Ionicons
+                name={iconForType(item.type)}
+                size={12}
+                color="#C2410C"
+              />
+              <Text style={styles.typeChipText}>{typeLabel}</Text>
+            </View>
             {unread > 0 ? (
-              <View style={styles.unreadDot} accessibilityLabel={t("app.messages.a11yUnread", { count: unread })} />
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {unread > 99 ? "99+" : unread}
+                </Text>
+              </View>
             ) : null}
           </View>
+        </View>
 
-          <View style={styles.rowBody}>
-            <View style={styles.rowTop}>
-              <Text
-                style={[styles.rowTitle, unread > 0 && styles.rowTitleUnread]}
-                numberOfLines={1}
-              >
-                {title}
-              </Text>
-              <Text style={styles.rowTime}>
-                {formatMessageTime(item.lastMessageTime, dateLocale, t)}
-              </Text>
-            </View>
-            <Text
-              style={[styles.rowPreview, unread > 0 && styles.rowPreviewUnread]}
-              numberOfLines={2}
-            >
-              {preview}
-            </Text>
-            <View style={styles.rowMeta}>
-              <View style={styles.typeChip}>
-                <Ionicons
-                  name={iconForType(item.type)}
-                  size={12}
-                  color="#C2410C"
-                />
-                <Text style={styles.typeChipText}>{typeLabel}</Text>
-              </View>
-              {unread > 0 ? (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {unread > 99 ? "99+" : unread}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-
-          {!selectMode ? (
-            <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
-          ) : null}
-        </Pressable>
-      );
-    },
-    [onRowPress, onRowLongPress, selectMode, selectedIds, user?.uid],
-  );
+        {!selectMode ? (
+          <Ionicons name="chevron-forward" size={18} color="#D1D5DB" />
+        ) : null}
+      </Pressable>
+    );
+  },
+  [
+    dateLocale,
+    onRowLongPress,
+    onRowPress,
+    openProfileFromConversation,
+    selectedIds,
+    selectMode,
+    t,
+    user?.uid,
+    failedAvatars,
+    clientProfiles,	// 👈 ajouté aux dépendances
+  ],
+);
 
   const listFooter = useMemo(() => {
     if (loadingMoreConversations) {
@@ -658,19 +1051,27 @@ export default function MessagesTabScreen() {
                     ? t("app.messages.emptyHintAll")
                     : t("app.messages.emptyHintCategory")}
               </Text>
-              {!normalizedSearch && filter === "all" ? (
-                <Pressable
-                  style={styles.secondaryBtn}
-                  onPress={() => router.push("/(tabs)/index")}
-                >
-                  <Text style={styles.secondaryBtnText}>{t("app.messages.discoverHome")}</Text>
-                </Pressable>
-              ) : null}
+{!normalizedSearch && filter === "all" ? (
+  <Pressable
+    style={styles.secondaryBtn}
+    onPress={() => router.push("/(tabs)")} // 🟢 Redirection propre vers l'onglet principal
+  >
+    <Text style={styles.secondaryBtnText}>
+      {t("app.messages.discoverHome")}
+    </Text>
+  </Pressable>
+) : null}
             </View>
           }
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      <ConversationProfileModal
+        visible={profileModalVisible}
+        profile={profileToShow}
+        onClose={closeProfileModal}
+      />
     </View>
   );
 }

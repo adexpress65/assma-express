@@ -23,8 +23,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { fr } from 'date-fns/locale/fr';
 import { format } from 'date-fns';
 
-
-type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered';
+type OrderStatus = 'paid' | 'pending' | 'processing' | 'shipped' | 'delivered';
 type FilterTab = 'pending' | 'processing' | 'history';
 
 interface OrderItem {
@@ -37,15 +36,30 @@ interface OrderItem {
 
 interface Order {
   id: string;
-  userName: string;
+  userName?: string;
   total: number;
   status: OrderStatus;
+  paymentStatus?: string;
   createdAt: Date;
   items: OrderItem[];
   sellerId: string;
+  shippingAddress?: {
+    fullName?: string;
+    phone?: string;
+    street?: string;
+    city?: string;
+    postalCode?: string;
+    country?: string;
+  };
 }
 
 const statusConfig = {
+  paid: { 
+    color: '#2563EB', 
+    bgColor: '#DBEAFE', 
+    label: 'À préparer', 
+    icon: 'card-outline' 
+  },
   pending: { 
     color: '#F59E0B', 
     bgColor: '#FEF3C7', 
@@ -72,6 +86,67 @@ const statusConfig = {
   },
 };
 
+/**
+ * Fonction utilitaire pour extraire proprement l'adresse et le nom du client
+ * peu importe le format de sauvegarde dans Firestore.
+ */
+const parseOrderDocument = (doc: any, currentUserId: string): Order => {
+  const data = doc.data();
+
+  // 1. Récupération brute de l'adresse (shippingAddress, address ou deliveryAddress)
+  const rawAddress = data.shippingAddress || data.address || data.deliveryAddress || null;
+
+  // 2. Résolution du nom du client
+  const resolvedName =
+    data.userName ||
+    data.clientName ||
+    data.customerName ||
+    (typeof rawAddress === 'object' && rawAddress ? rawAddress.fullName || rawAddress.name : '') ||
+    'Client inconnu';
+
+  // 3. Résolution du téléphone du client
+  const resolvedPhone =
+    data.userPhone ||
+    data.clientPhone ||
+    (typeof rawAddress === 'object' && rawAddress ? rawAddress.phone || rawAddress.telephone || rawAddress.mobile : '') ||
+    '';
+
+  // 4. Mappage de l'adresse de livraison
+  let shippingAddressObj: Order['shippingAddress'] = undefined;
+
+  if (typeof rawAddress === 'string') {
+    shippingAddressObj = {
+      fullName: resolvedName,
+      phone: resolvedPhone,
+      street: rawAddress,
+    };
+  } else if (rawAddress && typeof rawAddress === 'object') {
+    shippingAddressObj = {
+      fullName: rawAddress.fullName || rawAddress.name || resolvedName,
+      phone: rawAddress.phone || rawAddress.telephone || rawAddress.mobile || resolvedPhone,
+      street: rawAddress.street || rawAddress.addressLine1 || rawAddress.address || rawAddress.fullAddress || '',
+      city: rawAddress.city || rawAddress.town || rawAddress.district || rawAddress.commune || '',
+      postalCode: rawAddress.postalCode || rawAddress.zip || rawAddress.postal_code || '',
+      country: rawAddress.country || rawAddress.countryCode || '',
+    };
+  }
+
+  const resolvedSellerId = data.sellerId ?? (Array.isArray(data.sellerIds) ? data.sellerIds.find((value: string) => value === currentUserId) : undefined);
+  const resolvedStatus = data.status || data.paymentStatus || 'paid';
+  const effectiveStatus = resolvedStatus === 'paid' || data.paymentStatus === 'paid' ? 'paid' : resolvedStatus;
+
+  return {
+    id: doc.id,
+    ...data,
+    sellerId: resolvedSellerId || data.sellerId || currentUserId,
+    status: effectiveStatus,
+    paymentStatus: data.paymentStatus || (effectiveStatus === 'paid' ? 'paid' : undefined),
+    userName: resolvedName,
+    shippingAddress: shippingAddressObj,
+    createdAt: data.createdAt?.toDate?.() || (data.createdAt ? new Date(data.createdAt) : new Date()),
+  } as Order;
+};
+
 export default function SupplierOrdersScreen() {
   const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -79,6 +154,15 @@ export default function SupplierOrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<FilterTab>('pending');
+
+  const getEffectiveStatus = (order: Order): OrderStatus => {
+    if (order.status === 'paid' || order.paymentStatus === 'paid') {
+      return 'paid';
+    }
+    return order.status;
+  };
+
+  const isPaidOrder = (order: Order) => getEffectiveStatus(order) === 'paid';
 
   // Récupération des commandes en temps réel
   useEffect(() => {
@@ -101,6 +185,7 @@ export default function SupplierOrdersScreen() {
 
     let latestA: Order[] = [];
     let latestB: Order[] = [];
+
     const mergeAndSet = () => {
       const byId = new Map<string, Order>();
       [...latestA, ...latestB].forEach((o) => byId.set(o.id, o));
@@ -115,11 +200,7 @@ export default function SupplierOrdersScreen() {
     const unsubA = onSnapshot(
       qSellerId,
       (snapshot) => {
-        latestA = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as any),
-          createdAt: (doc.data() as any).createdAt?.toDate?.() || new Date(),
-        })) as Order[];
+        latestA = snapshot.docs.map((doc) => parseOrderDocument(doc, user.uid));
         mergeAndSet();
       },
       (error) => {
@@ -133,16 +214,11 @@ export default function SupplierOrdersScreen() {
     const unsubB = onSnapshot(
       qSellerIds,
       (snapshot) => {
-        latestB = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as any),
-          createdAt: (doc.data() as any).createdAt?.toDate?.() || new Date(),
-        })) as Order[];
+        latestB = snapshot.docs.map((doc) => parseOrderDocument(doc, user.uid));
         mergeAndSet();
       },
       (error) => {
         console.error('Erreur lors du chargement des commandes (sellerIds):', error);
-        // Pas d'alerte doublon: on garde celle du flux principal
       }
     );
 
@@ -158,7 +234,7 @@ export default function SupplierOrdersScreen() {
 
     switch (activeTab) {
       case 'pending':
-        filtered = orders.filter((order) => order.status === 'pending');
+        filtered = orders.filter((order) => isPaidOrder(order));
         break;
       case 'processing':
         filtered = orders.filter((order) => order.status === 'processing');
@@ -189,7 +265,7 @@ export default function SupplierOrdersScreen() {
     return `${price.toLocaleString()} XOF`;
   };
   
-// --- SYSTÈME DE NETTOYAGE D'IMAGE ---
+  // SYSTEME DE NETTOYAGE D'IMAGE
   const getCleanImage = (item: any) => {
     if (!item) return null;
     let uri = item.image || item.imageUrl || item.photoURL;
@@ -207,7 +283,8 @@ export default function SupplierOrdersScreen() {
   };
 
   const renderOrderCard = ({ item }: { item: Order }) => {
-    const statusInfo = statusConfig[item.status] || statusConfig.pending;
+    const displayStatus = getEffectiveStatus(item);
+    const statusInfo = statusConfig[displayStatus] || statusConfig.pending;
     const firstItem = item.items && item.items[0];
     const cleanUri = getCleanImage(firstItem);
 
@@ -243,7 +320,9 @@ export default function SupplierOrdersScreen() {
               </View>
             </View>
 
-            <Text style={styles.customerName}>{item.userName || 'Client inconnu'}</Text>
+            <Text style={styles.customerName}>
+              {item.shippingAddress?.fullName || item.userName || 'Client inconnu'}
+            </Text>
             
             <View style={styles.itemsPreview}>
               <Ionicons name="cube-outline" size={14} color="#6B7280" />
@@ -274,7 +353,7 @@ export default function SupplierOrdersScreen() {
       <Ionicons name="bag-handle-outline" size={64} color="#D1D5DB" />
       <Text style={styles.emptyStateTitle}>Aucune commande</Text>
       <Text style={styles.emptyStateText}>
-        {activeTab === 'pending' && "Vous n'avez pas de commande à préparer"}
+        {activeTab === 'pending' && "Aucune commande payée à préparer"}
         {activeTab === 'processing' && "Aucune commande en cours de traitement"}
         {activeTab === 'history' && "Aucune commande dans l'historique"}
       </Text>
@@ -289,6 +368,8 @@ export default function SupplierOrdersScreen() {
       </View>
     );
   }
+
+  const pendingCount = orders.filter((o) => isPaidOrder(o)).length;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -314,11 +395,9 @@ export default function SupplierOrdersScreen() {
           <Text style={[styles.tabText, activeTab === 'pending' && styles.activeTabText]}>
             À préparer
           </Text>
-          {orders.filter((o) => o.status === 'pending').length > 0 && (
+          {pendingCount > 0 && (
             <View style={styles.tabBadge}>
-              <Text style={styles.tabBadgeText}>
-                {orders.filter((o) => o.status === 'pending').length}
-              </Text>
+              <Text style={styles.tabBadgeText}>{pendingCount}</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -381,28 +460,34 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    fontSize: 16,
+    fontSize: 14,
     color: '#6B7280',
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 16,
     paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '700',
     color: '#111827',
-    marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
     color: '#6B7280',
+    marginTop: 2,
   },
   tabContainer: {
     flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   tab: {
     flex: 1,
@@ -410,69 +495,60 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    borderRadius: 8,
     marginHorizontal: 4,
-    borderRadius: 12,
+  },
+  activeTab: {
+    backgroundColor: '#EFF6FF',
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginLeft: 6,
+  },
+  activeTabText: {
+    color: '#3B82F6',
+  },
+  tabBadge: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 6,
+  },
+  tabBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  listContent: {
+    padding: 16,
+  },
+  card: {
     backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
   },
-  activeTab: {
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#3B82F6',
-  },
-  tabText: {
-    marginLeft: 6,
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#6B7280',
-  },
-  activeTabText: {
-    color: '#3B82F6',
-  },
-  tabBadge: {
-    marginLeft: 6,
-    backgroundColor: '#3B82F6',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  tabBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-  },
-  card: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-    alignItems: 'center',
-  },
   cardContent: {
     flex: 1,
     flexDirection: 'row',
   },
   imageContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 12,
+    width: 60,
+    height: 60,
+    borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#F3F4F6',
+    marginRight: 12,
   },
   image: {
     width: '100%',
@@ -483,11 +559,9 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
   },
   orderInfo: {
     flex: 1,
-    marginLeft: 12,
   },
   headerRow: {
     flexDirection: 'row',
@@ -497,7 +571,7 @@ const styles = StyleSheet.create({
   },
   orderId: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#111827',
   },
   statusBadge: {
@@ -508,25 +582,25 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusText: {
-    marginLeft: 4,
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
+    marginLeft: 4,
   },
   customerName: {
-    fontSize: 15,
+    fontSize: 13,
+    color: '#4B5563',
     fontWeight: '500',
-    color: '#374151',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   itemsPreview: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   itemsText: {
-    marginLeft: 6,
     fontSize: 12,
     color: '#6B7280',
+    marginLeft: 4,
     flex: 1,
   },
   footerRow: {
@@ -539,34 +613,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dateText: {
-    marginLeft: 4,
-    fontSize: 11,
+    fontSize: 12,
     color: '#9CA3AF',
+    marginLeft: 4,
   },
   totalAmount: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: '#111827',
   },
   chevronContainer: {
-    justifyContent: 'center',
     marginLeft: 8,
   },
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 48,
+    paddingVertical: 60,
   },
   emptyStateTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#374151',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 12,
   },
   emptyStateText: {
     fontSize: 14,
     color: '#9CA3AF',
+    marginTop: 4,
     textAlign: 'center',
   },
 });

@@ -36,6 +36,7 @@ import { useCurrency } from '../../src/contexts/CurrencyContext';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { isZeroDollarsShop, isZeroDollarsProduct } from '../../src/utils/zeroDollarsShop';
 import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
+import { QuickChatModal } from '../../src/components/chat/QuickChatModal';
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 32 - 12) / 2;
 
@@ -287,6 +288,13 @@ export default function ProductDetailScreen() {
   
   const [isQuoteVisible, setIsQuoteVisible] = useState(false);
   const [addingToCart, setAddingToCart] = useState(false);
+  
+// --- ÉTATS & LOGIQUE POUR LE CHAT RAPIDE ---
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
+
+
+
   
   // --- ÉTAT POUR LA COULEUR SÉLECTIONNÉE DANS LE CARROUSEL ---
   const [selectedCarouselColor, setSelectedCarouselColor] = useState<string>('');
@@ -1000,83 +1008,184 @@ const handleBuyNow = async () => {
   }
 };
 
-const handleChat = async () => {
-  if (!product) {
-    console.error("❌ Produit introuvable");
-    return;
-  }
+// 1. Fonction pour vérifier et ouvrir le pop-up de discussion
+ // 1. Bouton "Discuter" d'origine (en bas) : Redirection DIRECTE
+// 1. Bouton "Discuter" d'origine (en bas) : Redirection DIRECTE
+ // 1. Bouton "Discuter" d'origine (en bas) : Redirection DIRECTE
+  const handleChat = async () => {
+    if (!product) {
+      console.error("❌ Produit introuvable");
+      return;
+    }
 
-  if (!user?.uid) {
-    Alert.alert(
-      "Connexion requise",
-      "Connectez-vous pour écrire à la boutique ou à l’entreprise.",
-    );
-    return;
-  }
+    if (!user?.uid) {
+      Alert.alert(
+        "Connexion requise",
+        "Connectez-vous pour écrire à la boutique ou à l’entreprise."
+      );
+      return;
+    }
 
-  const sellerUid = product.sellerUid;
-  const companyDocId = product.companyId;
+    const sellerUid = product.sellerUid;
+    const companyDocId = product.companyId;
 
-  if (!companyDocId || !sellerUid) {
-    console.error("Produit invalide :", product);
-    Alert.alert(
-      "Contact indisponible",
-      "Produit invalide : companyId/sellerUid manquant. Impossible d'ouvrir la discussion.",
-    );
-    return;
-  }
+    if (!companyDocId || !sellerUid) {
+      console.error("Produit invalide :", product);
+      Alert.alert(
+        "Contact indisponible",
+        "Produit invalide : companyId/sellerUid manquant. Impossible d'ouvrir la discussion."
+      );
+      return;
+    }
 
-  const contactId = companyDocId;
+    // 🟢 CORRECTION CLEF : Generation d'un ID unique combine (Boutique + Client)
+    const conversationId = `${companyDocId}_${user.uid}`;
 
-  console.log({
-    productId: product.id,
-    sellerUid,
-    companyId: companyDocId,
-  });
+    const mainImage =
+      product.images?.[0] ||
+      product.mainImage ||
+      product.imageUrl ||
+      "";
 
-  const mainImage =
-    product.images?.[0] ||
-    product.mainImage ||
-    product.imageUrl ||
-    "";
+    const chatPriceValue = isZeroDollarsProduct({
+      price: product.price,
+      basePrice: (product as any).basePrice,
+      companyName: product.companyName,
+      supplier: product.supplier,
+      seller: (product as any).seller,
+      name: product.name,
+    })
+      ? 0
+      : product.price;
 
-  const chatPriceValue = isZeroDollarsProduct({
-    price: product.price,
-    basePrice: product.basePrice as any,
-    companyName: product.companyName,
-    supplier: product.supplier,
-    seller: (product as any).seller,
-    name: product.name,
-  })
-    ? 0
-    : product.price;
+    const formattedPrice = `${chatPriceValue?.toLocaleString()} ${product.currency || "FCFA"}`;
 
-  const formattedPrice = `${chatPriceValue?.toLocaleString()} ${product.currency || "FCFA"}`;
+    // 💡 CORRECTION DU NOM ET DU LOGO DE LA BOUTIQUE TRANSMIS AU CHAT
+    const resolvedSellerName =
+      product.companyName ||
+      product.storeName ||
+      product.shopName ||
+      product.supplier ||
+      product.name ||
+      (product as any).seller?.name ||
+      "Vendeur A2Express";
 
-  router.push({
-    pathname: "/conversation/[id]",
-    params: {
-      id: contactId,
-      sellerId: sellerUid ? String(sellerUid) : contactId,
-      companyId: companyDocId || undefined,
-      productId: product.id,
-      productContext: "1",
-      productName: localizedTitle,
-      productImage: mainImage,
-      productPrice: formattedPrice,
-      sellerName:
-        product.companyName ||
-        product.supplier ||
-        "Vendeur A2Express",
-      sellerLogo:
-        product.logo ||
-        product.companyLogo ||
-        "",
-    },
-  });
-};
+    const resolvedSellerLogo =
+      product.companyLogo ||
+      product.logo ||
+      product.storeLogo ||
+      (product as any).seller?.logo ||
+      "";
 
-const isValidProductForConversation = Boolean(product?.companyId && product?.sellerUid);
+    // Redirection directe vers la page de conversation avec les bonnes infos
+    router.push({
+      pathname: "/conversation/[id]",
+      params: {
+        id: conversationId, // 🟢 Transmet l'ID unique (ex: "usinea2express_client123")
+        sellerId: String(sellerUid),
+        companyId: companyDocId,
+        productId: product.id,
+        productContext: "1",
+        productName: localizedTitle,
+        productImage: mainImage,
+        productPrice: formattedPrice,
+        sellerName: resolvedSellerName,
+        companyName: resolvedSellerName,
+        sellerLogo: resolvedSellerLogo,
+      },
+    });
+  };
+
+  // 2. Ouverture du pop-up de discussion rapide (via la bulle flottante)
+  const handleOpenQuickChat = () => {
+    if (!user?.uid) {
+      Alert.alert(
+        "Connexion requise",
+        "Connectez-vous pour écrire à la boutique ou à l’entreprise."
+      );
+      return;
+    }
+    setIsChatOpen(true);
+  };
+
+// 3. Envoi du message rédigé dans le pop-up
+  const handleSendMessage = (messageText: string) => {
+    if (!product) return;
+
+    if (!user?.uid) {
+      Alert.alert(
+        "Connexion requise",
+        "Connectez-vous pour écrire à la boutique ou à l’entreprise."
+      );
+      return;
+    }
+
+    const sellerUid = product.sellerUid;
+    const companyDocId = product.companyId;
+
+    if (!companyDocId) {
+      console.error("Produit invalide : companyId manquant.", product);
+      return;
+    }
+
+    // 🟢 CORRECTION CLEF : Identifiant unique par client ET par boutique
+    const conversationId = `${companyDocId}_${user.uid}`;
+
+    const mainImage =
+      product.images?.[0] ||
+      product.mainImage ||
+      product.imageUrl ||
+      "";
+
+    const chatPriceValue = isZeroDollarsProduct({
+      price: product.price,
+      basePrice: (product as any).basePrice,
+      companyName: product.companyName,
+      supplier: product.supplier,
+      seller: (product as any).seller,
+      name: product.name,
+    })
+      ? 0
+      : product.price;
+
+    const formattedPrice = `${chatPriceValue?.toLocaleString()} ${product.currency || "FCFA"}`;
+
+    const resolvedSellerName =
+      product.companyName ||
+      product.storeName ||
+      product.shopName ||
+      product.supplier ||
+      product.name ||
+      (product as any).seller?.name ||
+      "Vendeur A2Express";
+
+    const resolvedSellerLogo =
+      product.companyLogo ||
+      product.logo ||
+      product.storeLogo ||
+      (product as any).seller?.logo ||
+      "";
+
+    router.push({
+      pathname: "/conversation/[id]",
+      params: {
+        id: conversationId, // 🟢 Transmet désormais l'ID unique (ex: "usinea2express_client123")
+        sellerId: sellerUid ? String(sellerUid) : companyDocId,
+        companyId: companyDocId,
+        productId: product.id,
+        productContext: "1",
+        productName: localizedTitle,
+        productImage: mainImage,
+        productPrice: formattedPrice,
+        sellerName: resolvedSellerName,
+        companyName: resolvedSellerName,
+        sellerLogo: resolvedSellerLogo,
+        initialMessage: messageText,
+      },
+    });
+  };
+
+  const isValidProductForConversation = Boolean(product?.companyId && product?.sellerUid);
 
   const handleCompanyPress = () => {
     if (company?.id) {
@@ -1680,19 +1789,19 @@ const isValidProductForConversation = Boolean(product?.companyId && product?.sel
         )}
       </ScrollView>
 
-      {/* FOOTER COLLANT */}
-<ActionFooter 
-  product={{
-    ...product,
-    imageUrl: product.images?.[0] || product.mainImage || '',
-    price: effectiveUnitPrice,
-  }}
-  onChat={handleChat}
-  chatDisabled={!isValidProductForConversation}
-  onAddToCart={handleAddToCart}
-  onBuyNow={handleBuyNow}
-  addingToCart={addingToCart}
-/>
+{/* FOOTER COLLANT */}
+      <ActionFooter 
+        product={{
+          ...product,
+          imageUrl: product.images?.[0] || product.mainImage || '',
+          price: effectiveUnitPrice,
+        }}
+        onChat={handleChat}
+        chatDisabled={!isValidProductForConversation}
+        onAddToCart={handleAddToCart}
+        onBuyNow={handleBuyNow}
+        addingToCart={addingToCart}
+      />
 
       {/* MODAL DE DEVIS GROSSISTE */}
       <WholesaleQuoteForm 
@@ -1705,6 +1814,15 @@ const isValidProductForConversation = Boolean(product?.companyId && product?.sel
         supplierName={product.companyName || product.supplier}
         supplierId={product.companyId}
         minOrder={product.minOrder}
+      />
+
+      {/* ➕ MODAL DE DISCUSSION RAPIDE */}
+      <QuickChatModal
+        visible={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        productTitle={localizedTitle || product?.name}
+        vendorName={product?.companyName || product?.supplier || "Gérant de la boutique"}
+        onSendMessage={handleSendMessage}
       />
     </SafeAreaView>
   );

@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   SafeAreaView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
@@ -18,6 +18,40 @@ import type { CheckoutPaymentMethod, PaymentPayload, PaymentResult } from '@/typ
 import { PAYMENT_ENDPOINTS } from '@/config/api';
 
 type IoniconsName = ComponentProps<typeof Ionicons>['name'];
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function parseMoneyParam(value: string | string[] | undefined): number | null {
+  const raw = firstParam(value);
+  if (raw == null) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isLocalPaymentUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      host.startsWith('172.16.') ||
+      host.startsWith('172.17.') ||
+      host.startsWith('172.18.') ||
+      host.startsWith('172.19.') ||
+      host.startsWith('172.2') ||
+      host.endsWith('.local')
+    );
+  } catch {
+    return true;
+  }
+}
 
 const COLORS = {
   primary: '#FF6A00',
@@ -34,44 +68,87 @@ const COLORS = {
   paydunyaBlue: '#0065ff',
 };
 
-
 export default function PaymentScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    shippingFee?: string | string[];
+    shippingMethod?: string | string[];
+    shippingOptionName?: string | string[];
+    shippingDetails?: string | string[];
+    subtotal?: string | string[];
+    total?: string | string[];
+  }>();
   const { user } = useAuth();
   const { formatPrice } = useCurrency();
   const { orderData, setSummary } = useCheckout();
 
-  const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>('fedapay_mobile');
+  // ✅ Méthode sélectionnée changée par défaut vers NGenius
+  const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>('ngenius_card');
   const [isProcessing, setIsProcessing] = useState(false);
   const hasSubmittedRef = useRef(false);
+  const isSubmittingRef = useRef(false); // ✅ Verrou synchrone pour clics multiples
+  const summarySyncRef = useRef<string | null>(null);
+
   const computeItemsSubtotal = (items: Array<{ price: number; quantity: number }>) =>
     items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
+  const hasOrderData = Boolean(orderData);
+  const subtotalParam = parseMoneyParam(params.subtotal);
+  const shippingFeeParam = parseMoneyParam(params.shippingFee);
+  const orderItems = orderData?.items ?? [];
+  const itemsSignature = orderItems
+    .map((item) => `${String(item.id)}:${Number(item.price)}:${Number(item.quantity)}`)
+    .join('|');
+  const summarySubtotal = Number(orderData?.summary?.subtotal) || 0;
+  const summaryShipping = Number(orderData?.summary?.shipping) || 0;
+  const summaryDiscount = Number(orderData?.summary?.discount) || 0;
+  const summaryTotal = Number(orderData?.summary?.total) || 0;
+  const contextShipping =
+    Number(orderData?.shipping?.cost ?? orderData?.summary?.shipping) || 0;
+  const normalizedSubtotal = subtotalParam ?? computeItemsSubtotal(orderItems);
+  const normalizedShipping = shippingFeeParam ?? contextShipping;
+  const normalizedSummary = {
+    subtotal: normalizedSubtotal,
+    shipping: normalizedShipping,
+    discount: 0,
+    total: normalizedSubtotal + normalizedShipping,
+  };
+  const isNgeniusSelected = selectedMethod === 'ngenius_card';
 
   useEffect(() => {
-    if (!orderData) {
+    if (!hasOrderData) {
       router.replace('/cart');
     }
-  }, [orderData, router]);
+  }, [hasOrderData, router]);
 
   useEffect(() => {
-    if (!orderData) return;
-    const subtotal = computeItemsSubtotal(orderData.items);
-    const shipping =
-      Number(orderData.shipping?.cost ?? orderData.summary.shipping) || 0;
-    const normalized = {
-      subtotal,
-      shipping,
-      discount: 0,
-      total: subtotal + shipping,
-    };
-    const gap =
-      Math.abs((Number(orderData.summary.subtotal) || 0) - normalized.subtotal) > 1 ||
-      Math.abs((Number(orderData.summary.total) || 0) - normalized.total) > 1 ||
-      (Number(orderData.summary.discount) || 0) !== 0;
-    if (gap) {
-      setSummary(normalized);
+    if (!hasOrderData) return;
+    const syncKey = `${normalizedSummary.subtotal}|${normalizedSummary.shipping}|${normalizedSummary.total}`;
+    if (summarySyncRef.current === syncKey) {
+      return;
     }
-  }, [orderData, setSummary]);
+    const gap =
+      Math.abs(summarySubtotal - normalizedSummary.subtotal) > 1 ||
+      Math.abs(summaryShipping - normalizedSummary.shipping) > 1 ||
+      Math.abs(summaryTotal - normalizedSummary.total) > 1 ||
+      summaryDiscount !== 0;
+    if (!gap) {
+      summarySyncRef.current = syncKey;
+      return;
+    }
+    summarySyncRef.current = syncKey;
+    setSummary(normalizedSummary);
+  }, [
+    hasOrderData,
+    itemsSignature,
+    normalizedSummary.subtotal,
+    normalizedSummary.shipping,
+    normalizedSummary.total,
+    setSummary,
+    summaryDiscount,
+    summaryShipping,
+    summarySubtotal,
+    summaryTotal,
+  ]);
 
   if (!orderData) {
     return (
@@ -83,24 +160,17 @@ export default function PaymentScreen() {
     );
   }
 
-  const normalizedSubtotal = computeItemsSubtotal(orderData.items);
-  const normalizedShipping =
-    Number(orderData.shipping?.cost ?? orderData.summary.shipping) || 0;
-  const normalizedSummary = {
-    subtotal: normalizedSubtotal,
-    shipping: normalizedShipping,
-    discount: 0,
-    total: normalizedSubtotal + normalizedShipping,
-  };
-
   const handlePayment = async () => {
-    if (isProcessing) return;
+    // ✅ Bloque instantanément si une soumission est déjà en cours
+    if (isSubmittingRef.current || isProcessing || hasSubmittedRef.current) return;
+    
     if (!user) {
       Alert.alert('Connexion requise', 'Veuillez vous reconnecter avant de payer.');
       router.replace('/(tabs)/account');
       return;
     }
-    if (hasSubmittedRef.current) return;
+
+    isSubmittingRef.current = true;
     hasSubmittedRef.current = true;
 
     const finalAmount = Math.round(Number(normalizedSummary.total));
@@ -130,9 +200,22 @@ export default function PaymentScreen() {
     try {
       setIsProcessing(true);
 
-      let endpoint: string = PAYMENT_ENDPOINTS.ngenius;
-      if (selectedMethod.startsWith('fedapay')) endpoint = PAYMENT_ENDPOINTS.fedapay;
-      else if (selectedMethod === 'paydunya') endpoint = PAYMENT_ENDPOINTS.paydunya;
+      let endpoint: string;
+      if (isNgeniusSelected) {
+        endpoint = PAYMENT_ENDPOINTS.ngenius;
+      } else if (selectedMethod.startsWith('fedapay')) {
+        endpoint = PAYMENT_ENDPOINTS.fedapay;
+      } else if (selectedMethod === 'paydunya') {
+        endpoint = PAYMENT_ENDPOINTS.paydunya;
+      } else {
+        endpoint = PAYMENT_ENDPOINTS.ngenius;
+      }
+
+      if (isNgeniusSelected && isLocalPaymentUrl(endpoint)) {
+        throw new Error(
+          "Le backend de paiement n'est pas configure sur une URL Render de production accessible depuis le mobile.",
+        );
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -161,11 +244,15 @@ export default function PaymentScreen() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erreur réseau';
-      console.error('[Payment] Erreur:', message);
-      Alert.alert('Paiement indisponible', message);
+      console.error(isNgeniusSelected ? '[Payment][NGenius] Erreur:' : '[Payment] Erreur:', message);
+      Alert.alert(isNgeniusSelected ? 'Erreur de paiement' : 'Paiement indisponible', message);
       hasSubmittedRef.current = false;
     } finally {
       setIsProcessing(false);
+      // Débloque le verrou synchrone après traitement
+      setTimeout(() => {
+        isSubmittingRef.current = false;
+      }, 1000);
     }
   };
 
@@ -176,6 +263,7 @@ export default function PaymentScreen() {
         selectedMethod === id && { borderColor: color, backgroundColor: color + '08' } 
       ]} 
       onPress={() => setSelectedMethod(id)}
+      disabled={isProcessing}
     >
       <View style={[styles.methodIcon, { backgroundColor: color + '15' }]}>
          <Ionicons name={icon} size={26} color={color} />
@@ -198,10 +286,13 @@ export default function PaymentScreen() {
         <Text style={styles.headerSubtitle}>Sélectionnez votre méthode préférée</Text>
 
         <View style={styles.methodsList}>
-          {renderMethodCard('paydunya', 'PayDunya', 'Orange Money, Wave, Surtout au Sénégal/CI', 'wallet-outline', COLORS.paydunyaBlue)}
-          {renderMethodCard('fedapay_mobile', 'Mobile Money (FedaPay)', 'Orange, MTN, Moov, Wave', 'phone-portrait-outline', COLORS.fedapayPurple)}
-          {renderMethodCard('ngenius_card', 'Carte Internationale (Orabank)', 'Visa, MasterCard via NGenius', 'globe-outline', COLORS.primary)}
-          {renderMethodCard('fedapay_card', 'Carte Bancaire (FedaPay)', 'Option de secours Visa/MasterCard', 'card-outline', COLORS.fedapayPurple)}
+          {renderMethodCard(
+            'ngenius_card', 
+            'Carte Visa, Mastercard, Orange Visa/Mastercard', 
+            'Paiement par carte bancaire sécurisé', 
+            'card-outline', 
+            COLORS.primary
+          )}
         </View>
 
         <View style={styles.summaryCard}>
@@ -227,9 +318,15 @@ export default function PaymentScreen() {
           style={[styles.payButton, isProcessing && styles.payButtonDisabled]} 
           onPress={handlePayment}
           disabled={isProcessing}
+          activeOpacity={0.8}
         >
           {isProcessing ? (
-            <ActivityIndicator color={COLORS.white} />
+            <>
+              <ActivityIndicator color={COLORS.white} />
+              <Text style={styles.payButtonText}>
+                Connexion sécurisée...
+              </Text>
+            </>
           ) : (
             <>
               <Text style={styles.payButtonText}>Procéder au paiement</Text>
@@ -241,7 +338,7 @@ export default function PaymentScreen() {
         <View style={styles.securityNote}>
           <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.textLight} />
           <Text style={styles.securityNoteText}>
-            Paiement sécurisé via PayDunya, FedaPay & NGenius.
+            Paiement sécurisé via Carte Visa, Mastercard, Orange Visa/Mastercard.
           </Text>
         </View>
 
@@ -281,7 +378,7 @@ const styles = StyleSheet.create({
     alignItems: 'center' 
   },
   methodInfo: { flex: 1, marginLeft: 15 },
-  methodName: { fontSize: 16, fontWeight: '700', color: COLORS.text },
+  methodName: { fontSize: 15, fontWeight: '700', color: COLORS.text },
   methodDescription: { fontSize: 12, color: COLORS.textLight, marginTop: 2 },
   radio: { 
     width: 24, 

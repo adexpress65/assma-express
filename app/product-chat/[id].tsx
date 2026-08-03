@@ -81,14 +81,27 @@ export default function ProductChatScreen() {
     };
 
     if (isProductCard) {
-      messageData.productInfo = {
+      const productInfo: any = {
         id: params.productId,
         name: params.productName,
         price: params.productPrice,
         image: params.productImage,
         hasFreeShipping: hasFreeShipping,
       };
-      setShowInquiry(false); // Cache la petite carte après envoi
+
+      Object.keys(productInfo).forEach((key) => {
+        if (productInfo[key] === undefined) {
+          delete productInfo[key];
+        }
+      });
+
+      if (productInfo.id) {
+        messageData.productInfo = productInfo;
+        setShowInquiry(false); // Cache la petite carte après envoi
+      } else {
+        messageData.type = 'text';
+        messageData.text = messageToSend || 'Demande produit';
+      }
     }
 
     setInputText(''); 
@@ -97,7 +110,7 @@ export default function ProductChatScreen() {
       await addDoc(collection(db, 'conversations', chatID, 'messages'), messageData);
       const convRef = doc(db, 'conversations', chatID);
       await setDoc(convRef, {
-        lastMessage: isProductCard ? "📦 Produit partagé" : messageToSend,
+        lastMessage: isProductCard && messageData.productInfo ? "📦 Produit partagé" : messageToSend,
         updatedAt: serverTimestamp(),
         participants: [user.uid, currentSellerId],
         sellerName: sellerData.name,
@@ -144,7 +157,11 @@ export default function ProductChatScreen() {
               return (
                 <View style={[styles.msgRow, isMine ? styles.myRow : styles.theirRow]}>
                   <View style={styles.productBubble}>
-                    <TouchableOpacity onPress={() => router.push(`/product/${item.productInfo.id}`)} style={styles.bubbleCard}>
+                    <TouchableOpacity
+                      onPress={() => item.productInfo?.id && router.push(`/product/${item.productInfo.id}`)}
+                      style={styles.bubbleCard}
+                      disabled={!item.productInfo?.id}
+                    >
                       <Image source={{ uri: item.productInfo.image }} style={styles.bubbleImg} />
                       <View style={{ flex: 1, marginLeft: 10 }}>
                         <Text style={styles.bubbleName} numberOfLines={2}>{item.productInfo.name}</Text>

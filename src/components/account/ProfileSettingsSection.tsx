@@ -141,38 +141,53 @@ export function ProfileSettingsSection({ variant = 'card' }: { variant?: 'card' 
     }
   };
 
-  const handleSave = async () => {
+const handleSave = async () => {
   setSaving(true);
   try {
-    let photoURL = user.photoURL;
+    // 🟢 1. Récupération sûre de l'ancienne photo
+    let photoURL = userProfile?.photoURL || user?.photoURL || "";
+
+    // 🟢 2. Upload si une nouvelle image a été sélectionnée
     if (pendingImageUri) {
       const res = await fetch(pendingImageUri);
       const blob = await res.blob();
       const storageRef = ref(storage, `profilePictures/${user.uid}/${Date.now()}.jpg`);
       await uploadBytes(storageRef, blob);
       photoURL = await getDownloadURL(storageRef);
-      if (auth.currentUser) await updateProfile(auth.currentUser, { photoURL });
+
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { photoURL });
+      }
     }
 
-    // 🔥 FIX CONTEXTE : On inclut explicitement le rôle actuel pour empêcher Firebase de repasser sur customer
-    const updates: any = {
-      displayName: form.displayName.trim() || userProfile.displayName,
-      phoneNumber: form.phoneNumber.trim(),
-      address: form.address.trim(),
-      role: userRole, // 👈 AJOUTE CETTE LIGNE (Garde super-admin, seller, etc. intact)
+    // 🟢 3. Construction propre des mises à jour utilisateur
+    const phoneInput = form.phoneNumber ? form.phoneNumber.trim() : "";
+    const addressInput = form.address ? form.address.trim() : "";
+
+    const updates: Record<string, any> = {
+      displayName: form.displayName.trim() || userProfile?.displayName || "",
+      // Si le champ est rempli on le met à jour, sinon on conserve l'ancien numéro ou ""
+      phoneNumber: phoneInput !== "" ? phoneInput : (userProfile?.phoneNumber || ""),
+      address: addressInput !== "" ? addressInput : (userProfile?.address || ""),
+      role: userRole,
+      updatedAt: serverTimestamp(),
     };
+
+    if (photoURL) {
+      updates.photoURL = photoURL;
+    }
 
     if (isSeller) {
       updates.sellerInfo = {
-        ...userProfile.sellerInfo,
+        ...userProfile?.sellerInfo,
         shopName: form.shopName.trim(),
         description: form.shopDescription.trim(),
-        phone: form.shopPhone.trim(),
-        address: form.shopAddress.trim(),
+        phone: form.shopPhone?.trim() || phoneInput,
+        address: form.shopAddress?.trim() || addressInput,
       };
     }
 
-    // Met à jour Firestore et l'état local
+    // 🟢 4. Sauvegarde dans Firestore & mise à jour du contexte
     await updateUserProfile(updates);
 
     if (isSeller && form.shopName.trim()) {
@@ -184,9 +199,9 @@ export function ProfileSettingsSection({ variant = 'card' }: { variant?: 'card' 
       }).catch(() => {});
     }
 
-    // Force la relecture immédiate de la base de données pour figer le rôle
     await refreshUserProfile();
-    
+
+    setPendingImageUri(null);
     setEditing(false);
     Alert.alert('Profil mis à jour', 'Vos modifications ont été enregistrées.');
   } catch (e: any) {

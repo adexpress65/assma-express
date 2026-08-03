@@ -21,6 +21,8 @@ import {
   Linking,
 } from "react-native";
 import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
@@ -41,10 +43,11 @@ import {
   where,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { getDownloadURL, ref } from "firebase/storage";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { db, storage } from "../../src/config/firebase";
 import { PAYMENT_ENDPOINTS } from "../../src/config/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ConversationProfileModal from "../../src/components/ConversationProfileModal";
 import { pickCompanyNameFromFirestoreData } from "../../src/utils/companyDisplayName";
 
 function isHttpUrl(s: unknown): s is string {
@@ -115,6 +118,9 @@ type UiMessage = {
   senderName?: string;
   timestamp: Date;
   type?: string;
+  imageUrl?: string;
+  image?: string;
+  metadata?: Record<string, unknown>;
   product?: {
     id: string;
     name: string;
@@ -151,63 +157,77 @@ function parsePriceAmount(rawPrice: string | null | undefined): number {
 }
 
 function mapDocToUiMessage(d: QueryDocumentSnapshot): UiMessage {
-  const x = d.data();
+  const x = d.data() as Record<string, unknown>;
   const rawProduct = x.product as Record<string, unknown> | undefined;
   const rawPayment = x.payment as Record<string, unknown> | undefined;
+  const rawTimestamp = x.timestamp as { toDate?: () => Date } | undefined;
+
+  const product = rawProduct
+    ? {
+        id: String(rawProduct.id || ""),
+        name: String(rawProduct.name || "Produit"),
+        price: Number(rawProduct.price || 0),
+        currency: String(rawProduct.currency || "XOF"),
+        image: String(rawProduct.image || ""),
+        specifications:
+          rawProduct.specifications && typeof rawProduct.specifications === "object"
+            ? {
+                weight:
+                  (rawProduct.specifications as Record<string, unknown>).weight != null
+                    ? String(
+                        (rawProduct.specifications as Record<string, unknown>).weight,
+                      )
+                    : undefined,
+                dimensions:
+                  (rawProduct.specifications as Record<string, unknown>).dimensions != null
+                    ? String(
+                        (rawProduct.specifications as Record<string, unknown>).dimensions,
+                      )
+                    : undefined,
+                volume:
+                  (rawProduct.specifications as Record<string, unknown>).volume != null
+                    ? String(
+                        (rawProduct.specifications as Record<string, unknown>).volume,
+                      )
+                    : undefined,
+              }
+            : undefined,
+      }
+    : undefined;
+
+  const payment = rawPayment
+    ? {
+        url: String(rawPayment.url || ""),
+        provider: "ngenius" as const,
+        status: (() => {
+          const rawStatus = rawPayment.status;
+          const paymentStatus: "pending" | "paid" | "failed" =
+            rawStatus === "paid" || rawStatus === "failed"
+              ? (rawStatus as "paid" | "failed")
+              : "pending";
+          return paymentStatus;
+        })(),
+      }
+    : undefined;
+
   return {
     id: d.id,
     text: String(x.text || ""),
     senderId: String(x.senderId || ""),
     senderName: x.senderName ? String(x.senderName) : undefined,
     timestamp:
-      x.timestamp && typeof x.timestamp.toDate === "function"
-        ? x.timestamp.toDate()
+      rawTimestamp?.toDate && typeof rawTimestamp.toDate === "function"
+        ? rawTimestamp.toDate()
         : new Date(),
     type: x.type ? String(x.type) : "text",
-    product: rawProduct
-      ? {
-          id: String(rawProduct.id || ""),
-          name: String(rawProduct.name || "Produit"),
-          price: Number(rawProduct.price || 0),
-          currency: String(rawProduct.currency || "XOF"),
-          image: String(rawProduct.image || ""),
-          specifications:
-            rawProduct.specifications &&
-            typeof rawProduct.specifications === "object"
-              ? {
-                  weight:
-                    (rawProduct.specifications as Record<string, unknown>).weight != null
-                      ? String(
-                          (rawProduct.specifications as Record<string, unknown>).weight,
-                        )
-                      : undefined,
-                  dimensions:
-                    (rawProduct.specifications as Record<string, unknown>).dimensions != null
-                      ? String(
-                          (rawProduct.specifications as Record<string, unknown>)
-                            .dimensions,
-                        )
-                      : undefined,
-                  volume:
-                    (rawProduct.specifications as Record<string, unknown>).volume != null
-                      ? String(
-                          (rawProduct.specifications as Record<string, unknown>).volume,
-                        )
-                      : undefined,
-                }
-              : undefined,
-        }
-      : undefined,
-    payment: rawPayment
-      ? {
-          url: String(rawPayment.url || ""),
-          provider: "ngenius",
-          status:
-            rawPayment.status === "paid" || rawPayment.status === "failed"
-              ? rawPayment.status
-              : "pending",
-        }
-      : undefined,
+    image: x.image ? String(x.image) : x.imageUrl ? String(x.imageUrl) : undefined,
+    imageUrl: x.imageUrl ? String(x.imageUrl) : x.image ? String(x.image) : undefined,
+    metadata:
+      x.metadata && typeof x.metadata === "object"
+        ? (x.metadata as Record<string, unknown>)
+        : undefined,
+    product,
+    payment,
   };
 }
 
@@ -239,6 +259,21 @@ const ChatBubbleRow = memo(function ChatBubbleRow({
     }
   }, []);
 
+  const imageUri =
+    item.imageUrl ||
+    item.image ||
+    item.metadata?.imageUrl ||
+    item.metadata?.image ||
+    item.metadata?.photoUrl ||
+    undefined;
+  const resolvedImageUri = imageUri
+    ? sanitizeImageUri(imageUri) || (isHttpUrl(imageUri) ? imageUri : null)
+    : null;
+  const isImageMessage =
+    item.type === "image" ||
+    item.type === "order_photo" ||
+    Boolean(resolvedImageUri && (item.type === "file" || item.type === "media" || item.type === "text"));
+
   const timeStr = item.timestamp.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
@@ -253,21 +288,34 @@ const ChatBubbleRow = memo(function ChatBubbleRow({
           isMine ? styles.bubbleMine : styles.bubbleTheirs,
         ]}
       >
-        <Text style={styles.msgText}>
-          {textSegments.map((segment, idx) =>
-            segment.isUrl ? (
-              <Text
-                key={`${item.id}-url-${idx}`}
-                style={styles.msgLink}
-                onPress={() => void handleOpenUrl(segment.value)}
-              >
-                {segment.value}
-              </Text>
-            ) : (
-              <Text key={`${item.id}-txt-${idx}`}>{segment.value}</Text>
-            ),
-          )}
-        </Text>
+        {isImageMessage && resolvedImageUri ? (
+          <View style={styles.imageBubbleContainer}>
+            {item.text ? (
+              <Text style={styles.msgText}>{item.text}</Text>
+            ) : null}
+            <Image
+              source={{ uri: resolvedImageUri }}
+              style={styles.messageImage}
+              contentFit="cover"
+            />
+          </View>
+        ) : (
+          <Text style={styles.msgText}>
+            {textSegments.map((segment, idx) =>
+              segment.isUrl ? (
+                <Text
+                  key={`${item.id}-url-${idx}`}
+                  style={styles.msgLink}
+                  onPress={() => void handleOpenUrl(segment.value)}
+                >
+                  {segment.value}
+                </Text>
+              ) : (
+                <Text key={`${item.id}-txt-${idx}`}>{segment.value}</Text>
+              ),
+            )}
+          </Text>
+        )}
         <Text style={styles.msgTime}>{timeStr}</Text>
       </View>
     </View>
@@ -277,7 +325,6 @@ const ChatBubbleRow = memo(function ChatBubbleRow({
 export default function ConversationScreen() {
   const params = useLocalSearchParams<{
     id?: string;
-    /** Document Firestore `companies/{id}` (fiche produit / boutique). */
     companyId?: string;
     sellerId?: string;
     productId?: string;
@@ -287,12 +334,16 @@ export default function ConversationScreen() {
     imageUrl?: string;
     mainImage?: string;
     productContext?: string;
+    message?: string;
+    price?: string;
     sellerName?: string;
     sellerLogo?: string;
   }>();
+
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
   const {
     sendMessage,
     markAsRead,
@@ -301,6 +352,7 @@ export default function ConversationScreen() {
     clearAllMessagesInConversation,
     deleteConversation,
   } = useMessages();
+
   const rawRouteConversationId = String(params.id || "").trim();
   const flatListRef = useRef<FlatList>(null);
   const bootstrapInFlight = useRef(false);
@@ -332,18 +384,18 @@ export default function ConversationScreen() {
     ],
   );
 
-  const [convData, setConvData] = useState<Record<string, unknown> | null>(
-    null,
-  );
+  const [convData, setConvData] = useState<Record<string, unknown> | null>(null);
   const [convMissing, setConvMissing] = useState(false);
   const [liveMessages, setLiveMessages] = useState<UiMessage[]>([]);
   const [olderMessages, setOlderMessages] = useState<UiMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
+
   const liveAnchorRef = useRef<QueryDocumentSnapshot | null>(null);
   const olderTailRef = useRef<QueryDocumentSnapshot | null>(null);
   const markReadInFlightRef = useRef(false);
+
   const [inputText, setInputText] = useState("");
   const [sending, setSending] = useState(false);
   const [shop, setShop] = useState<HeaderShop>({ name: "", logo: null });
@@ -351,6 +403,78 @@ export default function ConversationScreen() {
     name: "",
     photo: null,
   });
+  
+  // 🟢 NOUVEAU : infos enrichies de la boutique (logo, téléphone, email, adresse)
+const [companyExtra, setCompanyExtra] = useState<{
+  logo?: string | null;
+  phone?: string;
+  email?: string;
+  address?: string;
+}>({});
+
+const [clientExtra, setClientExtra] = useState<{ name?: string; photoURL?: string }>({});
+
+useEffect(() => {
+  const isClient =
+    Boolean(user?.uid) &&
+    user?.uid !== convData?.companyId &&
+    user?.uid !== convData?.sellerUid;
+
+  const clientUid = (convData as any)?.clientUid || (convData as any)?.createdBy;
+
+  if (isClient || !clientUid) {
+    setClientExtra({});
+    return;
+  }
+
+  let cancelled = false;
+  getDoc(doc(db, "users", clientUid))
+    .then((snap) => {
+      if (cancelled || !snap.exists()) return;
+      const data = snap.data();
+      setClientExtra({
+        name: data?.displayName,
+        photoURL: data?.photoURL,
+      });
+    })
+    .catch(() => {});
+
+  return () => {
+    cancelled = true;
+  };
+}, [convData?.companyId, convData?.sellerUid, convData, user?.uid]);
+
+// 🟢 NOUVEAU : charger le profil à jour du client (nom + photo)
+useEffect(() => {
+  const isClient =
+    Boolean(user?.uid) &&
+    user?.uid !== convData?.companyId &&
+    user?.uid !== convData?.sellerUid;
+
+  const clientUid = (convData as any)?.clientUid || (convData as any)?.createdBy;
+
+  if (isClient || !clientUid) {
+    setClientExtra({});
+    return;
+  }
+
+  let cancelled = false;
+  getDoc(doc(db, "users", clientUid))
+    .then((snap) => {
+      if (cancelled || !snap.exists()) return;
+      const data = snap.data();
+      setClientExtra({
+        name: data?.displayName,
+        photoURL: data?.photoURL,
+      });
+    })
+    .catch(() => {});
+
+  return () => {
+    cancelled = true;
+  };
+}, [convData?.companyId, convData?.sellerUid, convData, user?.uid]);
+
   const [creatingPaymentLink, setCreatingPaymentLink] = useState(false);
   const [composerProductPreview, setComposerProductPreview] = useState<{
     id: string;
@@ -364,11 +488,17 @@ export default function ConversationScreen() {
       volume?: string;
     };
   } | null>(null);
+
   const [previewDismissed, setPreviewDismissed] = useState(false);
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
 
   const normalizedCompanyId = useMemo(
     () => normalizeRouteParam(params.companyId),
     [params.companyId],
+  );
+  const normalizedSellerId = useMemo(
+    () => normalizeRouteParam(params.sellerId),
+    [params.sellerId],
   );
   const normalizedProductId = useMemo(
     () => normalizeRouteParam(params.productId),
@@ -393,30 +523,114 @@ export default function ConversationScreen() {
       sanitizeImageUri(params.mainImage),
     [params.productImage, params.imageUrl, params.mainImage],
   );
+  const normalizedPrefillMessage = useMemo(
+    () => normalizeRouteParam(params.message),
+    [params.message],
+  );
+
+  useEffect(() => {
+    if (!normalizedPrefillMessage) return;
+    setInputText((previous) =>
+      previous && previous.trim().length > 0 ? previous : normalizedPrefillMessage,
+    );
+  }, [normalizedPrefillMessage]);
+
+  const normalizedPrefillPrice = useMemo(() => {
+    const p = normalizeRouteParam(params.price);
+    if (!p) return 0;
+    const digits = p.replace(/[^0-9.,]/g, "").replace(/\s+/g, "").replace(",", ".");
+    const n = Number(digits);
+    return Number.isFinite(n) ? n : 0;
+  }, [params.price]);
+
   const hasProductActions = useMemo(
     () => Boolean(normalizedProductId) && hasStrictProductContext,
     [normalizedProductId, hasStrictProductContext],
   );
-  const deterministicConversationId = useMemo(() => {
-    if (!user?.uid || !normalizedCompanyId || !hasStrictProductContext) return null;
-    return `${normalizedCompanyId}_${user.uid}`;
-  }, [user?.uid, normalizedCompanyId, hasStrictProductContext]);
 
-  const conversationId = deterministicConversationId || rawRouteConversationId;
+  // 1. Calcul prioritaire et robuste de l'ID de conversation
+  const conversationId = useMemo(() => {
+    if (rawRouteConversationId && rawRouteConversationId !== "undefined") {
+      return rawRouteConversationId;
+    }
+    if (user?.uid && normalizedCompanyId) {
+      return `${normalizedCompanyId}_${user.uid}`;
+    }
+    return "";
+  }, [rawRouteConversationId, user?.uid, normalizedCompanyId]);
 
   const otherUid = useMemo(() => {
     if (!user?.uid || !convData?.participants) return null;
     const parts = convData.participants as string[];
-    return parts.find((p) => p !== user.uid) ?? null;
+    return parts.find((p) => p !== user.uid && p !== convData.companyId) ?? null;
   }, [convData, user?.uid]);
 
+const conversationProfile = useMemo(() => {
+  const isClient =
+    Boolean(user?.uid) &&
+    user?.uid !== convData?.companyId &&
+    user?.uid !== convData?.sellerUid;
+  let name: string;
+  let role: string;
+  let avatarUrl: string | null;
+  if (isClient) {
+    name =
+      (shop.name && shop.name !== "Super admin" ? shop.name : null) ||
+      (typeof convData?.companyName === "string" && convData.companyName !== "Super admin"
+        ? convData.companyName
+        : null) ||
+      String(params.sellerName || "") ||
+      "Boutique";
+    role = "Boutique";
+    // 🟢 Priorité au logo enrichi via Firestore, sinon shop.logo en repli
+    avatarUrl = companyExtra.logo || shop.logo || null;
+  } else {
+    name =
+      clientExtra.name ||  // 👈 AJOUTÉ : nom à jour depuis users/{uid}
+      (interlocutor.name && interlocutor.name !== "Super admin" ? interlocutor.name : null) ||
+      (typeof convData?.clientName === "string" ? convData.clientName : null) ||
+      (typeof convData?.userName === "string" ? convData.userName : null) ||
+      (typeof convData?.customerName === "string" ? convData.customerName : null) ||
+      (typeof convData?.senderName === "string" ? convData.senderName : null) ||
+      "Client";
+    role = "Client acheteur";
+    avatarUrl = clientExtra.photoURL || interlocutor.photo || null;  // 👈 MODIFIÉ : photo à jour en priorité
+  }
+
+const details: { label: string; value: string }[] = [];
+  return {
+    id: otherUid || String(convData?.companyId || conversationId || ""),
+    name,
+    role,
+    avatarUrl,
+    logo: undefined, // le modal utilise avatarUrl || logo || coverImage ; avatarUrl suffit ici
+    phone: isClient ? companyExtra.phone : undefined,
+    address: isClient ? companyExtra.address : undefined,
+    subtitle: undefined,
+    details,
+  };
+}, [
+  convData,
+  interlocutor.name,
+  interlocutor.photo,
+  shop.logo,
+  shop.name,
+  otherUid,
+  conversationId,
+  user?.uid,
+  params.sellerName,
+  companyExtra,
+  clientExtra, // 👈 AJOUTÉ
+]);
+  const openProfileModal = useCallback(() => setProfileModalVisible(true), []);
+  const closeProfileModal = useCallback(() => setProfileModalVisible(false), []);
   const interlocutorOnline = useMemo(() => {
     if (!otherUid) return false;
-    return onlineUsers.some(
-      (u) => u.uid === otherUid && u.status === "online",
+    const safeOnlineUsers = Array.isArray(onlineUsers) ? onlineUsers : [];
+    return safeOnlineUsers.some(
+      (u) => u?.uid === otherUid && u?.status === "online"
     );
   }, [onlineUsers, otherUid]);
-
   const unreadForMe = useMemo(() => {
     if (!user?.uid || !convData) return 0;
     const unreadMap = convData.unreadCount as Record<string, unknown> | undefined;
@@ -424,7 +638,6 @@ export default function ConversationScreen() {
     const n = Number(raw ?? 0);
     return Number.isFinite(n) ? n : 0;
   }, [convData, user?.uid]);
-
   useEffect(() => {
     if (!conversationId || !user?.uid || !convData) return;
     if (unreadForMe <= 0) return;
@@ -436,18 +649,96 @@ export default function ConversationScreen() {
         markReadInFlightRef.current = false;
       });
   }, [conversationId, user?.uid, convData, unreadForMe, markAsRead]);
-
   useEffect(() => {
     bootstrapInFlight.current = false;
   }, [conversationId]);
-
+ // 1. Réinitialiser les états lors du changement de conversation
   useEffect(() => {
+    setLiveMessages([]);
     setOlderMessages([]);
     setHasMoreOlder(true);
     olderTailRef.current = null;
     liveAnchorRef.current = null;
-  }, [conversationId]);
+  }, [conversationId, user?.uid]);
+  
+  // 🟢 NOUVEAU : charger les infos enrichies de la boutique (logo, téléphone, email, adresse)
+useEffect(() => {
+  const isClient =
+    Boolean(user?.uid) &&
+    user?.uid !== convData?.companyId &&
+    user?.uid !== convData?.sellerUid;
 
+  const companyId =
+    typeof convData?.companyId === "string" ? convData.companyId : normalizedCompanyId;
+
+  if (!isClient || !companyId) {
+    setCompanyExtra({});
+    return;
+  }
+
+  let cancelled = false;
+  getDoc(doc(db, "companies", companyId))
+    .then((snap) => {
+      if (cancelled || !snap.exists()) return;
+      const data = snap.data() as Record<string, any>;
+      const addr = data?.address;
+      const address = addr
+        ? [addr.street, addr.city, addr.country].filter((p: string) => p && p.trim()).join(", ")
+        : data?.location || undefined;
+
+      setCompanyExtra({
+        logo: data?.logo || data?.companyLogo || null,
+        phone: data?.phone && data.phone.trim() ? data.phone.trim() : undefined,
+        email: data?.email && data.email.trim() ? data.email.trim() : undefined,
+        address,
+      });
+    })
+    .catch(() => {});
+
+  return () => {
+    cancelled = true;
+  };
+}, [convData?.companyId, convData?.sellerUid, normalizedCompanyId, user?.uid]);
+
+  // 2. 🟢 AJOUT : Écouteur Firestore qui remplit liveMessages et désactive le spinner
+  useEffect(() => {
+    if (!conversationId || !user) {
+      setMessagesLoading(false);
+      return;
+    }
+
+    setMessagesLoading(true);
+
+    const msgsCol = collection(db, "conversations", conversationId, "messages");
+    const q = query(
+      msgsCol,
+      orderBy("timestamp", "desc"),
+      limit(LIVE_MESSAGE_WINDOW)
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const msgs = snapshot.docs.map(mapDocToUiMessage);
+        
+        // Stocke le dernier doc pour que loadOlderMessages sache d'où repartir
+        if (snapshot.docs.length > 0) {
+          liveAnchorRef.current = snapshot.docs[snapshot.docs.length - 1];
+        }
+
+        setLiveMessages(msgs);
+        setMessagesLoading(false); // 👈 Passe à false : masque le loader orange !
+      },
+      (error) => {
+        console.warn("Erreur snapshot messages:", error);
+        setMessagesLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [conversationId, user]);
+
+  // 3. Fusion des messages (inchangé)
   const displayMessages = useMemo(() => {
     const seen = new Set<string>();
     const out: UiMessage[] = [];
@@ -459,6 +750,7 @@ export default function ConversationScreen() {
     return out;
   }, [liveMessages, olderMessages]);
 
+  // 4. Chargement de l'historique (inchangé)
   const loadOlderMessages = useCallback(async () => {
     if (!conversationId || loadingOlder || !hasMoreOlder) return;
     const anchor = olderTailRef.current ?? liveAnchorRef.current;
@@ -499,281 +791,257 @@ export default function ConversationScreen() {
     }
   }, [conversationId, loadingOlder, hasMoreOlder]);
 
-  /**
-   * L’ID dans l’URL peut être : doc Firestore `conversations`, UID vendeur (fiche produit),
-   * ou ID document `companies` (fiche boutique). On résout / crée la bonne conversation.
-   */
-  useEffect(() => {
-    if (!user?.uid || !conversationId) return;
-    let cancelled = false;
+// Bootstrap & Mise à jour instantanée et non-bloquante dans Firestore
+useEffect(() => {
+  if (!user?.uid || !conversationId) return;
+  let cancelled = false;
 
-    const run = async () => {
-      // Flux marketplace strict: 1 conversation = 1 user + 1 boutique.
-      if (hasStrictProductContext) {
-        if (!normalizedCompanyId) {
-          throw new Error("companyId is required for marketplace conversations");
-        }
+  const run = async () => {
+    if (hasStrictProductContext || normalizedCompanyId) {
+      if (!normalizedCompanyId) return;
+
+      if (bootstrapInFlight.current) return;
+      bootstrapInFlight.current = true;
+
+      try {
         const convRef = doc(db, "conversations", conversationId);
-        const convSnap = await getDoc(convRef);
-        if (cancelled || convSnap.exists()) return;
 
-        if (bootstrapInFlight.current) return;
-        bootstrapInFlight.current = true;
-        try {
-          const companySnap = await getDoc(doc(db, "companies", normalizedCompanyId));
-          if (cancelled) return;
+        // 1. Détermination du nom et avatar client
+        const currentUserName =
+          user.displayName ||
+          (user as any).name ||
+          (user as any).fullName ||
+          (user.email ? user.email.split("@")[0] : null) ||
+          "Client";
 
-          const companyData = companySnap.exists()
-            ? (companySnap.data() as Record<string, unknown>)
-            : null;
-          const sellerUidFromParam = normalizeRouteParam(params.sellerId);
-          const sellerUidFromCompany =
-            companyData && typeof companyData.uid === "string" ? companyData.uid : null;
-          const sellerUid = sellerUidFromParam || sellerUidFromCompany;
-          const participants = [user.uid, sellerUid]
-            .filter((p): p is string => Boolean(p && p.trim()))
-            .filter((p, idx, arr) => arr.indexOf(p) === idx);
+        const currentUserAvatar = user.photoURL || (user as any).avatar || "";
+        const sellerUid = normalizedSellerId || normalizedCompanyId;
+        const initialParticipants = Array.from(
+          new Set([user.uid, sellerUid, normalizedCompanyId].filter(Boolean))
+        );
 
-          await setDoc(
-            convRef,
-            {
-              id: conversationId,
-              companyId: normalizedCompanyId,
-              companyName:
-                (companyData && typeof companyData.name === "string"
-                  ? companyData.name
-                  : normalizeRouteParam(params.sellerName)) || "Boutique",
-              companyLogo:
-                companyData && typeof companyData.logo === "string"
-                  ? companyData.logo
-                  : null,
-              title:
-                (companyData && typeof companyData.name === "string"
-                  ? companyData.name
-                  : normalizeRouteParam(params.sellerName)) || "Boutique",
-              type: "seller",
-              participants,
-              participantNames: {
-                [user.uid]: user.displayName || "Vous",
-              },
-              participantAvatars: {
-                [user.uid]: user.photoURL || "",
-              },
-              unreadCount: {
-                [user.uid]: 0,
-              },
-              mute: { [user.uid]: false },
-              pinned: { [user.uid]: false },
-              archived: { [user.uid]: false },
-              lastMessage: "",
-              createdBy: user.uid,
-              admins: [user.uid],
-              messageCount: 0,
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
+        const fallbackCompanyName = normalizeRouteParam(params.sellerName) || "Boutique";
+        const fallbackCompanyLogo = normalizeRouteParam(params.sellerLogo) || null;
+
+        // 2. ÉCRITURE INSTANTANÉE (Non-bloquante pour affichage immédiat)
+        await setDoc(
+          convRef,
+          {
+            id: conversationId,
+            companyId: normalizedCompanyId,
+            companyName: fallbackCompanyName,
+            companyLogo: fallbackCompanyLogo,
+            title: fallbackCompanyName,
+            type: "seller",
+            participants: initialParticipants,
+            participantNames: {
+              [user.uid]: currentUserName,
+              [normalizedCompanyId]: fallbackCompanyName,
+              ...(sellerUid ? { [sellerUid]: fallbackCompanyName } : {}),
             },
-            { merge: true },
-          );
-        } catch (e) {
-          console.warn("conversation bootstrap strict", e);
-        } finally {
-          bootstrapInFlight.current = false;
+            participantAvatars: {
+              [user.uid]: currentUserAvatar,
+              [normalizedCompanyId]: fallbackCompanyLogo || "",
+              ...(sellerUid && fallbackCompanyLogo ? { [sellerUid]: fallbackCompanyLogo } : {}),
+            },
+            clientUid: user.uid,
+            clientName: currentUserName,
+            clientAvatar: currentUserAvatar,
+            userName: currentUserName,
+            userAvatar: currentUserAvatar,
+            customerName: currentUserName,
+            senderName: currentUserName,
+            createdBy: user.uid,
+            admins: [user.uid],
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        if (cancelled) return;
+
+        // 3. ENRICHISSEMENT EN ARRIÈRE-PLAN
+        getDoc(doc(db, "companies", normalizedCompanyId))
+          .then((companySnap) => {
+            if (cancelled || !companySnap.exists()) return;
+            const companyData = companySnap.data() as Record<string, any>;
+
+            const realName =
+              (typeof companyData?.name === "string" && companyData.name.trim()) ||
+              (typeof companyData?.companyName === "string" && companyData.companyName.trim()) ||
+              fallbackCompanyName;
+
+            const realLogo =
+              (typeof companyData?.logo === "string" && companyData.logo) ||
+              (typeof companyData?.companyLogo === "string" && companyData.companyLogo) ||
+              fallbackCompanyLogo;
+
+            const ownerUid = companyData?.uid || companyData?.ownerId || sellerUid;
+
+            const updatedParticipants = Array.from(
+              new Set([user.uid, ownerUid, normalizedCompanyId].filter(Boolean))
+            );
+
+            setDoc(
+              convRef,
+              {
+                companyName: realName,
+                companyLogo: realLogo,
+                title: realName,
+                participants: updatedParticipants,
+                participantNames: {
+                  [user.uid]: currentUserName,
+                  [normalizedCompanyId]: realName,
+                  ...(ownerUid ? { [ownerUid]: realName } : {}),
+                },
+                participantAvatars: {
+                  [user.uid]: currentUserAvatar,
+                  [normalizedCompanyId]: realLogo || "",
+                  ...(ownerUid && realLogo ? { [ownerUid]: realLogo } : {}),
+                },
+              },
+              { merge: true }
+            ).catch(() => {});
+          })
+          .catch(() => {});
+      } catch (e) {
+        console.warn("conversation bootstrap error", e);
+      } finally {
+        bootstrapInFlight.current = false;
+      }
+    }
+  };
+
+  run();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  user?.uid,
+  conversationId,
+  hasStrictProductContext,
+  normalizedCompanyId,
+  normalizedSellerId,
+]);
+
+// 🟢 Écouteur Firestore unique et sécurisé à conserver
+useEffect(() => {
+  if (!conversationId || !user) {
+    setConvMissing(true);
+    return;
+  }
+
+  const ref = doc(db, "conversations", conversationId);
+  const unsub = onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        setConvData(null);
+        if (hasStrictProductContext || normalizedCompanyId) {
+          setConvMissing(false);
+        } else {
+          setConvMissing(true);
         }
         return;
       }
 
-      // Flux legacy (hors contexte produit strict).
-      const convSnap = await getDoc(doc(db, "conversations", conversationId));
-      if (cancelled || convSnap.exists()) return;
+      const data = snap.data();
+      const parts = (data.participants as string[] | undefined) || [];
+      const companyIdInDoc = typeof data.companyId === "string" ? data.companyId : null;
+      const sellerUidInDoc = typeof data.sellerUid === "string" ? data.sellerUid : null;
 
-      const targetCompanyId = normalizeRouteParam(params.companyId);
-      if (targetCompanyId) {
-        const existing = conversations.find(
-          (c) =>
-            c.companyId === targetCompanyId &&
-            Array.isArray(c.participants) &&
-            c.participants.includes(user.uid),
-        );
-        if (existing) {
-          return;
-        }
-      }
-    };
+      const isParticipant =
+        Boolean(user?.uid) &&
+        (parts.includes(user.uid) ||
+          user.uid === companyIdInDoc ||
+          user.uid === sellerUidInDoc);
 
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    conversationId,
-    user?.uid,
-    user?.displayName,
-    user?.photoURL,
-    conversations,
-    hasStrictProductContext,
-    normalizedCompanyId,
-    params.sellerName,
-    params.sellerId,
-    params.companyId,
-  ]);
-
-  useEffect(() => {
-    if (!conversationId || !user) {
-      setConvMissing(true);
-      return;
-    }
-
-    const ref = doc(db, "conversations", conversationId);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (!snap.exists()) {
-          setConvData(null);
-          setConvMissing(true);
-          return;
-        }
-        const data = snap.data();
-        const parts = (data.participants as string[] | undefined) || [];
-        if (user?.uid && !parts.includes(user.uid)) {
-          setConvData(null);
-          setConvMissing(true);
-          return;
-        }
-        setConvMissing(false);
-        setConvData({ id: snap.id, ...data });
-      },
-      () => setConvMissing(true),
-    );
-    return () => unsub();
-  }, [conversationId, user]);
-
-  useEffect(() => {
-    if (!convData || !user?.uid) return;
-    let cancelled = false;
-
-    const run = async () => {
-      const participants = (convData.participants as string[]) || [];
-      const other = participants.find((p) => p !== user.uid) ?? null;
-
-      let shopName = String(convData.companyName || "").trim();
-      let shopLogo: string | null = isHttpUrl(convData.companyLogo)
-        ? convData.companyLogo
-        : null;
-      const companyId =
-        typeof convData.companyId === "string" ? convData.companyId : "";
-
-      if ((!shopName || !shopLogo) && companyId) {
-        try {
-          const cs = await getDoc(doc(db, "companies", companyId));
-          if (cs.exists() && !cancelled) {
-            const c = cs.data() as Record<string, unknown>;
-            if (!shopName) {
-              shopName = pickCompanyNameFromFirestoreData(c);
-            }
-            if (!shopLogo && isHttpUrl(c.logo)) {
-              shopLogo = c.logo;
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-
-      if (!shopName) {
-        shopName = String(convData.title || "Conversation").trim();
-      }
-
-      if (!cancelled) {
-        setShop({ name: shopName || "Conversation", logo: shopLogo });
-      }
-
-      if (other) {
-        let personName = "";
-        let personPhoto: string | null = null;
-        const pNames = convData.participantNames as
-          | Record<string, string>
-          | undefined;
-        const pAvatars = convData.participantAvatars as
-          | Record<string, string>
-          | undefined;
-
-        try {
-          const us = await getDoc(doc(db, "users", other));
-          if (us.exists() && !cancelled) {
-            const ud = us.data();
-            personName =
-              String(ud.displayName || ud.name || "").trim() ||
-              String(pNames?.[other] || "").trim() ||
-              "Interlocuteur";
-            const ph = ud.photoURL;
-            personPhoto = isHttpUrl(ph) ? ph : null;
-          }
-        } catch {
-          personName = String(pNames?.[other] || "").trim() || "Interlocuteur";
-        }
-
-        if (!personPhoto && isHttpUrl(pAvatars?.[other])) {
-          personPhoto = pAvatars![other];
-        }
-
-        if (!personName) {
-          personName = String(pNames?.[other] || "").trim() || "Interlocuteur";
-        }
-
-        if (!cancelled) {
-          setInterlocutor({ name: personName, photo: personPhoto });
-        }
-      } else if (!cancelled) {
-        setInterlocutor({ name: "", photo: null });
-      }
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [convData, user?.uid]);
-
-  useEffect(() => {
-    if (!conversationId) {
-      setMessagesLoading(false);
-      return;
-    }
-
-    const msgsCol = collection(
-      db,
-      "conversations",
-      conversationId,
-      "messages",
-    );
-    const q = query(
-      msgsCol,
-      orderBy("timestamp", "desc"),
-      limit(LIVE_MESSAGE_WINDOW),
-    );
-
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        if (snap.empty) {
-          liveAnchorRef.current = null;
-          setLiveMessages([]);
-          setOlderMessages([]);
-          olderTailRef.current = null;
-          setHasMoreOlder(false);
+      if (!isParticipant) {
+        setConvData(null);
+        if (hasStrictProductContext || normalizedCompanyId) {
+          setConvMissing(false);
         } else {
-          const list = snap.docs.map(mapDocToUiMessage);
-          liveAnchorRef.current = snap.docs[snap.docs.length - 1] ?? null;
-          setLiveMessages(list);
-          setHasMoreOlder(snap.docs.length >= LIVE_MESSAGE_WINDOW);
+          setConvMissing(true);
         }
-        setMessagesLoading(false);
-      },
-      () => setMessagesLoading(false),
-    );
+        return;
+      }
 
-    return () => unsub();
-  }, [conversationId]);
+      setConvMissing(false);
+      setConvData({ id: snap.id, ...data });
+    },
+    (error) => {
+      console.warn("onSnapshot conversation error:", error);
+      if (!hasStrictProductContext && !normalizedCompanyId) {
+        setConvMissing(true);
+      }
+    }
+  );
+
+  return () => unsub();
+}, [conversationId, user, hasStrictProductContext, normalizedCompanyId]);
+  // Écouteur Firestore non bloquant pour les nouvelles discussions
+  // 🟢 Écouteur Firestore unique et sécurisé à conserver
+// 🟢 Écouteur Firestore unique et sécurisé (sans dépendance à setLoading)
+useEffect(() => {
+  if (!conversationId || !user) {
+    setConvMissing(true);
+    return;
+  }
+
+  const ref = doc(db, "conversations", conversationId);
+  const unsub = onSnapshot(
+    ref,
+    (snap) => {
+      // 1. Si le document n'existe pas encore dans Firestore
+      if (!snap.exists()) {
+        setConvData(null);
+        if (hasStrictProductContext || normalizedCompanyId) {
+          setConvMissing(false);
+        } else {
+          setConvMissing(true);
+        }
+        return;
+      }
+
+      // 2. Le document existe : validation de l'accès utilisateur
+      const data = snap.data();
+      const parts = (data.participants as string[] | undefined) || [];
+      const companyIdInDoc = typeof data.companyId === "string" ? data.companyId : null;
+      const sellerUidInDoc = typeof data.sellerUid === "string" ? data.sellerUid : null;
+
+      const isParticipant =
+        Boolean(user?.uid) &&
+        (parts.includes(user.uid) ||
+          user.uid === companyIdInDoc ||
+          user.uid === sellerUidInDoc);
+
+      if (!isParticipant) {
+        setConvData(null);
+        if (hasStrictProductContext || normalizedCompanyId) {
+          setConvMissing(false);
+        } else {
+          setConvMissing(true);
+        }
+        return;
+      }
+
+      // 3. Tout est valide : affichage de la conversation
+      setConvMissing(false);
+      setConvData({ id: snap.id, ...data });
+    },
+    (error) => {
+      console.warn("onSnapshot conversation error:", error);
+      if (!hasStrictProductContext && !normalizedCompanyId) {
+        setConvMissing(true);
+      }
+    }
+  );
+
+  return () => unsub();
+}, [conversationId, user, hasStrictProductContext, normalizedCompanyId]);
+
+
 
   const resolveStructuredProductContext = useCallback(async () => {
     if (!normalizedProductId || !hasStrictProductContext) return null;
@@ -877,24 +1145,176 @@ export default function ConversationScreen() {
     setPreviewDismissed(false);
   }, [conversationId, normalizedProductId]);
 
-  const handleSend = useCallback(
-    async (customText?: string) => {
-      const textToSend = (customText ?? inputText).trim();
-      if (!textToSend || !user || !conversationId) return;
+const handleSend = useCallback(
+  async (customText?: string) => {
+    const textToSend = (customText ?? inputText).trim();
+
+    // 🐞 Log de débogage pour voir exactement ce qui bloque
+    console.log("🔍 DEBUG SEND:", { textToSend, user, conversationId });
+
+    if (!textToSend) return;
+    if (!user?.uid) {
+      Alert.alert("Erreur", "Votre session utilisateur n'est pas chargée.");
+      return;
+    }
+    if (!conversationId) return;
+
+    try {
+      setSending(true);
+      await sendMessage(conversationId, textToSend, { type: "text" });
+      setInputText("");
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Erreur", "Impossible d’envoyer le message.");
+    } finally {
+      setSending(false);
+    }
+  },
+  [inputText, user, conversationId, sendMessage],
+);
+
+const handleAttachImage = useCallback(
+    async (source: "camera" | "gallery") => {
+      if (!conversationId || !user?.uid || sending) return;
 
       try {
+        const permissionResult =
+          source === "camera"
+            ? await ImagePicker.requestCameraPermissionsAsync()
+            : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permissionResult.granted) {
+          Alert.alert(
+            "Permission requise",
+            source === "camera"
+              ? "Veuillez autoriser l’accès à la caméra pour prendre une photo."
+              : "Veuillez autoriser l’accès à la galerie pour choisir une photo.",
+          );
+          return;
+        }
+
+        // 🟢 1. Compression maximale dès la prise de vue
+        // On évite ainsi de charger l'image pleine résolution en RAM
+        const pickerOptions: ImagePicker.ImagePickerOptions = {
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          quality: 0.2, // ⚡ Compression très forte à la source pour préserver la RAM
+          allowsEditing: false,
+          base64: false,
+        };
+
+        const result =
+          source === "camera"
+            ? await ImagePicker.launchCameraAsync(pickerOptions)
+            : await ImagePicker.launchImageLibraryAsync(pickerOptions);
+
+        if (result.canceled || !result.assets?.[0]?.uri) {
+          return;
+        }
+
         setSending(true);
-        await sendMessage(conversationId, textToSend, { type: "text" });
+
+        const asset = result.assets[0];
+        
+        // 🛑 ON A SUPPRIMÉ ImageManipulator ICI !
+        // Réutiliser ImageManipulator recharge une seconde image lourde en RAM
+        // et fait sauter le processus Android. On utilise directement 'asset.uri'.
+        const uploadUri = asset.uri;
+
+        // 🟢 2. Lecture directe sous forme de Blob
+        const response = await fetch(uploadUri);
+        const blob = await response.blob();
+
+        // 🟢 3. Envoi vers Firebase Storage
+        const imageName = `chat_images/${conversationId}/${Date.now()}.jpg`;
+        const imageRef = ref(storage, imageName);
+        await uploadBytes(imageRef, blob);
+
+        // Libération explicite de la mémoire
+        if (typeof blob.close === "function") {
+          blob.close();
+        }
+
+        const imageUrl = await getDownloadURL(imageRef);
+
+        const caption =
+          inputText.trim() ||
+          (composerProductPreview?.name
+            ? `Photo - ${composerProductPreview.name}`
+            : "Photo de l'article");
+
+        const parsedPriceFromInput = parseFloat(inputText.replace(/[^0-9.]/g, ""));
+        const dynamicPrice =
+          normalizedPrefillPrice ??
+          composerProductPreview?.price ??
+          (!isNaN(parsedPriceFromInput) && parsedPriceFromInput > 0
+            ? parsedPriceFromInput
+            : null);
+
+        await sendMessage(conversationId, caption, {
+          type: "product_payment",
+          product: {
+            id: `article_photo_${Date.now()}`,
+            name: caption,
+            price: dynamicPrice,
+            currency: composerProductPreview?.currency || "XOF",
+            image: imageUrl,
+            specifications: {
+              weight: composerProductPreview?.specifications?.weight || "",
+              dimensions: composerProductPreview?.specifications?.dimensions || "",
+              volume: composerProductPreview?.specifications?.volume || "",
+            },
+          },
+          payment: {
+            url: "",
+            provider: "ngenius",
+            status: "pending",
+          },
+          imageUrl,
+          image: imageUrl,
+          metadata: { imageUrl },
+        });
+
         setInputText("");
-      } catch (e) {
-        console.error(e);
-        Alert.alert("Erreur", "Impossible d’envoyer le message.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[conversation] image send failed", {
+          source,
+          conversationId,
+          message,
+          error,
+        });
+        Alert.alert(
+          "Erreur",
+          "Impossible d’envoyer la photo dans le chat pour le moment."
+        );
       } finally {
         setSending(false);
       }
     },
-    [inputText, user, conversationId, sendMessage],
+    [
+      conversationId,
+      inputText,
+      sendMessage,
+      sending,
+      user?.uid,
+      normalizedPrefillPrice,
+      composerProductPreview,
+    ]
   );
+
+  const openImagePickerActionSheet = useCallback(() => {
+    Alert.alert("Ajouter une photo", "Choisissez une source", [
+      {
+        text: "Caméra",
+        onPress: () => void handleAttachImage("camera"),
+      },
+      {
+        text: "Galerie",
+        onPress: () => void handleAttachImage("gallery"),
+      },
+      { text: "Annuler", style: "cancel" },
+    ]);
+  }, [handleAttachImage]);
 
   const sendProductInquiry = useCallback(() => {
     void (async () => {
@@ -1176,98 +1596,165 @@ export default function ConversationScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      <Stack.Screen options={{ headerShown: false }} />
+<View style={styles.container}>
+  <StatusBar barStyle="dark-content" />
+  <Stack.Screen options={{ headerShown: false }} />
+  <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+    <Pressable
+      onPress={() => router.back()}
+      style={styles.headerIcon}
+      hitSlop={12}
+    >
+      <Ionicons name="chevron-back" size={26} color="#111827" />
+    </Pressable>
 
-      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        <Pressable
-          onPress={() => router.back()}
-          style={styles.headerIcon}
-          hitSlop={12}
-        >
-          <Ionicons name="chevron-back" size={26} color="#111827" />
-        </Pressable>
+    <View style={styles.headerMain}>
+      <View style={styles.shopRow}>
+        {(() => {
+          const isClient =
+            Boolean(user?.uid) &&
+            user?.uid !== convData?.companyId &&
+            user?.uid !== convData?.sellerUid;
 
-        <View style={styles.headerMain}>
-          <View style={styles.shopRow}>
-            {shop.logo ? (
+          // 🟢 Photo cohérente avec le rôle : boutique si je suis client, interlocuteur sinon
+          const displayPhoto = isClient ? shop.logo : interlocutor.photo;
+
+          return displayPhoto ? (
+            <Pressable onPress={openProfileModal} hitSlop={10}>
               <Image
-                source={{ uri: shop.logo }}
+                source={{ uri: displayPhoto }}
                 style={styles.shopLogo}
                 contentFit="cover"
                 transition={100}
                 cachePolicy="memory-disk"
               />
-            ) : (
-              <View style={styles.shopLogoPlaceholder}>
-                <Ionicons name="storefront" size={20} color="#EA580C" />
-              </View>
-            )}
-            <View style={styles.shopTextCol}>
-              <Text style={styles.shopName} numberOfLines={1}>
-                {shop.name}
-              </Text>
-              <Text style={styles.shopHint} numberOfLines={1}>
-                Compagnie
-              </Text>
-            </View>
-          </View>
-        </View>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={openProfileModal}
+              style={styles.shopLogoPlaceholder}
+              hitSlop={10}
+            >
+              <Ionicons
+                name={isClient ? "storefront" : "person"}
+                size={20}
+                color="#EA580C"
+              />
+            </Pressable>
+          );
+        })()}
 
-        <View style={styles.headerRight}>
-          <Pressable
-            style={styles.headerIcon}
-            onPress={() => {
-              const cid =
-                typeof convData?.companyId === "string"
-                  ? convData.companyId
-                  : "";
-              if (cid) router.push(`/company/${cid}`);
-              else Alert.alert("Conversation", shop.name, [{ text: "OK" }]);
-            }}
-          >
-            <Ionicons name="storefront-outline" size={24} color="#111827" />
-          </Pressable>
-          <Pressable
-            style={styles.headerIcon}
-            onPress={openActionsMenu}
-            hitSlop={10}
-          >
-            <Ionicons name="ellipsis-vertical" size={22} color="#111827" />
-          </Pressable>
-        </View>
-      </View>
+{/* 🟢 1. Nom principal (Client ou Boutique) */}
+      <Pressable onPress={openProfileModal} hitSlop={6}>
+        <Text style={styles.shopName} numberOfLines={1}>
+          {(() => {
+            const isClient =
+              user?.uid &&
+              user.uid !== convData?.companyId &&
+              user.uid !== convData?.sellerUid;
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.flex}
-        keyboardVerticalOffset={0}
-      >
-        {messagesLoading && displayMessages.length === 0 ? (
-          <View style={styles.loader}>
-            <ActivityIndicator size="large" color="#EA580C" />
-          </View>
-        ) : (
-          <FlatList
-            ref={flatListRef}
-            data={displayMessages}
-            keyExtractor={(item) => item.id}
-            renderItem={renderChatItem}
-            contentContainerStyle={styles.listPad}
-            initialNumToRender={18}
-            maxToRenderPerBatch={14}
-            windowSize={9}
-            removeClippedSubviews={Platform.OS === "android"}
-            onEndReached={handleListEndReached}
-            onEndReachedThreshold={0.35}
-            ListFooterComponent={listFooter}
-            ListEmptyComponent={
-              <Text style={styles.emptyThread}>
-                Aucun message. Écrivez pour commencer.
-              </Text>
+            if (isClient) {
+              return (
+                (shop.name && shop.name !== "Super admin" ? shop.name : null) ||
+                (convData?.companyName && convData.companyName !== "Super admin"
+                  ? convData.companyName
+                  : null) ||
+                params.sellerName ||
+                params.companyName ||
+                "Boutique"
+              );
+            } else {
+              return (
+                clientExtra?.name ||
+                (interlocutor?.name && interlocutor.name !== "Super admin"
+                  ? interlocutor.name
+                  : null) ||
+                convData?.clientName ||
+                convData?.userName ||
+                convData?.customerName ||
+                convData?.senderName ||
+                "Client"
+              );
             }
-          />
+          })()}
+        </Text>
+      </Pressable>
+
+      {/* 🟢 2. Sous-titre / Statut */}
+      <Pressable onPress={openProfileModal} hitSlop={6}>
+        <Text style={styles.shopHint} numberOfLines={1}>
+          {interlocutorOnline
+            ? "En ligne"
+            : user?.uid &&
+              user.uid !== convData?.companyId &&
+              user.uid !== convData?.sellerUid
+            ? "Boutique / Vendeur"
+            : "Client"}
+        </Text>
+      </Pressable>
+    </View>
+  </View>
+
+  <View style={styles.headerRight}>
+    <Pressable
+      style={styles.headerIcon}
+      onPress={() => {
+        const cid =
+          typeof convData?.companyId === "string"
+            ? convData.companyId
+            : "";
+        if (cid) router.push(`/company/${cid}`);
+        else Alert.alert("Conversation", shop.name, [{ text: "OK" }]);
+      }}
+    >
+      <Ionicons name="storefront-outline" size={24} color="#111827" />
+    </Pressable>
+    <Pressable
+      style={styles.headerIcon}
+      onPress={openActionsMenu}
+      hitSlop={10}
+    >
+      <Ionicons name="ellipsis-vertical" size={22} color="#111827" />
+    </Pressable>
+  </View>
+</View>
+
+<ConversationProfileModal
+  visible={profileModalVisible}
+  profile={conversationProfile}
+  onClose={closeProfileModal}
+/>
+
+<KeyboardAvoidingView
+  behavior={Platform.OS === "ios" ? "padding" : undefined}
+  style={styles.flex}
+  keyboardVerticalOffset={0}
+>
+  {messagesLoading && displayMessages.length === 0 ? (
+    <View style={styles.loader}>
+      <ActivityIndicator size="large" color="#EA580C" />
+    </View>
+  ) : (
+<FlatList
+  ref={flatListRef}
+  data={displayMessages}
+  keyExtractor={(item) => item.id}
+  renderItem={renderChatItem}
+  contentContainerStyle={styles.listPad}
+  initialNumToRender={18}
+  maxToRenderPerBatch={14}
+  windowSize={9}
+  removeClippedSubviews={Platform.OS === "android"}
+  onEndReached={handleListEndReached}
+  onEndReachedThreshold={0.35}
+  ListFooterComponent={listFooter}
+  inverted // <-- AJOUTE CETTE LIGNE ICI
+  ListEmptyComponent={
+    <Text style={styles.emptyThread}>
+      Aucun message. Écrivez pour commencer.
+    </Text>
+  }
+/>
         )}
 
         {hasProductActions && composerProductPreview && !previewDismissed ? (
@@ -1392,6 +1879,14 @@ export default function ConversationScreen() {
               multiline
               maxLength={4000}
             />
+            <Pressable
+              style={styles.attachBtn}
+              hitSlop={8}
+              onPress={openImagePickerActionSheet}
+              disabled={sending}
+            >
+              <Ionicons name="camera-outline" size={22} color="#EA580C" />
+            </Pressable>
             <Pressable style={styles.emojiBtn} hitSlop={8}>
               <MaterialCommunityIcons name="emoticon-happy-outline" size={24} color="#6B7280" />
             </Pressable>
@@ -1568,6 +2063,17 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
   },
   msgText: { fontSize: 15, color: "#1F2937", lineHeight: 21 },
+  imageBubbleContainer: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+  },
+  messageImage: {
+    width: 220,
+    height: 220,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    marginTop: 10,
+  },
   msgLink: {
     color: "#2563EB",
     textDecorationLine: "underline",
@@ -1693,6 +2199,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 16,
     color: "#111827",
+  },
+  attachBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFF7ED",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
   },
   emojiBtn: { padding: 8, marginBottom: 2 },
   sendBtn: {

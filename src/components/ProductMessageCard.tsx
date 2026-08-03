@@ -1,10 +1,32 @@
-import React, { useCallback } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Linking,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Image } from "expo-image";
+import {
+  PanGestureHandler,
+  PinchGestureHandler,
+  State,
+} from "react-native-gesture-handler";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+const AnimatedImage = Animated.createAnimatedComponent(Image);
+
+const MAX_ZOOM = 4;
+const MIN_ZOOM = 1;
 
 type PaymentStatus = "pending" | "paid" | "failed";
 
 export interface ProductPaymentMessage {
+  imageUrl?: string;
+  image?: string;
+  metadata?: Record<string, unknown>;
   product?: {
     id?: string;
     name?: string;
@@ -36,6 +58,106 @@ export default function ProductMessageCard({
   const status = payment.status || "pending";
   const hasPaymentUrl = Boolean(payment.url && payment.url.trim().length > 0);
 
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerImageUri, setViewerImageUri] = useState<string | null>(null);
+  const pinchScale = useRef(new Animated.Value(1)).current;
+  const baseScale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const lastScale = useRef(1);
+  const lastOffset = useRef({ x: 0, y: 0 });
+  const productMetadata = message.metadata || {};
+
+  const resolvedImageUri = useMemo(() => {
+    const candidates = [
+      product.image,
+      message.imageUrl,
+      message.image,
+      typeof productMetadata.imageUrl === "string" ? productMetadata.imageUrl : undefined,
+      typeof productMetadata.image === "string" ? productMetadata.image : undefined,
+      typeof productMetadata.photoUrl === "string" ? productMetadata.photoUrl : undefined,
+    ];
+
+    return candidates.find(
+      (candidate): candidate is string =>
+        typeof candidate === "string" && candidate.trim().length > 0,
+    ) ?? null;
+  }, [message.image, message.imageUrl, product.image, productMetadata]);
+
+  const zoomScale = Animated.multiply(baseScale, pinchScale);
+
+  const openViewer = useCallback(() => {
+    if (resolvedImageUri) {
+      setViewerImageUri(resolvedImageUri);
+      setViewerVisible(true);
+    }
+  }, [resolvedImageUri]);
+
+  const closeViewer = useCallback(() => {
+    setViewerVisible(false);
+    setViewerImageUri(null);
+    lastScale.current = 1;
+    baseScale.setValue(1);
+    pinchScale.setValue(1);
+    translateX.setValue(0);
+    translateX.setOffset(0);
+    translateY.setValue(0);
+    translateY.setOffset(0);
+    lastOffset.current = { x: 0, y: 0 };
+  }, [baseScale, pinchScale, translateX, translateY]);
+
+  const onPinchEvent = Animated.event(
+    [{ nativeEvent: { scale: pinchScale } }],
+    { useNativeDriver: false },
+  );
+
+  const onPinchStateChange = useCallback(
+    (event) => {
+      if (
+        event.nativeEvent.state === State.END ||
+        event.nativeEvent.state === State.CANCELLED ||
+        event.nativeEvent.state === State.FAILED
+      ) {
+        const nextScale = Math.max(
+          MIN_ZOOM,
+          Math.min(lastScale.current * event.nativeEvent.scale, MAX_ZOOM),
+        );
+        lastScale.current = nextScale;
+        baseScale.setValue(nextScale);
+        pinchScale.setValue(1);
+      }
+    },
+    [baseScale, pinchScale],
+  );
+
+  const onPanEvent = Animated.event(
+    [
+      {
+        nativeEvent: {
+          translationX: translateX,
+          translationY: translateY,
+        },
+      },
+    ],
+    { useNativeDriver: false },
+  );
+
+  const onPanStateChange = useCallback(
+    (event) => {
+      if (event.nativeEvent.state === State.END) {
+        lastOffset.current = {
+          x: lastOffset.current.x + event.nativeEvent.translationX,
+          y: lastOffset.current.y + event.nativeEvent.translationY,
+        };
+        translateX.setOffset(lastOffset.current.x);
+        translateX.setValue(0);
+        translateY.setOffset(lastOffset.current.y);
+        translateY.setValue(0);
+      }
+    },
+    [translateX, translateY],
+  );
+
   const statusLabel =
     status === "paid" ? "Paye" : status === "failed" ? "Echec" : "En attente";
   const statusColor =
@@ -63,14 +185,75 @@ export default function ProductMessageCard({
           </View>
         </View>
         <View style={styles.body}>
-          {product.image ? (
-            <Image
-              source={{ uri: product.image }}
-              style={styles.image}
-              contentFit="cover"
-              transition={120}
-              cachePolicy="memory-disk"
-            />
+          {resolvedImageUri ? (
+            <>
+              <Pressable
+                onPress={openViewer}
+                style={styles.imagePressable}
+                hitSlop={8}
+              >
+                <Image
+                  source={{ uri: resolvedImageUri }}
+                  style={styles.image}
+                  contentFit="cover"
+                  transition={120}
+                  cachePolicy="memory-disk"
+                />
+              </Pressable>
+              <Modal
+                visible={viewerVisible}
+                animationType="fade"
+                transparent={false}
+                onRequestClose={closeViewer}
+              >
+                <View style={styles.modalOverlay}>
+                  <SafeAreaView edges={["top"]} style={styles.modalSafeArea}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle} numberOfLines={1}>
+                        {product.name || "Photo du colis emballé"}
+                      </Text>
+                      <Pressable
+                        style={styles.modalCloseBtn}
+                        onPress={closeViewer}
+                        hitSlop={10}
+                      >
+                        <Text style={styles.modalCloseText}>Fermer</Text>
+                      </Pressable>
+                    </View>
+                  </SafeAreaView>
+                  <View style={styles.modalBody}>
+                    <PanGestureHandler
+                      onGestureEvent={onPanEvent}
+                      onHandlerStateChange={onPanStateChange}
+                    >
+                      <PinchGestureHandler
+                        onGestureEvent={onPinchEvent}
+                        onHandlerStateChange={onPinchStateChange}
+                      >
+                        <Animated.View style={styles.zoomContainer}>
+                          <AnimatedImage
+                            source={{ uri: viewerImageUri || resolvedImageUri }}
+                            style={[
+                              styles.zoomImage,
+                              {
+                                transform: [
+                                  { scale: zoomScale },
+                                  { translateX },
+                                  { translateY },
+                                ],
+                              },
+                            ]}
+                            contentFit="contain"
+                            transition={120}
+                            cachePolicy="memory-disk"
+                          />
+                        </Animated.View>
+                      </PinchGestureHandler>
+                    </PanGestureHandler>
+                  </View>
+                </View>
+              </Modal>
+            </>
           ) : (
             <View style={[styles.image, styles.imagePh]} />
           )}
@@ -124,6 +307,7 @@ const styles = StyleSheet.create({
   badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
   badgeText: { fontSize: 11, fontWeight: "700" },
   body: { flexDirection: "row", alignItems: "center", gap: 10 },
+  imagePressable: { borderRadius: 10 },
   image: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#F3F4F6" },
   imagePh: { backgroundColor: "#E5E7EB" },
   mid: { flex: 1, minWidth: 0 },
@@ -137,4 +321,51 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   payBtnText: { color: "#FFF", fontWeight: "700", fontSize: 12 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  modalSafeArea: {
+    backgroundColor: "#000",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  modalTitle: {
+    flex: 1,
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  modalCloseBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+  modalCloseText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  modalBody: {
+    flex: 1,
+  },
+  zoomContainer: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  zoomImage: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+  },
 });
