@@ -1,5 +1,28 @@
 {
+  "hosting": {
+    "public": "apps/web-admin/dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/p",
+        "destination": "/share-product.html"
+      },
+      {
+        "source": "/p/**",
+        "destination": "/share-product.html"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
   "firestore": {
+    "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "functions": [

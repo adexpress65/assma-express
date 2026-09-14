@@ -1,0 +1,230 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers (source : custom claim Auth uniquement) ──────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function tokenRole() {
+      return isSignedIn() ? request.auth.token.role : null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && tokenRole() in ['super-admin', 'super_admin'];
+    }
+
+    function isAdmin() {
+      return isSignedIn() && tokenRole() == 'admin';
+    }
+
+    function isStaff() {
+      return isSuperAdmin() || isAdmin();
+    }
+
+    function isSeller() {
+      return isSignedIn() && tokenRole() == 'seller';
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Un document sans champ role vaut 'customer'. Sans ce défaut, l'absence de
+    // champ était lue comme « inchangé », ce qui laissait y écrire super-admin.
+    function effectiveRole(data) {
+      return 'role' in data ? data.role : 'customer';
+    }
+
+    // Interdit toute modification client du champ role (setUserRole = Admin SDK)
+    function roleUnchanged() {
+      return effectiveRole(request.resource.data) == effectiveRole(resource.data);
+    }
+
+    function orderBelongsToUser(data) {
+      return isSignedIn() && (
+        data.userId == request.auth.uid
+        || data.sellerId == request.auth.uid
+        || (data.sellerIds is list && request.auth.uid in data.sellerIds)
+      );
+    }
+
+    function productBelongsToSeller(data) {
+      return isSignedIn() && (
+        data.sellerId == request.auth.uid
+        || data.companyId == request.auth.uid
+      );
+    }
+
+    // ── users ────────────────────────────────────────────────────────────
+    match /users/{uid} {
+      // Vendeur : retrouver l'acheteur d'une commande (téléphone / nom)
+      allow read: if isOwner(uid) || isStaff() || isSeller();
+      allow create: if isOwner(uid)
+        && (!('role' in request.resource.data)
+            || request.resource.data.role in ['customer', 'seller']);
+      allow update: if (
+          (isOwner(uid) && roleUnchanged())
+          || isStaff()
+        )
+        && (isSuperAdmin() || roleUnchanged());
+      allow delete: if isSuperAdmin();
+
+      // Panier cloud : users/{uid}/data/cart
+      match /data/{docId} {
+        allow read, write: if isOwner(uid) || isStaff();
+      }
+
+      match /favorites/{favId} {
+        allow read, write: if isOwner(uid) || isStaff();
+      }
+    }
+
+    // ── lives (écoute accueil + chat / viewers) ──────────────────────────
+    function onlyLiveCounters() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['viewersCount', 'likesCount', 'giftsCount']);
+    }
+
+    match /lives/{liveId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.hostId == request.auth.uid;
+      allow update: if isStaff()
+        || (isSignedIn() && resource.data.hostId == request.auth.uid)
+        || (isSignedIn() && onlyLiveCounters());
+      allow delete: if isStaff()
+        || (isSignedIn() && resource.data.hostId == request.auth.uid);
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if isStaff();
+      }
+
+      match /viewers/{viewerId} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn();
+        allow delete: if isStaff() || isOwner(viewerId);
+      }
+    }
+
+    // ── orders (staff + propriétaire / vendeur) ──────────────────────────
+    // Champs posés exclusivement par le backend de paiement via l'Admin SDK,
+    // qui n'est pas soumis à ces règles. Aucun client ne doit pouvoir les écrire.
+    function paymentFieldsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['paymentStatus', 'paidAt', 'total']);
+    }
+
+    function noPaymentFieldsAtCreate() {
+      return !request.resource.data.keys()
+        .hasAny(['paymentStatus', 'paidAt', 'total']);
+    }
+
+    match /orders/{orderId} {
+      allow read: if isStaff() || orderBelongsToUser(resource.data);
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && noPaymentFieldsAtCreate();
+      allow update: if (isStaff() || orderBelongsToUser(resource.data))
+        && paymentFieldsUnchanged();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── products (catalogue public + staff + vendeur propriétaire) ───────
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isStaff()
+        || (isSeller() && productBelongsToSeller(request.resource.data));
+      allow update: if isStaff()
+        || (isSeller()
+            && productBelongsToSeller(resource.data)
+            && productBelongsToSeller(request.resource.data));
+      allow delete: if isStaff()
+        || (isSeller() && productBelongsToSeller(resource.data));
+    }
+
+    // ── companies / fournisseurs ─────────────────────────────────────────
+    match /companies/{companyId} {
+      allow read: if true;
+      allow create: if isStaff() || isOwner(companyId);
+      allow update: if isStaff() || isOwner(companyId);
+      allow delete: if isSuperAdmin();
+    }
+
+    // ── support / tickets ────────────────────────────────────────────────
+    match /supportTickets/{ticketId} {
+      allow read: if isStaff()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isStaff();
+    }
+
+    // ── config / settings (super-admin seul en écriture) ─────────────────
+    match /config/{docId} {
+      // exchangeRates : lu par le formulaire vendeur (aucun secret)
+      allow read: if isStaff() || docId == 'exchangeRates';
+      allow write: if isSuperAdmin();
+    }
+
+    // ── conversations : la messagerie liste uniquement si uid ∈ participants ─
+    match /conversations/{conversationId} {
+      allow read, update: if isSignedIn()
+        && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn()
+        && request.auth.uid in request.resource.data.participants;
+      allow delete: if isStaff();
+
+      match /messages/{messageId} {
+        allow read, create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        allow update, delete: if isStaff()
+          || (isSignedIn()
+              && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants);
+      }
+
+      match /typing/{uid} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ── collections publiques / catalogue ────────────────────────────────
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isStaff()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    // ── tokens push (propriétaire) ───────────────────────────────────────
+    match /pushTokens/{tokenId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ── embeddings / index internes (lecture staff, écriture CF) ────────
+    match /product_image_embeddings/{docId} {
+      allow read: if isStaff();
+      allow write: if false;
+    }
+
+    match /product_updates/{docId} {
+      allow read: if isStaff() || isSeller();
+      allow create: if isStaff() || isSeller();
+      allow update, delete: if isStaff();
+    }
+
+    // ── Refus explicite du reste ─────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
