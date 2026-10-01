@@ -24,12 +24,21 @@ npm run test:messaging-rules
 
 Le test des règles lance l’émulateur Firestore. Il faut `firebase-tools` et un JDK 21 (la CLI récente refuse Java 17).
 
-## Migration (dry-run d’abord)
+## Mise en production
+
+L’OTA suffit (channel `production`, app déjà en 1.0.10). Ordre : OTA, puis règles, puis sauvegarde, puis migration.
 
 ```
+cd apps/mobile
+eas update --channel production --message "Messagerie : le client parle au vendeur"
+
+cd ../..
+firebase deploy --only firestore:rules --project assma-expresse
+
 cd scripts
-npx tsx migrate-conversation-routing.ts
+npx tsx migrate-conversation-routing.ts --backup
 npx tsx migrate-conversation-routing.ts --execute
+npx tsx migrate-conversation-routing.ts --rollback
 ```
 
-Puis déployer les règles : `firebase deploy --only firestore:rules`. Les Cloud Functions de messagerie n’ont pas changé de contrat. Fusionner `fix/messagerie-routage` (app) et `fix/messagerie-routage-monorepo` dans `principal` seulement après la migration réelle, puis publier une nouvelle version de l’app.
+`--execute` refuse de tourner sans la sauvegarde. `--rollback` remet l’état noté dans le journal. Les 6 fils sans propriétaire et les 2 fils où le super-admin est le client ne sont pas un cas particulier à trancher à la main : les 6 restent tels quels, les 2 sont migrés comme les autres (il reste le client, le vendeur est le propriétaire).

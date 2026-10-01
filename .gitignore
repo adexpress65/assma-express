@@ -69,6 +69,13 @@ node_modules/
 # dotenv environment variables file
 .env
 
+# Journaux de migration messagerie (données réelles, ne pas commiter)
+scripts/migrate-conversation-routing.backup.json
+scripts/migrate-conversation-routing.dry-run.json
+scripts/migrate-conversation-routing.execute.json
+scripts/migrate-conversation-routing.journal.json
+scripts/migrate-conversation-routing.rollback.json
+
 # Sentry (upload de source maps — ne jamais commiter de token)
 sentry.properties
 **/sentry.properties
