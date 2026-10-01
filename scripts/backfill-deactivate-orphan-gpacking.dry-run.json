@@ -1,0 +1,1176 @@
+{
+  "mode": "dry-run",
+  "companyId": "IdwDQQOSjdMRL4YiClg0hiHlfkF2",
+  "excludedIds": [
+    "a4xgZwlMA6xaoGXSGI3V"
+  ],
+  "exclusionConfirmed": [
+    {
+      "id": "a4xgZwlMA6xaoGXSGI3V",
+      "name": "Presse à Huile Oléagineuse Industrielle",
+      "isActiveBefore": true,
+      "isActiveAfter": true,
+      "touched": false
+    }
+  ],
+  "excludedIdsNotInQuery": [],
+  "scanned": 144,
+  "alreadyInactiveCount": 0,
+  "plannedCount": 143,
+  "deactivatedCount": 0,
+  "before": {
+    "activeOrUnknown": 144,
+    "inactive": 0
+  },
+  "after": {
+    "wouldBeInactive": 143,
+    "stillActiveExcluded": 1
+  },
+  "planned": [
+    {
+      "id": "6Qny3cIG2vkUK8qtfJu4",
+      "name": "110V, 220v electric mixer, 6-speed adjustable mixer, fully automatic industrial-grade paint and cement mixer, egg beater",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "nE1mXEbFqy4GOJjQNtFF",
+      "name": "110V220V工业电动搅拌器油漆搅拌机水泥腻子粉搅拌机涂料搅拌机",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "wYLVEvmRzUFUrPxgJmNm",
+      "name": "Automatic weighing granular powder counting bean sorting machine fully automatic small tea powder seasoning quantitative packaging",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "T3ESrxGPpoqTriNb3ZrH",
+      "name": "coupe-légumes électrique industriel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "YqSoUJU9Kbx6J39uVuF8",
+      "name": "coupe-légumes industriel automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "gH1aTyX8SjpHJgQAfEGA",
+      "name": "couveuse automatique multi-niveaux",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "eJO9Ld7Rt4gcYiQkSQi8",
+      "name": "Cuve de pasteurisation industrielle de 500L",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "zfwQulf9fqWFvpwBl4Bk",
+      "name": "distributeur de boissons",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "kqJfJmB1xbdvoXn3Fca0",
+      "name": "diviseuse-bouleuse de pâte",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "8yvqPVU1VdMx7pBte3dp",
+      "name": "Ensacheuse Automatique de Mouchoirs et Lingettes (Flow-Pack)",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "hbOJ1V6zVuWIR0LpRtOW",
+      "name": "extracteur d'huiles essentielles et distillateur",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "kU9hgI5v410DcTLpO3oz",
+      "name": "Extracteur de Jus Industriel à Vis Sans Fin",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "r0PUQEvTzeBPqbtFt2Uh",
+      "name": "extrudeuse de macaronis industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "TrSTdRnc8vMqHU10c2Vu",
+      "name": "Fardeleuse automatique avec tunnel de rétraction",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "XVCt3UrdoRlutNNkHgIw",
+      "name": "four à pizza électrique professionnel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "wwnA01tCfvBs3TDzg7BX",
+      "name": "four de boulangerie électrique à double étage",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "jyMSuwMJ0sQ7kx5DzYQU",
+      "name": "four rotatif professionnel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "XrnsNQOlbGoRPUAIEY9F",
+      "name": "friteuse électrique double professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "TK6G4R9Q1rlXEV1XDKaW",
+      "name": "Fully Automatic Food Granule Powder Rice Cereal Large-Capacity Bean Sorting and Packaging Machine with Weighing Function 10-999g",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Hw8kTY95iIiScIrzgjZZ",
+      "name": "G4038 Machine à découper et scier automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Jt7mWuYaGuOMC255MnJ3",
+      "name": "Group a pompe eau",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "F1AkffmC67rUR8JdKB1h",
+      "name": "hachoir à légumes électrique industriel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Qy86nhmX4yrgFbf6OByJ",
+      "name": "L' éplucheuse à canne à sucre automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "JLI5re9HMO3Ym6tYnQew",
+      "name": "L' éplucheuse de fruits automatique Gondor",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "FudWAK7xkTMTb179rRGL",
+      "name": "L' extracteur de jus industriel à vis",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "H82JhscKvSAWiExGs97g",
+      "name": "L'Agro-Combine Master 2-en-1",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "bAj1JrVdqqwb7C8FsaeR",
+      "name": "L'extracteur de jus de gingembre industriel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "NLiay1oE81hZbbihUvUY",
+      "name": "L'IndusBot Multi-Axis Pro",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "pBbPfpxKftZ2cp214kwg",
+      "name": "La  machine d'emballage de sachets de thé Autom Pack",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "BuY5ryktaczZOlpVDwZ0",
+      "name": "La conditionneuse automatique de liquides et gelées",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "gPx4aMAbNf4Oo2y8zOce",
+      "name": "La machine automatique à brioches et raviolis (Momo)",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "JZxCYvDwjZdljJrQSBNl",
+      "name": "La machine de dosage intelligente SKMA",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "WsRfPwe7jr3HLFgVSRh8",
+      "name": "La machine distributrice de fructose Shexova",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "A2qmJueB77Xg3Sbd2sm8",
+      "name": "La Rôtissoire à Kebab Compacte Professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "mA9vRRTaFUzFX1LYzEgb",
+      "name": "La turbine d'enrobage Link Machinery",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "DglsPWRigYTXy4vqJLlI",
+      "name": "laminoir à pâte professionnel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "yDu26mv9xgt5vsEfvXNT",
+      "name": "Le Mélangeur Industriel Haute Capacité 50KG",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Aa34Xrnbe0ogrvjce4nk",
+      "name": "Le presse-agrumes industriel automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "V1Kt3i1tYW8wA16peSgS",
+      "name": "Le presse-agrumes manuel professionnel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "jmNLRc9qt8hgl6krQvel",
+      "name": "Le SliceMaster Pro-Cut",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "nIEfYAsmVzHz9Q3O0cSo",
+      "name": "Ligne Complète de Transformation de Charcuterie",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "DuD5KErtcDQ97zBjJVao",
+      "name": "Ligne de fabrication alvéolaire d’œuf",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "GzYiaMMBwUetwYdERD79",
+      "name": "Ligne de production avancé de granulés aliment bétail 500kg/h",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "FCUIP1a6Aw6lqPpqqgpW",
+      "name": "Ligne de production complet pour aliment bétail",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "TV0lLo3CoRFfU6foqWJ6",
+      "name": "Ligne de production d'eau en bouteille 12 tête",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "gdPwmky1fBKjaSAPLiGf",
+      "name": "Ligne de production de boulangerie industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "vPSRiBvNAr14FeEfwQhs",
+      "name": "Ligne Industrielle de Recyclage et Broyage de Pneus",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "MgG1FfDIsj4v8MsqJTiw",
+      "name": "Linear filling capping machine servo piston quantitative filling capping machine pharmaceutical chemical packaging capping equipment",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "rTXd6rjTiTihqG8f0Fgj",
+      "name": "Machine à assaisonner rotative industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "86mFscSsDfO5pLeJpYBz",
+      "name": "Machine à Coudre Industrielle Électronique HONKON",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "rzyagbN9cOgKR3NJT7pL",
+      "name": "machine à crème glacée au rouleau",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "OydtqxwA2iZgkzGkqesx",
+      "name": "Machine à crème glacée, 220V,",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "ExCGDH0JRQLtwJhV5kgP",
+      "name": "Machine à crème glacée, 220V, 20L×2",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "MYc5FVsADffTTvNFDKzV",
+      "name": "machine à crêpes et nems automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "sGnjGP5KSATOMUrd8HbI",
+      "name": "Machine à déposer les biscuits et macarons",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "IuuRXGSkYphRXOvTy41R",
+      "name": "machine à donuts automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "EzGioleCVzHJvQ5XBFTD",
+      "name": "Machine à Fabriquer des Craies Scolaires",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "BXpGha4mfi3gR5ETCOOl",
+      "name": "machine à glace pilée professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "VQdkRAXverXVvtBkGnu0",
+      "name": "machine à glaçons industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "8ynkyD7R1FRutrFfSNzY",
+      "name": "machine à glaçons professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "lQQFKTZ2uQ02b9UgKUOc",
+      "name": "Machine à granité professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "vf0Kw2j6Lk1dS6LoAE5E",
+      "name": "machine à incruster et former automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "GAc3HS4uHnso310e3p68",
+      "name": "Machine a lavage",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "o3HxHfE4qdjvBemdy3bK",
+      "name": "Machine a lavage auto",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "FkmsjzI0DJx2AO9g4CKT",
+      "name": "Machine a lavage pour véhicule",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "F8aOv3N4D5IAJaXe7nFd",
+      "name": "Machine a moulin",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Ny9sqUxCCa5V17S2am6Q",
+      "name": "machine à neige carbonique et glace pilée",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "4ifeXoi2W5XbHR77NkXD",
+      "name": "machine à pâtes automatique polyvalente",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "FvXqQwKBc9P93FUvNeX1",
+      "name": "Machine à Pâtes et Nouilles Électrique Professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "tJr6QL8T8hUYIiboNXKI",
+      "name": "machine à pâtes industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "f1uvSTUdn51aESx90Gfu",
+      "name": "machine à pâtes polyvalente",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "xgOM9aJUJltwVeMO3Xzz",
+      "name": "machine à pâtes polyvalente",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "IoKRApwckonrmGYPHJqP",
+      "name": "machine à popcorn",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "OQfF2E8me3U7zMQzt2dr",
+      "name": "machine à popcorn",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "qRCcycNS0rG3eMK8HBU6",
+      "name": "Machine à raviolis et empanadas Fomax",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "8ME0h3wfLIKmZPFOr8qm",
+      "name": "machine à rouleaux d'œufs croustillants",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "726WW19pfUEV3WZOnzqp",
+      "name": "Machine a savonnerie",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "s6pmD7ncTg3bHGcaDSUM",
+      "name": "machine à sceller automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "XyCVBFkORTNDfBZEMl1T",
+      "name": "machine à snacks et biscuits industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "tGsQoVhR9mO3Gf6Vui7d",
+      "name": "machine à sucettes glacées industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "XcfEpz2v6ZxLobnDPY5G",
+      "name": "Machine à trancher et à préparer les frites / ligne de production de frites",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "gWC771p0lAkykSLVgKrQ",
+      "name": "Machine broyeur 2 en 1; 4 tonnes par heures,  4.5Kw",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "wIrEfchHWxmfWuZSZSt4",
+      "name": "Machine d'emballage 3 en 1 pour sucre, café... à grande vitesse 240 sachets/min",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "ErpbGKC7kgj1N839oRQV",
+      "name": "machine d'emballage automatique industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "ifedkTGce7INrKNtihf6",
+      "name": "Machine d'emballage automatique pour granulés et produits secs",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "G1PpnZqYyVAU7Yvw7V0n",
+      "name": "Machine d'emballage automatique pour une petite entreprise",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "duYPzBetpJhiuQPIOp9k",
+      "name": "Machine d'emballage de sucettes glacées et liquides",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "gZMpbX3bTdgLKJcjfKRs",
+      "name": "Machine d'emballage horizontale pour bâtonnets de glace",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "vpd0iSkjfy93huHveIhj",
+      "name": "Machine d'emballage produits concentrer : miel, tomate, ketchup, moutarde",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "x9Q3iOrZr7rchwLGYxeM",
+      "name": "Machine de conditionnement de liquides en sachet",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "NvduAtWJrwHoGLh0bhA3",
+      "name": "Machine de Distribution Automatique de PVC et Silicone",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "M0dGlKlXHHKvJi4uVkzr",
+      "name": "Machine de fabrication de briques hydraulique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "0sxYuZm5uqOjYc9koyVY",
+      "name": "Machine de fabrication de corne de crème glacée",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "9mwsxzz0lJGiNsQ8e9hs",
+      "name": "Machine de formage pour sucettes",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "VwzUKS08MDYq25octQ9l",
+      "name": "Machine de mélange chauffante professionnelle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "8Nojt3tOWq6Z5LR5YfQ5",
+      "name": "Machine de production de chips de maïs, 380V",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "bKXbWrJGquwnjagFYNLm",
+      "name": "Machine de production de yaourt",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "vaft8sgjTGVI5jGS37GC",
+      "name": "Machine de remplissage cosmétiques",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "8tp6IK3uZl4a6erJzURe",
+      "name": "Machine de remplissage de bouteilles pour liquides",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "wc2jWMVdsQLgOKGbQfLz",
+      "name": "Machine de remplissage et de formage d’aliments Longmai",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "W7Fq0iRWV1kCPCnp5Q5y",
+      "name": "Machine de remplissage et de scellage de sachets",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "64StncWA9erqIoOmTRGs",
+      "name": "Machine de remplissage et de scellage pour glaces en tube",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "kjh4OLzzxYAH3ok4HaGw",
+      "name": "Machine de remplissage liquide concentrer et faible semi automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "CQO7mhmnZdpm0JxDJYjw",
+      "name": "Machine de remplissage multifonctionnelle pour les produits poudre et graine, 220V, 380V",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "n8Yr0ZosTRJkskltQJy5",
+      "name": "Machine de remplissage semi automatique en bouteille",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "ExWzbAT2rJk42aKxxTQh",
+      "name": "Machine de scellage automatique model 700",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "TjM57tnQb6Sze0AfPDeP",
+      "name": "Machine de séchage automatique pour poudre / Hot Air Drying Machine",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "xPUicjajaM8j14LcjpJP",
+      "name": "Machine Industrielle de Décorticage de Fèves de Cacao",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "JHbVeby40MMGL2dJq5co",
+      "name": "Machine remplissage automatique des aliments en poudre et granulés 1000kg",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "wPDHxOyqv8PKJBufBuGo",
+      "name": "Machine scellage, emballer horizontale model 400",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "P2DBSoyzwiTMljMCARLg",
+      "name": "marmite mélangeuse électrique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "0K2u5PrsQLfEFnVqAKgK",
+      "name": "mélangeur à poudre industriel",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "cSnEWG8LPGNcDO4mR1hP",
+      "name": "Mélangeur électrique 110 V, mélangeur à 6 vitesses réglables, mélangeur industriel entièrement automatique pour peinture et ciment, batteur à œufs",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "D9zfafzdN9PKe2G91aRu",
+      "name": "Mini Industrie d'eau, jus, vinaigre... En bouteille, 4 tête, 3000/BPH",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "hdlPjgT54OHEljTAZoFO",
+      "name": "Mini-Chargeur Compact à Chenilles Multi-Accessoires",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "IgWpjV6WYtRn0OpVF64c",
+      "name": "Motoculteur à Chenilles de Précision",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "zySdwYT6oe1nwnnvK1Px",
+      "name": "Moulin à grains à moteur thermique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "b3WlQNRtSrxetpHhlSjd",
+      "name": "Moulin à grains électrique haute performance",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "0c2VV0ADyoF5AdkRXrPt",
+      "name": "pasteurisateur industriel de 100 litres",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "5EAI2HPZIWO22pmQFrqT",
+      "name": "Perforeuse-Relieuse de Précision MasterBind",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "QebdcZthXsc0exVmBv8V",
+      "name": "Pompe Centrifuge Multicellulaire Industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "sAztKUzAfuwYUjz40LzF",
+      "name": "Potato Chips Production Line / Ligne de production de chips de pommes de terre",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "wqNMtqN9rhZSGvHB2dkf",
+      "name": "Presse à Fonds de Tarte Manuelle de Précision",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "pLTdeGEO9GroAz11B6VK",
+      "name": "Presse à Granulés Agricole Nutri-Pellet",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "A1UKPFQIsraiagtAffLj",
+      "name": "presse à huile électrique automatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Vp8vZdkYf40bu4EH4YZZ",
+      "name": "presse à pâte rotative industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "cM9ZsLpILUrQViWBTA0D",
+      "name": "presse à tortillas et crêpes pneumatique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "vWUfG0lyc5zG8GpBVPZm",
+      "name": "remplisseuse mélangeuse industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "h6geAL1vQtp2m6jRO0fM",
+      "name": "Rôtissoire Verticale Professionnelle à Crochet",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "fVW55cCVcKTlLKsUI1BZ",
+      "name": "Semi-Automatic Filling Machine, Hose Filling and Sealing Machine, Toothpaste Glue Pigment Water Cooling and Heating Filling Machine, Small Liquid Filling Machine",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "w2RzuHsyOzW2XpOYlzax",
+      "name": "Semoir manuel de précision à roue",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "zDUCYnzwWbnXzuiCCqvT",
+      "name": "Station de Montage pour Boîtes d'Expédition",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "rWt7CU4YwycRVkja4OnA",
+      "name": "Système de Conditionnement à Vis Automatisé",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "d85idRA6rr8UcZRx606P",
+      "name": "torréfacteur rotatif électrique",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "JqebK1UXg74o2LYUsNqk",
+      "name": "Trancheuse de fruits et légumes industrielle",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "2vCES3V0JIbHLiDxkLiP",
+      "name": "Turntable Cup packaging machine grain mixed grain hardware peanut red jujube tea automatic particle packaging machine",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "M3vgll1olzWJP2AkvjBM",
+      "name": "Unité de granulation Leabon",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "nkYhcc89AQLSEqBBBxmD",
+      "name": "Warafa automatic quantitative weighing machine powder powder hardware screw dispenser particle powder packaging machine",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "Jf7cNZ9Pyn8A3q1PeSJJ",
+      "name": "全自动内外袋三边封茶叶包装机 花茶带线标三角包袋泡茶包装机. Machine de production Lipton, Thé, 220V",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "5YRDSCNN9bY3FlHljuNd",
+      "name": "吹瓶机烘箱PC吹瓶机铝烤盘风窝式加热箱讯 Usine de fabrication bouteille d'eau, cannette....  Contactez le fournisseur",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "d7IXjoWRLTevD4wTYXhD",
+      "name": "封口机商用全自动薄膜印900家用观赏鱼食品月饼茶叶牛皮纸铝箔袋",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "PNGJT3L2cEioCY3Qzzqk",
+      "name": "小型饲料颗粒机器干湿两用家用养殖设备制粒造粒220V, 380V玉米秸秆加工",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    },
+    {
+      "id": "i0Pra6IFa8IFJK4bkfUR",
+      "name": "鸡蛋托机生产线全自动纸浆成型机各种纸托成型设备蛋托机大型. Machine de fabrication plateau d'oeuf de haut qualité. Contactez le fournisseur",
+      "categoryName": "Machines Industrielles",
+      "status": "published",
+      "isActiveBefore": true,
+      "isActiveAfter": false
+    }
+  ],
+  "alreadyInactive": []
+}

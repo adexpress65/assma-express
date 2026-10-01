@@ -1,0 +1,1428 @@
+{
+  "mode": "execute",
+  "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+  "plannedCount": 65,
+  "skippedCount": 160,
+  "planned": [
+    {
+      "id": "1Hln1OkkdlN9j3MEIYHy",
+      "name": "chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1990,
+      "priceXOF": 166802,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 166802 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "1sbKMoOnLTP6oZ7XkBvn",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1924,
+      "priceXOF": 161270,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161270 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "23KU9Y4iXTgQBtd7ykgW",
+      "name": "Chaussures chaussons d’hôtel",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 548,
+      "priceXOF": 45933,
+      "reasons": [
+        "name sans caractère chinois"
+      ],
+      "variantsRestored": 3
+    },
+    {
+      "id": "2DC6TM2T7htUIDnacmCy",
+      "name": "Chaussures à bas prix, nouveauté",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1800,
+      "priceXOF": 150876,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 150876 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "4BULmpgWK9so96NSvP8b",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1939,
+      "priceXOF": 162527,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 162527 > 50000"
+      ],
+      "variantsRestored": 18
+    },
+    {
+      "id": "5zmcbq3sCIh2rPXHCmhy",
+      "name": "Chaussures pour femme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1980,
+      "priceXOF": 165964,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 165964 > 50000"
+      ],
+      "variantsRestored": 27
+    },
+    {
+      "id": "6EKOykL4Pdlkq45Kz2kh",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1720,
+      "priceXOF": 144170,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 144170 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "6uW0JTQNyHSsjCItGNfN",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1800,
+      "priceXOF": 150876,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 150876 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "86cyLuFHiiRgkoWFknrg",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1887,
+      "priceXOF": 158168,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 158168 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "980nFMwytF3jYACVAQD9",
+      "name": "Chaussons bébé chauds",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1063,
+      "priceXOF": 89101,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 89101 > 50000"
+      ],
+      "variantsRestored": 10
+    },
+    {
+      "id": "98O9n7nlr5lpd3pz9JNo",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1634,
+      "priceXOF": 136962,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 136962 > 50000"
+      ],
+      "variantsRestored": 35
+    },
+    {
+      "id": "AWS3shFwQ3VzbBaOQ9HT",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1800,
+      "priceXOF": 150876,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 150876 > 50000"
+      ],
+      "variantsRestored": 28
+    },
+    {
+      "id": "BatKQ4fzTPPdef04dNFz",
+      "name": "Chausssure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1977,
+      "priceXOF": 165712,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 165712 > 50000"
+      ],
+      "variantsRestored": 28
+    },
+    {
+      "id": "CBOVwTL1V0XeshdsNSw6",
+      "name": "Chaussures Fashion",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1980,
+      "priceXOF": 165964,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 165964 > 50000"
+      ],
+      "variantsRestored": 28
+    },
+    {
+      "id": "DgYn0JqPIoBkupK9rfbt",
+      "name": "Chaussure pour femme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1195,
+      "priceXOF": 100165,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 100165 > 50000"
+      ],
+      "variantsRestored": 42
+    },
+    {
+      "id": "EMEWUNavSqzfyMGEe4A9",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1756,
+      "priceXOF": 147188,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 147188 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "F7FYjO4zHQqczcB0jfty",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1928,
+      "priceXOF": 161605,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161605 > 50000"
+      ],
+      "variantsRestored": 10
+    },
+    {
+      "id": "GRvwhbwm58iXXEDzNhH0",
+      "name": "Sandales Plates à Strass",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1057,
+      "priceXOF": 88598,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 88598 > 50000"
+      ],
+      "variantsRestored": 6
+    },
+    {
+      "id": "H1fL0e6pTdKjWqgfxPsM",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1596,
+      "priceXOF": 133777,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 133777 > 50000"
+      ],
+      "variantsRestored": 24
+    },
+    {
+      "id": "Hgm8E3eaY7roXg3wyO1A",
+      "name": "Chaussures léger nouvelle collection",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1837,
+      "priceXOF": 153977,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 153977 > 50000"
+      ],
+      "variantsRestored": 18
+    },
+    {
+      "id": "IjYV37U4bsmGm7P1j1vd",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1923,
+      "priceXOF": 161186,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161186 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "KMOxMAdt6yTYjNzGhDvA",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1920,
+      "priceXOF": 160934,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 160934 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "L4KdDrD2OM4XvJKtHepJ",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1950,
+      "priceXOF": 163449,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 163449 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "LAPn4fpXWnWTwW2rduQR",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1960,
+      "priceXOF": 164287,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 164287 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "LTG1mHhrVltG9LFJIqLr",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1860,
+      "priceXOF": 155905,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 155905 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "LmxqUNrnKdZPpOIeQodJ",
+      "name": "Chaussures sandales antidérapantes",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1800,
+      "priceXOF": 150876,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 150876 > 50000"
+      ],
+      "variantsRestored": 10
+    },
+    {
+      "id": "M6BtO4iEWv5eg7TFbEoZ",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1924,
+      "priceXOF": 161270,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161270 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "N13wLbXOu6J4esXNEaGl",
+      "name": "Chaussures chaussettes pour bébés",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1122,
+      "priceXOF": 94046,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 94046 > 50000"
+      ],
+      "variantsRestored": 12
+    },
+    {
+      "id": "OI5zU14NEHwuICxQ9gT6",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1576,
+      "priceXOF": 132100,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 132100 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "OJgjb85g5wXFcZtF1prn",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1878,
+      "priceXOF": 157414,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 157414 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "OU04q2q7dHOoNiEEAGT0",
+      "name": "Chaussure Été",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1600,
+      "priceXOF": 134112,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 134112 > 50000"
+      ],
+      "variantsRestored": 35
+    },
+    {
+      "id": "PnzI4TgCGXDY8mSetSWb",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1920,
+      "priceXOF": 160934,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 160934 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "Q1qGALLEkVlcuCLwsTt6",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1790,
+      "priceXOF": 150038,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 150038 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "QeJ5HgoZtctEuVDELbha",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1760,
+      "priceXOF": 147523,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 147523 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "SMQGFSJCkBe7l33NnOsS",
+      "name": "Claquettes \"Entre-doigt\" à Boucles",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1320,
+      "priceXOF": 110642,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 110642 > 50000"
+      ],
+      "variantsRestored": 9
+    },
+    {
+      "id": "T7W8k6jQB9NTMxBjI9Ph",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1850,
+      "priceXOF": 155067,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 155067 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "Te9PeiAkqs9Z2GvPJp1o",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1738,
+      "priceXOF": 145679,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 145679 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "UNR829KUKDAjcnSKh5Fy",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1564,
+      "priceXOF": 131094,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 131094 > 50000"
+      ],
+      "variantsRestored": 35
+    },
+    {
+      "id": "UhAQA1FV8RHooOVPVm0d",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1950,
+      "priceXOF": 163449,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 163449 > 50000"
+      ],
+      "variantsRestored": 7
+    },
+    {
+      "id": "WWLfv0lxyljLy8NsikSQ",
+      "name": "Chaussure souples pour bébés",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1086,
+      "priceXOF": 91029,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 91029 > 50000"
+      ],
+      "variantsRestored": 18
+    },
+    {
+      "id": "XCuYZ0w7pZJlcK4bmwXN",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1936,
+      "priceXOF": 162276,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 162276 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "XZphdo4hqgqhzntdnW1O",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1927,
+      "priceXOF": 161521,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161521 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "XmHuCablJrd2yDEyHmSA",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1937,
+      "priceXOF": 162359,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 162359 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "YRbxieoFfNjcw1RFv5mF",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1785,
+      "priceXOF": 149619,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 149619 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "bDadzaGZUXy0PwoHRmge",
+      "name": "Chaussure pour homme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1997,
+      "priceXOF": 167389,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 167389 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "cxqgoEV3DpWMz4xBjVga",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1768,
+      "priceXOF": 148194,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 148194 > 50000"
+      ],
+      "variantsRestored": 24
+    },
+    {
+      "id": "hMSyVqRzwf2VkA82Xquk",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1603,
+      "priceXOF": 134363,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 134363 > 50000"
+      ],
+      "variantsRestored": 24
+    },
+    {
+      "id": "iO04NGTNuqxseZQo9MFC",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1945,
+      "priceXOF": 163030,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 163030 > 50000"
+      ],
+      "variantsRestored": 24
+    },
+    {
+      "id": "ipXYfPLxSC2qDNUAmeoz",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1698,
+      "priceXOF": 142326,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 142326 > 50000"
+      ],
+      "variantsRestored": 35
+    },
+    {
+      "id": "j8SmUV152FFvR03ghFPh",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1843,
+      "priceXOF": 154480,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 154480 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "kS6RpEVudtz0CabjHp0v",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1727,
+      "priceXOF": 144757,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 144757 > 50000"
+      ],
+      "variantsRestored": 24
+    },
+    {
+      "id": "ovU27aEjtk3XYRkS8ukU",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1849,
+      "priceXOF": 154983,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 154983 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "q3whhLOzl0s62ulngGq9",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1926,
+      "priceXOF": 161437,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161437 > 50000"
+      ],
+      "variantsRestored": 21
+    },
+    {
+      "id": "rEZ3AdXAUXsYjON0JS8h",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1900,
+      "priceXOF": 159258,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 159258 > 50000"
+      ],
+      "variantsRestored": 35
+    },
+    {
+      "id": "sZtZ06PWI0GlRhLLGhJd",
+      "name": "chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1860,
+      "priceXOF": 155905,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 155905 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "sucSt3bTiP5hQr4bXhMx",
+      "name": "Cordon de lunette",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1576,
+      "priceXOF": 132100,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 132100 > 50000"
+      ],
+      "variantsRestored": 1
+    },
+    {
+      "id": "uIoxJRloXYm0T0SuZqwr",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1923,
+      "priceXOF": 161186,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161186 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "uSEW2gwekdOz3RXXPBrU",
+      "name": "Plantoufles d’intérieur pour homme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1003,
+      "priceXOF": 84071,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 84071 > 50000"
+      ],
+      "variantsRestored": 2
+    },
+    {
+      "id": "uayWNOUJmYdeQlTD6kNu",
+      "name": "Chaussons jetables",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 560,
+      "priceXOF": 46939,
+      "reasons": [
+        "name sans caractère chinois"
+      ],
+      "variantsRestored": 1
+    },
+    {
+      "id": "w6shwYuod7NoN5m0PG7R",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1889,
+      "priceXOF": 158336,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 158336 > 50000"
+      ],
+      "variantsRestored": 8
+    },
+    {
+      "id": "wOkULgEFRziJIxaWdsLf",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1787,
+      "priceXOF": 149786,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 149786 > 50000"
+      ],
+      "variantsRestored": 7
+    },
+    {
+      "id": "wUtmlEL56ROsQ4u4cLEi",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1872,
+      "priceXOF": 156911,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 156911 > 50000"
+      ],
+      "variantsRestored": 14
+    },
+    {
+      "id": "wxSRjvMcbncFbel3fCpf",
+      "name": "Bracelet multicolores",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1593,
+      "priceXOF": 133525,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 133525 > 50000"
+      ],
+      "variantsRestored": 1
+    },
+    {
+      "id": "xNImzESmViKEZ93rUgRI",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1904,
+      "priceXOF": 159593,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 159593 > 50000"
+      ],
+      "variantsRestored": 18
+    },
+    {
+      "id": "xat2EjK3221eeWIGJr2Z",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "priceOriginal": 1923,
+      "priceXOF": 161186,
+      "reasons": [
+        "name sans caractère chinois",
+        "priceXOF 161186 > 50000"
+      ],
+      "variantsRestored": 14
+    }
+  ],
+  "skipped": [
+    {
+      "id": "1DZh94xKHKUBVJm7qkzl",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "1lRPFHe52Te20OqlEpJv",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "21BRtxwN4zRGm6QHOcUQ",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "2Yd6wok18RjHLyQfd6uI",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "3EC1lKs7ahKnHxyXpYsz",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "3N85zzftespfsGXSMRJw",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "4IsR89lZv5Arxc4ZuJvW",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "4rAkAvWBZasjU2donRDf",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "53ZVYLEGhFlFcrPoLEbZ",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5RZLeagp63ZCcfWQt9Fn",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5TuCfarHU9768MxfGdvr",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5W37NeJS15OJ7iyxHonj",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5YK7B5mWd8U8NZ4HW0mD",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5qAAgJz5q7fPoO4Jv2pB",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5ukVN9VfPOda5FUW6tZG",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5vWGUoToWou1SFf7GKNC",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "5yTkHY3HaUOaYfSj3sTH",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "60ZWYpwOO7ZMvTNdybeJ",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "6LSMolb1gTiZvHZjsNMe",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "6OKiyTlf8QSTfbVe8H2e",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "7GcJb5BqgrjDS9JOznfD",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "7Tjb8B1RJ3FoFH4uuMlA",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "7y7Th2h66a4aPlDUOZau",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "87oN3SaPMxpogGablQ5F",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "8bNqVMeXdT1equ93NnAk",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "8qk4xnK9b7oI0gRS0qei",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "9bZfxXHPPhpr0BDVSUxI",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "9rxI9lxKyqTDhmJY82L7",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "Az8fsj3OIo12bkdlLxCV",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "B7sina7k3VcCdgUEGcCx",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "C7CE0QduqPOQkQ1ZgplM",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "CRvR4wmyeu8WOEyHbTiK",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "CzQmJEsXpQKz9CBBDVHl",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "DFbKG7EETpocMogxymoG",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "DzGuU1teiCqwdwiep68r",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "ERmUo4heJhXcphK8WQDL",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "Eo6RzrAEGVvCKUxZ5r0L",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "EsdBGeDOrAwYWKEM9umU",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "F8CmSWRgnMCbIattgf1j",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "FuJOjuowpm3JNUeCDNyw",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "FymWwbOImdXZglI3Ax5X",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "GZQG2UUtenR6BQBz35Cp",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "H9mx4j9ljL4offpdv0Zw",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "IKTpQ7cIEJQ249vjdiFX",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "IxKDj0AAfAyuiwn0gkvT",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "JtVhL67gFuEwAt9fouta",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "KdEzzm1v8zfC3T3E0Dns",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "LImQpEjDqJ3aWDD1lXch",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "LPfIRwPs0zttrMNPVJsb",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "Lk7m6c1YaIaW5D6oBdCO",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "LzZjBxXZ4BBySV5f6DQr",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "MCt40BuS79Vef73dj69h",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "NMNYsl768p4EQG1ubEhi",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "NVv0fy9mWSyqWnAxKoqA",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "NpzmIhSIwHByvscnae44",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "OO0KOhM8g0T4oVJ4Dxyb",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "OSOhOn9ISP2M9ic7eMx2",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "OppG91bYiNZUgIGnPPBA",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "OtWgoesXo80j8yzcJgMV",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "P6lE8Rfsx1RnfEcsYqSE",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "PCdJiNT2n3LNzcsSA3Sr",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "PE9x9MQI0gpgCz1SkBnE",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "Pt892PwjVLgKy5bKdNWf",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "QmwsPwk0NnSIoSDhdx0f",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "RAAewAJZXkd7yVbBZFVa",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "RD8SDQ33I2Jeu1Edj5z1",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "RDBM0W1br1V6tCMyk6dX",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "SdQYkd66usT7YA0UHzcB",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "T58v3CuE1aapY2WocaQA",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "TBOmTeBw1hd2sHB7jJC4",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "TXPYuMlwFkT7P8R2zuLH",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "UNVFEjmjpjbrudo3hNYU",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "UOf3oCUyy8lFXzjHjhjI",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "UfYCNl2WMwEbjqy7ldbT",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "V2NkMNIS2MesvMfeaZjN",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "VDH7VdrOd0YEfVZXtzbZ",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "VTVPesyfWFK7eY7JTpVi",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "VqcXRkiFECHDmi0049BA",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "VyxmwE2Fd3kCxir4ageV",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "XRmPvqJcBjqFOKhHw6VR",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "XUBswhmeUt5iP2YXAd0l",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "Y0rEofVq9NaJwbQH2gp4",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "YOcznh4G0nQXPnHnyBKB",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "a48l9uQJK07JPvW7PAvo",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "aNpA2OtDeW2oNeIGwROw",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "aj8AbIQHGDdfcYIJL0IW",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "akTshDf6mywcosyk528p",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "avEfV3EzruMr6CKzjBc5",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "b8vzAoF4R5ykCtAdD63I",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "bVG11AcXSd0DkQNdUSXm",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "bkVBszAYcpF8mzwKqF4I",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "cBfFlBeQUhDECsid4zrQ",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "cTGVIiwU6JaVb5X66Gwn",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "cYIWosuAJZ9nkjL5p1HL",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "dDIOitnCLmtI9ym7aQSQ",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "dM4r2M6rGk4o0qgtrfIq",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "dwQ6GS5zoYzv9ZKhNk6z",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "fW2tMjovzeoBV3BaAM9E",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "g9DTAtcWOEv9pQ1poF5L",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "gNcvgUmHPkio61zeAGke",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "gdM8iAvHcHDONhxHwQDg",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "hKT4sfOCA9PNZUAJg1t8",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "ho0elgkmpD0a88ufMXlR",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "hvShm6xJVt7C1rGmR5NI",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "i1zoWyN3k18EuLKuzyzF",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "jGxwVjiA8dIdN96JLSoW",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "jg46Muyv9JJEROyuTLxX",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "jnOV9iEjOFHMvWKXo1fm",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "kMWnifKsdMZi8TGaPBcB",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "lH9x8ISOWQIVTLuoKI8m",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "lMKzO0cJebzYS6JR4I2M",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "lp8Cf1IwTp8G1okvF2NK",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "mMH7BOhxGhXNE0tiMHFq",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "n2T1sdBoQipp5ovrF906",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "n33wBw3m101joGB3ajYe",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "nGcge8D3r9F1aAXnJ2ey",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "nKJIoTDYx1DczWTHrcWW",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "nL6B42C38SgPv9Q2bMMq",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "nSwgves8blh0v42Ve2mS",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "nhVdcLTDYQ9iqUbNLbCj",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "nrX4vlnAaB1347Ap8fUw",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "oE3oZXnG1rUlXSXwk2x3",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "p7ZcndzeWDRT8DIT59pl",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "pKY8pwPBA0HgVmYFf8xo",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "pNywB9q2jkYf0u7AtkM5",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "prZlqDHBR9xF6xs78Wzo",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "pvE2QZdwqchcpQvbSWR1",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "rJHoEnYkD6bcIF6pMb6Q",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "rb0K80d5jA1ns2OIj2aA",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "rk9YyZ6p3j4Ky8G7vAY9",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "s8WkleZV3dh004yt7N0c",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "sM5Krx6hzl77ngkkyaaj",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "tBBaNaz4nSKAgwtbVcQP",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "tEGg2UtQfGs3P668BH2t",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "tQGGWAgzeWuKJGXuv7KV",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "tSBN8Bi2RjFqDo2M0Oj9",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "uMG7Fjm4OgkRz8NQuZVl",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "uTsdbY8lmWv4nP9ysw7y",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "uW5fjwOtKnvxxoSLmX9d",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "uk5lA28KkDG8yPatLwWY",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "vBkwPN1yyJz52nt91mVa",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "wO6patioQN4zRR8Kn9aT",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "wwNWdtNN5qIWqr0AIcZL",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "x56LuTaJB2HUKbWzCqIh",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "y7pdVVrGV4NCeQ0PejjP",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "yJjqMP6yhCmamswaRCZB",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "yKAPXtOyWKrBD95aOml2",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "yMoMY6arUkSFWber0wm7",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "yVeQqrbAt2ah0FZawTHT",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "yeEMQlKDFWMCS6l9s6EC",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "ygWxNNJj5HgUFLkyuGJp",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "ywyo0IDmuHMGbIqOR9QW",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "zJ8jPTkGoFilqCOSWwWC",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "zL4X7zk9RpP8lTpRxEnh",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "zTcCltGuR0D6jKMo3GWm",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "zdkUgNl6yXrFUnvurkmb",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "ztfnqwQmvWdyj4Pia9xp",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "zuXPDAF4VdaVoHM1xKy2",
+      "reason": "pas de priceCurrency=CNY"
+    },
+    {
+      "id": "zux0V2VXaFuXd7gLhGdP",
+      "reason": "CNY légitime (nom chinois et priceXOF ≤ 50000)"
+    },
+    {
+      "id": "zxExUuuqo2QoC1vbXtxq",
+      "reason": "pas de priceCurrency=CNY"
+    }
+  ]
+}

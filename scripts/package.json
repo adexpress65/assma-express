@@ -4,7 +4,22 @@
   "main": "migrate-to-lowercase.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "backfill:image-hashes": "node backfillImageHashes.js"
+    "backfill:image-hashes": "node backfillImageHashes.js",
+    "migrate:role-claims": "node migrateUserRoleClaims.js",
+    "migrate:role-claims:execute": "node migrateUserRoleClaims.js --execute",
+    "migrate:unlimited-stock": "node migrateUnlimitedStock.js",
+    "migrate:unlimited-stock:execute": "node migrateUnlimitedStock.js --execute",
+    "migrate:fulfillment-status": "node migrateFulfillmentStatus.js",
+    "migrate:fulfillment-status:execute": "node migrateFulfillmentStatus.js --execute",
+    "audit:cny": "npx tsx audit-cny-products.ts",
+    "migrate:cny": "npx tsx migrate-cny-products.ts",
+    "migrate:cny:execute": "npx tsx migrate-cny-products.ts --execute",
+    "backfill:warehouse": "npx tsx backfill-origin-warehouse.ts",
+    "backfill:warehouse:execute": "npx tsx backfill-origin-warehouse.ts --execute",
+    "backfill:conversation-seller": "npx tsx backfill-conversation-seller-uid.ts",
+    "backfill:conversation-seller:execute": "npx tsx backfill-conversation-seller-uid.ts --execute",
+    "backfill:orphan-gpacking": "npx tsx backfill-deactivate-orphan-gpacking.ts",
+    "backfill:orphan-gpacking:execute": "npx tsx backfill-deactivate-orphan-gpacking.ts --execute"
   },
   "keywords": [],
   "author": "",
@@ -13,5 +28,8 @@
   "dependencies": {
     "algoliasearch": "^5.50.0",
     "firebase-admin": "^13.7.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.13"
   }
 }

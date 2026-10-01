@@ -1,0 +1,179 @@
+{
+  "shops": [
+    {
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "companyName": "悦优品厂",
+      "total": 225,
+      "noCurrency": 207,
+      "cny": 18,
+      "xof": 0,
+      "other": 0,
+      "cnyWrong": 0,
+      "cnyKeep": 18,
+      "samplesWrong": [],
+      "samplesKeep": [
+        {
+          "id": "6LSMolb1gTiZvHZjsNMe",
+          "name": "冬季男款加绒加厚马丁靴男英伦风高帮工装潮机车中帮厚底皮鞋棉鞋",
+          "price": 2347,
+          "priceOriginal": 28,
+          "priceXOF": 2347,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "7y7Th2h66a4aPlDUOZau",
+          "name": "【淘宝】7天无理由退货 https://e.tb.cn/h.ia1MuExb0dnfM3R?tk=tlruUKp0g5r MF168 「拷贝链接」\n点击链接直接打开 或者 淘宝搜索直接打开",
+          "price": 5448,
+          "priceOriginal": 65,
+          "priceXOF": 5448,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "8qk4xnK9b7oI0gRS0qei",
+          "name": "男鞋夏季透气2026新款运动鞋网面跑步休闲厚底老爹潮鞋飞织学生潮",
+          "price": 2096,
+          "priceOriginal": 25,
+          "priceXOF": 2096,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "Eo6RzrAEGVvCKUxZ5r0L",
+          "name": "秋冬马丁靴高帮休闲男鞋皮面防水厚底老爹鞋内增高耐磨登山工装靴",
+          "price": 2347,
+          "priceOriginal": 28,
+          "priceXOF": 2347,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "LImQpEjDqJ3aWDD1lXch",
+          "name": "断码男鞋新款透气网面运动鞋潮流百搭厚低老爹鞋内增高面包鞋学生",
+          "price": 2347,
+          "priceOriginal": 28,
+          "priceXOF": 2347,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "PE9x9MQI0gpgCz1SkBnE",
+          "name": "冬季爆款马丁靴加棉加厚保暖厚底棉鞋内增高高帮鞋休闲雪地靴",
+          "price": 2347,
+          "priceOriginal": 28,
+          "priceXOF": 2347,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "UOf3oCUyy8lFXzjHjhjI",
+          "name": "秋冬网布老爹鞋轻便休闲鞋学生男潮流厚底跑步鞋内增高中邦运动鞋",
+          "price": 2347,
+          "priceOriginal": 28,
+          "priceXOF": 2347,
+          "priceCurrency": "CNY"
+        },
+        {
+          "id": "avEfV3EzruMr6CKzjBc5",
+          "name": "冬季马丁靴加绒加厚保暖防风抗寒皮面防水高帮休闲鞋雪地靴增高潮",
+          "price": 2347,
+          "priceOriginal": 28,
+          "priceXOF": 2347,
+          "priceCurrency": "CNY"
+        }
+      ],
+      "samplesLegacy": [
+        {
+          "id": "1DZh94xKHKUBVJm7qkzl",
+          "name": "Chaussure",
+          "price": 2500,
+          "priceOriginal": null,
+          "priceXOF": 2500,
+          "priceCurrency": null
+        },
+        {
+          "id": "1Hln1OkkdlN9j3MEIYHy",
+          "name": "chaussure",
+          "price": 1990,
+          "priceOriginal": null,
+          "priceXOF": 1990,
+          "priceCurrency": null
+        },
+        {
+          "id": "1lRPFHe52Te20OqlEpJv",
+          "name": "Chaussures",
+          "price": 2097,
+          "priceOriginal": null,
+          "priceXOF": 2097,
+          "priceCurrency": null
+        },
+        {
+          "id": "1sbKMoOnLTP6oZ7XkBvn",
+          "name": "Chaussure",
+          "price": 1924,
+          "priceOriginal": null,
+          "priceXOF": 1924,
+          "priceCurrency": null
+        },
+        {
+          "id": "21BRtxwN4zRGm6QHOcUQ",
+          "name": "Chaussure",
+          "price": 2400,
+          "priceOriginal": null,
+          "priceXOF": 2400,
+          "priceCurrency": null
+        }
+      ]
+    },
+    {
+      "sellerId": "zc94oBEXpEXEzGD2DgqmpjGVuMv2",
+      "companyName": "Foshan Printing & Packaging Co., Ltd",
+      "total": 148,
+      "noCurrency": 148,
+      "cny": 0,
+      "xof": 0,
+      "other": 0,
+      "cnyWrong": 0,
+      "cnyKeep": 0,
+      "samplesWrong": [],
+      "samplesKeep": [],
+      "samplesLegacy": [
+        {
+          "id": "0gbn9qWvjCxGMuHAdnii",
+          "name": "Pochette d'Expédition Holographique",
+          "price": 5,
+          "priceOriginal": null,
+          "priceXOF": 5,
+          "priceCurrency": null
+        },
+        {
+          "id": "1VCQ8mPI5Ypug7TsGfj3",
+          "name": "亚马逊FBA五层爆款外贸物流快递包装正方形纸箱10-40CM现货当天发",
+          "price": 5.6,
+          "priceOriginal": null,
+          "priceXOF": 5.6,
+          "priceCurrency": null
+        },
+        {
+          "id": "2M3qgiFpNjyPHu2UoGfx",
+          "name": "Collection \"Héritage\" – Bocaux de Stockage en Verre Borosilicate & Bois Précieux",
+          "price": 1275,
+          "priceOriginal": null,
+          "priceXOF": 1275,
+          "priceCurrency": null
+        },
+        {
+          "id": "2g6CKBjG8c9wXaUHdxkU",
+          "name": "Enveloppe d'Expédition Personnalisée",
+          "price": 2,
+          "priceOriginal": null,
+          "priceXOF": 2,
+          "priceCurrency": null
+        },
+        {
+          "id": "2u75tF0rHFZv1k8GD4Wx",
+          "name": "Pochette d'Expédition Auto-Adhésive",
+          "price": 2,
+          "priceOriginal": null,
+          "priceXOF": 2,
+          "priceCurrency": null
+        }
+      ]
+    }
+  ]
+}

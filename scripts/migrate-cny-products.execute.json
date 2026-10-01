@@ -1,0 +1,1243 @@
+{
+  "mode": "execute",
+  "rate": 83.82,
+  "source": "config/exchangeRates",
+  "plannedCount": 83,
+  "skippedCount": 142,
+  "planned": [
+    {
+      "id": "1Hln1OkkdlN9j3MEIYHy",
+      "name": "chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1990,
+      "priceXOF": 166802,
+      "variantConverted": 21
+    },
+    {
+      "id": "1sbKMoOnLTP6oZ7XkBvn",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1924,
+      "priceXOF": 161270,
+      "variantConverted": 14
+    },
+    {
+      "id": "23KU9Y4iXTgQBtd7ykgW",
+      "name": "Chaussures chaussons d’hôtel",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 548,
+      "priceXOF": 45933,
+      "variantConverted": 3
+    },
+    {
+      "id": "2DC6TM2T7htUIDnacmCy",
+      "name": "Chaussures à bas prix, nouveauté",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1800,
+      "priceXOF": 150876,
+      "variantConverted": 14
+    },
+    {
+      "id": "4BULmpgWK9so96NSvP8b",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1939,
+      "priceXOF": 162527,
+      "variantConverted": 18
+    },
+    {
+      "id": "5zmcbq3sCIh2rPXHCmhy",
+      "name": "Chaussures pour femme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1980,
+      "priceXOF": 165964,
+      "variantConverted": 27
+    },
+    {
+      "id": "6EKOykL4Pdlkq45Kz2kh",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1720,
+      "priceXOF": 144170,
+      "variantConverted": 14
+    },
+    {
+      "id": "6LSMolb1gTiZvHZjsNMe",
+      "name": "冬季男款加绒加厚马丁靴男英伦风高帮工装潮机车中帮厚底皮鞋棉鞋",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 8
+    },
+    {
+      "id": "6uW0JTQNyHSsjCItGNfN",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1800,
+      "priceXOF": 150876,
+      "variantConverted": 21
+    },
+    {
+      "id": "7y7Th2h66a4aPlDUOZau",
+      "name": "【淘宝】7天无理由退货 https://e.tb.cn/h.ia1MuExb0dnfM3R?tk=tlruUKp0g5r MF168 「拷贝链接」\n点击链接直接打开 或者 淘宝搜索直接打开",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 65,
+      "priceXOF": 5448,
+      "variantConverted": 8
+    },
+    {
+      "id": "86cyLuFHiiRgkoWFknrg",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1887,
+      "priceXOF": 158168,
+      "variantConverted": 14
+    },
+    {
+      "id": "8qk4xnK9b7oI0gRS0qei",
+      "name": "男鞋夏季透气2026新款运动鞋网面跑步休闲厚底老爹潮鞋飞织学生潮",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 25,
+      "priceXOF": 2096,
+      "variantConverted": 24
+    },
+    {
+      "id": "980nFMwytF3jYACVAQD9",
+      "name": "Chaussons bébé chauds",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1063,
+      "priceXOF": 89101,
+      "variantConverted": 10
+    },
+    {
+      "id": "98O9n7nlr5lpd3pz9JNo",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1634,
+      "priceXOF": 136962,
+      "variantConverted": 35
+    },
+    {
+      "id": "AWS3shFwQ3VzbBaOQ9HT",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1800,
+      "priceXOF": 150876,
+      "variantConverted": 28
+    },
+    {
+      "id": "BatKQ4fzTPPdef04dNFz",
+      "name": "Chausssure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1977,
+      "priceXOF": 165712,
+      "variantConverted": 28
+    },
+    {
+      "id": "CBOVwTL1V0XeshdsNSw6",
+      "name": "Chaussures Fashion",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1980,
+      "priceXOF": 165964,
+      "variantConverted": 28
+    },
+    {
+      "id": "DgYn0JqPIoBkupK9rfbt",
+      "name": "Chaussure pour femme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1195,
+      "priceXOF": 100165,
+      "variantConverted": 42
+    },
+    {
+      "id": "EMEWUNavSqzfyMGEe4A9",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1756,
+      "priceXOF": 147188,
+      "variantConverted": 21
+    },
+    {
+      "id": "Eo6RzrAEGVvCKUxZ5r0L",
+      "name": "秋冬马丁靴高帮休闲男鞋皮面防水厚底老爹鞋内增高耐磨登山工装靴",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 14
+    },
+    {
+      "id": "F7FYjO4zHQqczcB0jfty",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1928,
+      "priceXOF": 161605,
+      "variantConverted": 10
+    },
+    {
+      "id": "GRvwhbwm58iXXEDzNhH0",
+      "name": "Sandales Plates à Strass",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1057,
+      "priceXOF": 88598,
+      "variantConverted": 6
+    },
+    {
+      "id": "H1fL0e6pTdKjWqgfxPsM",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1596,
+      "priceXOF": 133777,
+      "variantConverted": 24
+    },
+    {
+      "id": "Hgm8E3eaY7roXg3wyO1A",
+      "name": "Chaussures léger nouvelle collection",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1837,
+      "priceXOF": 153977,
+      "variantConverted": 18
+    },
+    {
+      "id": "IjYV37U4bsmGm7P1j1vd",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1923,
+      "priceXOF": 161186,
+      "variantConverted": 21
+    },
+    {
+      "id": "KMOxMAdt6yTYjNzGhDvA",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1920,
+      "priceXOF": 160934,
+      "variantConverted": 14
+    },
+    {
+      "id": "L4KdDrD2OM4XvJKtHepJ",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1950,
+      "priceXOF": 163449,
+      "variantConverted": 21
+    },
+    {
+      "id": "LAPn4fpXWnWTwW2rduQR",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1960,
+      "priceXOF": 164287,
+      "variantConverted": 14
+    },
+    {
+      "id": "LImQpEjDqJ3aWDD1lXch",
+      "name": "断码男鞋新款透气网面运动鞋潮流百搭厚低老爹鞋内增高面包鞋学生",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "LTG1mHhrVltG9LFJIqLr",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1860,
+      "priceXOF": 155905,
+      "variantConverted": 14
+    },
+    {
+      "id": "LmxqUNrnKdZPpOIeQodJ",
+      "name": "Chaussures sandales antidérapantes",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1800,
+      "priceXOF": 150876,
+      "variantConverted": 10
+    },
+    {
+      "id": "M6BtO4iEWv5eg7TFbEoZ",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1924,
+      "priceXOF": 161270,
+      "variantConverted": 14
+    },
+    {
+      "id": "N13wLbXOu6J4esXNEaGl",
+      "name": "Chaussures chaussettes pour bébés",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1122,
+      "priceXOF": 94046,
+      "variantConverted": 12
+    },
+    {
+      "id": "OI5zU14NEHwuICxQ9gT6",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1576,
+      "priceXOF": 132100,
+      "variantConverted": 21
+    },
+    {
+      "id": "OJgjb85g5wXFcZtF1prn",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1878,
+      "priceXOF": 157414,
+      "variantConverted": 14
+    },
+    {
+      "id": "OU04q2q7dHOoNiEEAGT0",
+      "name": "Chaussure Été",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1600,
+      "priceXOF": 134112,
+      "variantConverted": 35
+    },
+    {
+      "id": "PE9x9MQI0gpgCz1SkBnE",
+      "name": "冬季爆款马丁靴加棉加厚保暖厚底棉鞋内增高高帮鞋休闲雪地靴",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "PnzI4TgCGXDY8mSetSWb",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1920,
+      "priceXOF": 160934,
+      "variantConverted": 21
+    },
+    {
+      "id": "Q1qGALLEkVlcuCLwsTt6",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1790,
+      "priceXOF": 150038,
+      "variantConverted": 21
+    },
+    {
+      "id": "QeJ5HgoZtctEuVDELbha",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1760,
+      "priceXOF": 147523,
+      "variantConverted": 21
+    },
+    {
+      "id": "SMQGFSJCkBe7l33NnOsS",
+      "name": "Claquettes \"Entre-doigt\" à Boucles",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1320,
+      "priceXOF": 110642,
+      "variantConverted": 9
+    },
+    {
+      "id": "T7W8k6jQB9NTMxBjI9Ph",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1850,
+      "priceXOF": 155067,
+      "variantConverted": 14
+    },
+    {
+      "id": "Te9PeiAkqs9Z2GvPJp1o",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1738,
+      "priceXOF": 145679,
+      "variantConverted": 21
+    },
+    {
+      "id": "UNR829KUKDAjcnSKh5Fy",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1564,
+      "priceXOF": 131094,
+      "variantConverted": 35
+    },
+    {
+      "id": "UOf3oCUyy8lFXzjHjhjI",
+      "name": "秋冬网布老爹鞋轻便休闲鞋学生男潮流厚底跑步鞋内增高中邦运动鞋",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 27
+    },
+    {
+      "id": "UhAQA1FV8RHooOVPVm0d",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1950,
+      "priceXOF": 163449,
+      "variantConverted": 7
+    },
+    {
+      "id": "WWLfv0lxyljLy8NsikSQ",
+      "name": "Chaussure souples pour bébés",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1086,
+      "priceXOF": 91029,
+      "variantConverted": 18
+    },
+    {
+      "id": "XCuYZ0w7pZJlcK4bmwXN",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1936,
+      "priceXOF": 162276,
+      "variantConverted": 14
+    },
+    {
+      "id": "XZphdo4hqgqhzntdnW1O",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1927,
+      "priceXOF": 161521,
+      "variantConverted": 14
+    },
+    {
+      "id": "XmHuCablJrd2yDEyHmSA",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1937,
+      "priceXOF": 162359,
+      "variantConverted": 14
+    },
+    {
+      "id": "YRbxieoFfNjcw1RFv5mF",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1785,
+      "priceXOF": 149619,
+      "variantConverted": 21
+    },
+    {
+      "id": "avEfV3EzruMr6CKzjBc5",
+      "name": "冬季马丁靴加绒加厚保暖防风抗寒皮面防水高帮休闲鞋雪地靴增高潮",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "bDadzaGZUXy0PwoHRmge",
+      "name": "Chaussure pour homme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1997,
+      "priceXOF": 167389,
+      "variantConverted": 21
+    },
+    {
+      "id": "cxqgoEV3DpWMz4xBjVga",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1768,
+      "priceXOF": 148194,
+      "variantConverted": 24
+    },
+    {
+      "id": "hMSyVqRzwf2VkA82Xquk",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1603,
+      "priceXOF": 134363,
+      "variantConverted": 24
+    },
+    {
+      "id": "iO04NGTNuqxseZQo9MFC",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1945,
+      "priceXOF": 163030,
+      "variantConverted": 24
+    },
+    {
+      "id": "ipXYfPLxSC2qDNUAmeoz",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1698,
+      "priceXOF": 142326,
+      "variantConverted": 35
+    },
+    {
+      "id": "j8SmUV152FFvR03ghFPh",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1843,
+      "priceXOF": 154480,
+      "variantConverted": 21
+    },
+    {
+      "id": "kS6RpEVudtz0CabjHp0v",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1727,
+      "priceXOF": 144757,
+      "variantConverted": 24
+    },
+    {
+      "id": "lMKzO0cJebzYS6JR4I2M",
+      "name": "春秋断码透气网布老爹鞋厚底大码巴黎运动休闲鞋学生男潮流轮胎底",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "nL6B42C38SgPv9Q2bMMq",
+      "name": "爆米花网面运动休闲缓震跑步鞋增高青少年轻便透气厚底老爹鞋学生",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "nrX4vlnAaB1347Ap8fUw",
+      "name": "大头皮鞋男春秋季英伦风商务工作鞋德比休闲新款百搭工装马丁靴",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 7
+    },
+    {
+      "id": "ovU27aEjtk3XYRkS8ukU",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1849,
+      "priceXOF": 154983,
+      "variantConverted": 14
+    },
+    {
+      "id": "pvE2QZdwqchcpQvbSWR1",
+      "name": "春秋百搭休闲工装德比大头皮鞋商务皮面防水运动老爹鞋潮流内增高",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 8
+    },
+    {
+      "id": "q3whhLOzl0s62ulngGq9",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1926,
+      "priceXOF": 161437,
+      "variantConverted": 21
+    },
+    {
+      "id": "rEZ3AdXAUXsYjON0JS8h",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1900,
+      "priceXOF": 159258,
+      "variantConverted": 35
+    },
+    {
+      "id": "rk9YyZ6p3j4Ky8G7vAY9",
+      "name": "秋冬港风马丁靴高帮休闲男鞋皮面防水厚底内增高防滑学生工装靴潮",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 16
+    },
+    {
+      "id": "sZtZ06PWI0GlRhLLGhJd",
+      "name": "chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1860,
+      "priceXOF": 155905,
+      "variantConverted": 14
+    },
+    {
+      "id": "sucSt3bTiP5hQr4bXhMx",
+      "name": "Cordon de lunette",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1576,
+      "priceXOF": 132100,
+      "variantConverted": 1
+    },
+    {
+      "id": "uIoxJRloXYm0T0SuZqwr",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1923,
+      "priceXOF": 161186,
+      "variantConverted": 14
+    },
+    {
+      "id": "uSEW2gwekdOz3RXXPBrU",
+      "name": "Plantoufles d’intérieur pour homme",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1003,
+      "priceXOF": 84071,
+      "variantConverted": 2
+    },
+    {
+      "id": "uayWNOUJmYdeQlTD6kNu",
+      "name": "Chaussons jetables",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 560,
+      "priceXOF": 46939,
+      "variantConverted": 1
+    },
+    {
+      "id": "w6shwYuod7NoN5m0PG7R",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1889,
+      "priceXOF": 158336,
+      "variantConverted": 8
+    },
+    {
+      "id": "wOkULgEFRziJIxaWdsLf",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1787,
+      "priceXOF": 149786,
+      "variantConverted": 7
+    },
+    {
+      "id": "wUtmlEL56ROsQ4u4cLEi",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1872,
+      "priceXOF": 156911,
+      "variantConverted": 14
+    },
+    {
+      "id": "wwNWdtNN5qIWqr0AIcZL",
+      "name": "新款秋冬季百搭乔4运动板鞋增高皮面防水休闲鞋厚底潮流学生轻便",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 32
+    },
+    {
+      "id": "wxSRjvMcbncFbel3fCpf",
+      "name": "Bracelet multicolores",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1593,
+      "priceXOF": 133525,
+      "variantConverted": 1
+    },
+    {
+      "id": "xNImzESmViKEZ93rUgRI",
+      "name": "Chaussures",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1904,
+      "priceXOF": 159593,
+      "variantConverted": 18
+    },
+    {
+      "id": "xat2EjK3221eeWIGJr2Z",
+      "name": "Chaussure",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 1923,
+      "priceXOF": 161186,
+      "variantConverted": 14
+    },
+    {
+      "id": "yVeQqrbAt2ah0FZawTHT",
+      "name": "断码夏季新款凉鞋男洞洞鞋清仓运动休闲鞋百搭学生户外沙滩老爹鞋",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 21
+    },
+    {
+      "id": "ywyo0IDmuHMGbIqOR9QW",
+      "name": "新款断码运动潮鞋爆米花篮球鞋男休闲跑步鞋厚底内增尚百搭情侣款",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "zdkUgNl6yXrFUnvurkmb",
+      "name": "断码夏季2026新款老爹鞋清仓运动休闲透气洞洞鞋男鞋沙滩网面鞋潮",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 24
+    },
+    {
+      "id": "zux0V2VXaFuXd7gLhGdP",
+      "name": "冬季小众设计英伦风德比休闲皮鞋厚底板鞋日系男鞋马丁短靴内增高",
+      "sellerId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldPrice": 28,
+      "priceXOF": 2347,
+      "variantConverted": 8
+    }
+  ],
+  "skipped": [
+    {
+      "id": "1DZh94xKHKUBVJm7qkzl",
+      "reason": "price 2500 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "1lRPFHe52Te20OqlEpJv",
+      "reason": "price 2097 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "21BRtxwN4zRGm6QHOcUQ",
+      "reason": "price 2400 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "2Yd6wok18RjHLyQfd6uI",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "3EC1lKs7ahKnHxyXpYsz",
+      "reason": "price 3105 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "3N85zzftespfsGXSMRJw",
+      "reason": "price 2150 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "4IsR89lZv5Arxc4ZuJvW",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "4rAkAvWBZasjU2donRDf",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "53ZVYLEGhFlFcrPoLEbZ",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5RZLeagp63ZCcfWQt9Fn",
+      "reason": "price 2034 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5TuCfarHU9768MxfGdvr",
+      "reason": "price 2034 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5W37NeJS15OJ7iyxHonj",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5YK7B5mWd8U8NZ4HW0mD",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5qAAgJz5q7fPoO4Jv2pB",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5ukVN9VfPOda5FUW6tZG",
+      "reason": "price 2077 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5vWGUoToWou1SFf7GKNC",
+      "reason": "price 2150 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "5yTkHY3HaUOaYfSj3sTH",
+      "reason": "price 3075 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "60ZWYpwOO7ZMvTNdybeJ",
+      "reason": "price 2023 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "6OKiyTlf8QSTfbVe8H2e",
+      "reason": "price 2640 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "7GcJb5BqgrjDS9JOznfD",
+      "reason": "price 3870 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "7Tjb8B1RJ3FoFH4uuMlA",
+      "reason": "price 2150 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "87oN3SaPMxpogGablQ5F",
+      "reason": "price 2350 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "8bNqVMeXdT1equ93NnAk",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "9bZfxXHPPhpr0BDVSUxI",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "9rxI9lxKyqTDhmJY82L7",
+      "reason": "price 2450 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "Az8fsj3OIo12bkdlLxCV",
+      "reason": "price 2054 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "B7sina7k3VcCdgUEGcCx",
+      "reason": "price 3096 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "C7CE0QduqPOQkQ1ZgplM",
+      "reason": "price 2700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "CRvR4wmyeu8WOEyHbTiK",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "CzQmJEsXpQKz9CBBDVHl",
+      "reason": "price 2127 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "DFbKG7EETpocMogxymoG",
+      "reason": "price 2120 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "DzGuU1teiCqwdwiep68r",
+      "reason": "price 2700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "ERmUo4heJhXcphK8WQDL",
+      "reason": "price 2155 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "EsdBGeDOrAwYWKEM9umU",
+      "reason": "price 2008 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "F8CmSWRgnMCbIattgf1j",
+      "reason": "price 2405 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "FuJOjuowpm3JNUeCDNyw",
+      "reason": "price 2180 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "FymWwbOImdXZglI3Ax5X",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "GZQG2UUtenR6BQBz35Cp",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "H9mx4j9ljL4offpdv0Zw",
+      "reason": "price 2300 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "IKTpQ7cIEJQ249vjdiFX",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "IxKDj0AAfAyuiwn0gkvT",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "JtVhL67gFuEwAt9fouta",
+      "reason": "price 2350 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "KdEzzm1v8zfC3T3E0Dns",
+      "reason": "price 3105 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "LPfIRwPs0zttrMNPVJsb",
+      "reason": "price 2378 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "Lk7m6c1YaIaW5D6oBdCO",
+      "reason": "price 2955 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "LzZjBxXZ4BBySV5f6DQr",
+      "reason": "price 2118 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "MCt40BuS79Vef73dj69h",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "NMNYsl768p4EQG1ubEhi",
+      "reason": "price 2935 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "NVv0fy9mWSyqWnAxKoqA",
+      "reason": "price 2578 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "NpzmIhSIwHByvscnae44",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "OO0KOhM8g0T4oVJ4Dxyb",
+      "reason": "price 2926 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "OSOhOn9ISP2M9ic7eMx2",
+      "reason": "price 2093 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "OppG91bYiNZUgIGnPPBA",
+      "reason": "price 2600 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "OtWgoesXo80j8yzcJgMV",
+      "reason": "price 2300 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "P6lE8Rfsx1RnfEcsYqSE",
+      "reason": "price 3700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "PCdJiNT2n3LNzcsSA3Sr",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "Pt892PwjVLgKy5bKdNWf",
+      "reason": "price 3317 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "QmwsPwk0NnSIoSDhdx0f",
+      "reason": "price 3530 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "RAAewAJZXkd7yVbBZFVa",
+      "reason": "price 2955 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "RD8SDQ33I2Jeu1Edj5z1",
+      "reason": "price 2093 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "RDBM0W1br1V6tCMyk6dX",
+      "reason": "price 2445 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "SdQYkd66usT7YA0UHzcB",
+      "reason": "price 2400 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "T58v3CuE1aapY2WocaQA",
+      "reason": "price 3450 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "TBOmTeBw1hd2sHB7jJC4",
+      "reason": "price 3324 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "TXPYuMlwFkT7P8R2zuLH",
+      "reason": "price 2400 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "UNVFEjmjpjbrudo3hNYU",
+      "reason": "price 2150 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "UfYCNl2WMwEbjqy7ldbT",
+      "reason": "price 2785 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "V2NkMNIS2MesvMfeaZjN",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "VDH7VdrOd0YEfVZXtzbZ",
+      "reason": "price 2034 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "VTVPesyfWFK7eY7JTpVi",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "VqcXRkiFECHDmi0049BA",
+      "reason": "price 2500 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "VyxmwE2Fd3kCxir4ageV",
+      "reason": "price 3800 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "XRmPvqJcBjqFOKhHw6VR",
+      "reason": "price 3000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "XUBswhmeUt5iP2YXAd0l",
+      "reason": "price 2410 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "Y0rEofVq9NaJwbQH2gp4",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "YOcznh4G0nQXPnHnyBKB",
+      "reason": "price 2170 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "a48l9uQJK07JPvW7PAvo",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "aNpA2OtDeW2oNeIGwROw",
+      "reason": "price 2500 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "aj8AbIQHGDdfcYIJL0IW",
+      "reason": "price 2310 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "akTshDf6mywcosyk528p",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "b8vzAoF4R5ykCtAdD63I",
+      "reason": "price 2350 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "bVG11AcXSd0DkQNdUSXm",
+      "reason": "price 2010 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "bkVBszAYcpF8mzwKqF4I",
+      "reason": "price 3175 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "cBfFlBeQUhDECsid4zrQ",
+      "reason": "price 3870 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "cTGVIiwU6JaVb5X66Gwn",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "cYIWosuAJZ9nkjL5p1HL",
+      "reason": "price 2700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "dDIOitnCLmtI9ym7aQSQ",
+      "reason": "price 2120 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "dM4r2M6rGk4o0qgtrfIq",
+      "reason": "price 2220 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "dwQ6GS5zoYzv9ZKhNk6z",
+      "reason": "price 2175 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "fW2tMjovzeoBV3BaAM9E",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "g9DTAtcWOEv9pQ1poF5L",
+      "reason": "price 3000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "gNcvgUmHPkio61zeAGke",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "gdM8iAvHcHDONhxHwQDg",
+      "reason": "price 2210 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "hKT4sfOCA9PNZUAJg1t8",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "ho0elgkmpD0a88ufMXlR",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "hvShm6xJVt7C1rGmR5NI",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "i1zoWyN3k18EuLKuzyzF",
+      "reason": "price 2914 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "jGxwVjiA8dIdN96JLSoW",
+      "reason": "price 3800 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "jg46Muyv9JJEROyuTLxX",
+      "reason": "price 2282 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "jnOV9iEjOFHMvWKXo1fm",
+      "reason": "price 2250 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "kMWnifKsdMZi8TGaPBcB",
+      "reason": "price 2400 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "lH9x8ISOWQIVTLuoKI8m",
+      "reason": "price 3275 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "lp8Cf1IwTp8G1okvF2NK",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "mMH7BOhxGhXNE0tiMHFq",
+      "reason": "price 2200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "n2T1sdBoQipp5ovrF906",
+      "reason": "price 3275 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "n33wBw3m101joGB3ajYe",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "nGcge8D3r9F1aAXnJ2ey",
+      "reason": "price 2465 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "nKJIoTDYx1DczWTHrcWW",
+      "reason": "price 2120 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "nSwgves8blh0v42Ve2mS",
+      "reason": "price 2705 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "nhVdcLTDYQ9iqUbNLbCj",
+      "reason": "price 2175 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "oE3oZXnG1rUlXSXwk2x3",
+      "reason": "price 2150 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "p7ZcndzeWDRT8DIT59pl",
+      "reason": "price 4200 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "pKY8pwPBA0HgVmYFf8xo",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "pNywB9q2jkYf0u7AtkM5",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "prZlqDHBR9xF6xs78Wzo",
+      "reason": "price 2800 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "rJHoEnYkD6bcIF6pMb6Q",
+      "reason": "price 3300 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "rb0K80d5jA1ns2OIj2aA",
+      "reason": "price 2050 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "s8WkleZV3dh004yt7N0c",
+      "reason": "price 2034 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "sM5Krx6hzl77ngkkyaaj",
+      "reason": "price 2250 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "tBBaNaz4nSKAgwtbVcQP",
+      "reason": "price 2700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "tEGg2UtQfGs3P668BH2t",
+      "reason": "price 2070 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "tQGGWAgzeWuKJGXuv7KV",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "tSBN8Bi2RjFqDo2M0Oj9",
+      "reason": "price 2100 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "uMG7Fjm4OgkRz8NQuZVl",
+      "reason": "price 3870 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "uTsdbY8lmWv4nP9ysw7y",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "uW5fjwOtKnvxxoSLmX9d",
+      "reason": "price 3402 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "uk5lA28KkDG8yPatLwWY",
+      "reason": "price 2160 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "vBkwPN1yyJz52nt91mVa",
+      "reason": "price 3700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "wO6patioQN4zRR8Kn9aT",
+      "reason": "price 2250 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "x56LuTaJB2HUKbWzCqIh",
+      "reason": "price 2233 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "y7pdVVrGV4NCeQ0PejjP",
+      "reason": "price 2700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "yJjqMP6yhCmamswaRCZB",
+      "reason": "price 4700 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "yKAPXtOyWKrBD95aOml2",
+      "reason": "price 2884 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "yMoMY6arUkSFWber0wm7",
+      "reason": "price 2250 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "yeEMQlKDFWMCS6l9s6EC",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "ygWxNNJj5HgUFLkyuGJp",
+      "reason": "price 2130 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "zJ8jPTkGoFilqCOSWwWC",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "zL4X7zk9RpP8lTpRxEnh",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "zTcCltGuR0D6jKMo3GWm",
+      "reason": "price 2220 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "ztfnqwQmvWdyj4Pia9xp",
+      "reason": "price 2000 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "zuXPDAF4VdaVoHM1xKy2",
+      "reason": "price 2058 >= 2000 (passe --force si CNY)"
+    },
+    {
+      "id": "zxExUuuqo2QoC1vbXtxq",
+      "reason": "price 2400 >= 2000 (passe --force si CNY)"
+    }
+  ]
+}

@@ -1,0 +1,287 @@
+{
+  "mode": "dry-run",
+  "scanned": 54,
+  "alreadyOkCount": 8,
+  "plannedCount": 40,
+  "unresolvedCount": 6,
+  "planned": [
+    {
+      "id": "9XoQ6t72qEZbBm6WD295hFi6aJB2_80T1qKJH5zZNYg4NehaKgoPAuk42",
+      "companyId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldSellerUid": null,
+      "newSellerUid": "9XoQ6t72qEZbBm6WD295hFi6aJB2"
+    },
+    {
+      "id": "9XoQ6t72qEZbBm6WD295hFi6aJB2_F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "companyId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldSellerUid": null,
+      "newSellerUid": "9XoQ6t72qEZbBm6WD295hFi6aJB2"
+    },
+    {
+      "id": "9XoQ6t72qEZbBm6WD295hFi6aJB2_s1rs1dxpUOXwBCS3gBinyFM9Nnn1",
+      "companyId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldSellerUid": null,
+      "newSellerUid": "9XoQ6t72qEZbBm6WD295hFi6aJB2"
+    },
+    {
+      "id": "9XoQ6t72qEZbBm6WD295hFi6aJB2_udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "companyId": "9XoQ6t72qEZbBm6WD295hFi6aJB2",
+      "oldSellerUid": null,
+      "newSellerUid": "9XoQ6t72qEZbBm6WD295hFi6aJB2"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_Egxt4H0MeohQ2w4dOuhnk4eD8Pw2",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_WIOk6LDphYPdAzcfS33wAGcHYzF2",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_biU1QvlrGtZeqTLdbLONLGbyVQ92",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "Je4prj0SCqUr55OqBDax1jRdV2g1_udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "companyId": "Je4prj0SCqUr55OqBDax1jRdV2g1",
+      "oldSellerUid": null,
+      "newSellerUid": "Je4prj0SCqUr55OqBDax1jRdV2g1"
+    },
+    {
+      "id": "MarqfBXdK0M1TIUiK3pmNQBRNYZ2_mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "companyId": "MarqfBXdK0M1TIUiK3pmNQBRNYZ2",
+      "oldSellerUid": null,
+      "newSellerUid": "MarqfBXdK0M1TIUiK3pmNQBRNYZ2"
+    },
+    {
+      "id": "MarqfBXdK0M1TIUiK3pmNQBRNYZ2_q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+      "companyId": "MarqfBXdK0M1TIUiK3pmNQBRNYZ2",
+      "oldSellerUid": null,
+      "newSellerUid": "MarqfBXdK0M1TIUiK3pmNQBRNYZ2"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_91NpiuhKIdYPpwWuuPCkTJQpZbI3",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_XtHL4eNChhMAUajkxRhyz6paTCv1",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_biU1QvlrGtZeqTLdbLONLGbyVQ92",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_nEqsWNNZvRWgL0RWJB2jgDsgEKz1",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_oBmtO2ateMb96HYi9nA8wwsFQv52",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_tL2VAkCxqhZUU01qazUN6YOMMFh2",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "oldSellerUid": null,
+      "newSellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3"
+    },
+    {
+      "id": "esJ43CCVy9aDAF4u31khZHwHheT2_F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "companyId": "esJ43CCVy9aDAF4u31khZHwHheT2",
+      "oldSellerUid": null,
+      "newSellerUid": "esJ43CCVy9aDAF4u31khZHwHheT2"
+    },
+    {
+      "id": "esJ43CCVy9aDAF4u31khZHwHheT2_ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "companyId": "esJ43CCVy9aDAF4u31khZHwHheT2",
+      "oldSellerUid": null,
+      "newSellerUid": "esJ43CCVy9aDAF4u31khZHwHheT2"
+    },
+    {
+      "id": "esJ43CCVy9aDAF4u31khZHwHheT2_s1rs1dxpUOXwBCS3gBinyFM9Nnn1",
+      "companyId": "esJ43CCVy9aDAF4u31khZHwHheT2",
+      "oldSellerUid": null,
+      "newSellerUid": "esJ43CCVy9aDAF4u31khZHwHheT2"
+    },
+    {
+      "id": "mJ0Uco2vCMhMLYVevHdeowLU2dn2_Egxt4H0MeohQ2w4dOuhnk4eD8Pw2",
+      "companyId": "mJ0Uco2vCMhMLYVevHdeowLU2dn2",
+      "oldSellerUid": null,
+      "newSellerUid": "mJ0Uco2vCMhMLYVevHdeowLU2dn2"
+    },
+    {
+      "id": "qRQVVxw83kV5nQ6ycdJyeeRJuSv1_WIOk6LDphYPdAzcfS33wAGcHYzF2",
+      "companyId": "qRQVVxw83kV5nQ6ycdJyeeRJuSv1",
+      "oldSellerUid": null,
+      "newSellerUid": "qRQVVxw83kV5nQ6ycdJyeeRJuSv1"
+    },
+    {
+      "id": "qRQVVxw83kV5nQ6ycdJyeeRJuSv1_tL2VAkCxqhZUU01qazUN6YOMMFh2",
+      "companyId": "qRQVVxw83kV5nQ6ycdJyeeRJuSv1",
+      "oldSellerUid": null,
+      "newSellerUid": "qRQVVxw83kV5nQ6ycdJyeeRJuSv1"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_DHal7wn2pbWfEE5LOtQoCIiMZI43",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_boM3u1kj2NQHowGruEWX5unpiUi2",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_oBmtO2ateMb96HYi9nA8wwsFQv52",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "oldSellerUid": null,
+      "newSellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+    }
+  ],
+  "unresolved": [
+    {
+      "id": "F0bkRlYMPUVBauzV7m0XVQmYIt83_zc94oBEXpEXEzGD2DgqmpjGVuMv2",
+      "companyId": null,
+      "oldSellerUid": null,
+      "reason": "companyId_absent"
+    },
+    {
+      "id": "IdwDQQOSjdMRL4YiClg0hiHlfkF2_ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "companyId": "IdwDQQOSjdMRL4YiClg0hiHlfkF2",
+      "oldSellerUid": null,
+      "reason": "company_introuvable"
+    },
+    {
+      "id": "IdwDQQOSjdMRL4YiClg0hiHlfkF2_tL2VAkCxqhZUU01qazUN6YOMMFh2",
+      "companyId": "IdwDQQOSjdMRL4YiClg0hiHlfkF2",
+      "oldSellerUid": null,
+      "reason": "company_introuvable"
+    },
+    {
+      "id": "WIOk6LDphYPdAzcfS33wAGcHYzF2_yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "companyId": null,
+      "oldSellerUid": null,
+      "reason": "companyId_absent"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_dBEI7KtAboQP1UsKEgNfx2hoTGn1",
+      "companyId": null,
+      "oldSellerUid": null,
+      "reason": "companyId_absent"
+    },
+    {
+      "id": "tL2VAkCxqhZUU01qazUN6YOMMFh2_yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "companyId": null,
+      "oldSellerUid": null,
+      "reason": "companyId_absent"
+    }
+  ]
+}

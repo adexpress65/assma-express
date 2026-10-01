@@ -22,8 +22,50 @@ function extractExpoTokens(data: Record<string, unknown> | undefined): string[] 
     data.fcmToken,
   ];
   const fromArray = Array.isArray(data.pushTokens) ? data.pushTokens : [];
+  return uniqueExpoPushTokens([...directCandidates, ...fromArray]);
+}
+
+/** Clé partagée Cloud Functions + ngenius-backend (`notification_dedup`). */
+export function newProductIdempotencyKey(productId: string): string {
+  return `new_product:${String(productId || "").trim()}`;
+}
+
+export function featuredProductIdempotencyKey(productId: string): string {
+  return `featured_product:${String(productId || "").trim()}`;
+}
+
+/**
+ * Verrou atomique Firestore : le premier appel gagne, les retries / autres
+ * déclencheurs voient `already-exists` et n’envoient pas.
+ */
+export async function claimNotificationOnce(
+  idempotencyKey: string,
+  source = "cloud-functions",
+): Promise<boolean> {
+  const key = String(idempotencyKey || "").trim();
+  if (!key) return false;
+  const ref = admin.firestore().collection("notification_dedup").doc(key);
+  try {
+    await ref.create({
+      key,
+      source,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return true;
+  } catch (err: unknown) {
+    const code =
+      typeof err === "object" && err && "code" in err
+        ? (err as { code: unknown }).code
+        : undefined;
+    if (code === 6 || code === "already-exists") return false;
+    throw err;
+  }
+}
+
+/** Déduplique les jetons Expo (plusieurs comptes / champs sur le même device). */
+export function uniqueExpoPushTokens(rawTokens: unknown[]): string[] {
   const out = new Set<string>();
-  for (const candidate of [...directCandidates, ...fromArray]) {
+  for (const candidate of rawTokens) {
     if (typeof candidate !== "string") continue;
     const token = candidate.trim();
     if (!token) continue;
@@ -33,9 +75,26 @@ function extractExpoTokens(data: Record<string, unknown> | undefined): string[] 
   return [...out];
 }
 
-export async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise<void> {
+/** Bilan réel d'un envoi : un ticket accepté par Expo n'est pas garanti livré, mais un ticket en erreur est un échec certain. */
+export interface PushDeliveryReport {
+  requested: number;
+  accepted: number;
+  failed: number;
+  /** Codes Expo rencontrés (InvalidCredentials, DeviceNotRegistered, ...). */
+  errorCodes: string[];
+}
+
+export async function sendExpoPushMessages(
+  messages: ExpoPushMessage[],
+): Promise<PushDeliveryReport> {
   const valid = messages.filter((m) => Expo.isExpoPushToken(String(m.to)));
-  if (valid.length === 0) return;
+  const report: PushDeliveryReport = {
+    requested: messages.length,
+    accepted: 0,
+    failed: messages.length - valid.length,
+    errorCodes: [],
+  };
+  if (valid.length === 0) return report;
 
   const chunks = expo.chunkPushNotifications(valid);
   for (const chunk of chunks) {
@@ -43,13 +102,20 @@ export async function sendExpoPushMessages(messages: ExpoPushMessage[]): Promise
       const tickets = await expo.sendPushNotificationsAsync(chunk);
       tickets.forEach((ticket, i) => {
         if (ticket.status === "error") {
+          report.failed += 1;
+          report.errorCodes.push(String(ticket.details?.error || "unknown"));
           console.error("[push] ticket error", ticket.message, ticket.details, chunk[i]?.to);
+        } else {
+          report.accepted += 1;
         }
       });
     } catch (e) {
+      report.failed += chunk.length;
+      report.errorCodes.push("batch_error");
       console.error("[push] batch error", e);
     }
   }
+  return report;
 }
 
 /**
@@ -63,10 +129,15 @@ export async function sendGlobalPushNotification(
   const db = admin.firestore();
   const usersSnapshot = await db.collection("users").get();
   const messages: ExpoPushMessage[] = [];
+  const seenTokens = new Set<string>();
 
   usersSnapshot.forEach((docSnap) => {
-    const token = docSnap.data().pushToken as string | undefined;
-    if (token && Expo.isExpoPushToken(token)) {
+    const tokens = extractExpoTokens(
+      (docSnap.data() || {}) as Record<string, unknown>,
+    );
+    for (const token of tokens) {
+      if (seenTokens.has(token)) continue;
+      seenTokens.add(token);
       messages.push({
         to: token,
         sound: "default",
@@ -83,8 +154,8 @@ export async function sendGlobalPushNotification(
     return { success: false, count: 0 };
   }
 
-  await sendExpoPushMessages(messages);
-  return { success: true, count: messages.length };
+  const report = await sendExpoPushMessages(messages);
+  return { success: report.accepted > 0, count: report.accepted };
 }
 
 /**
@@ -95,9 +166,15 @@ export async function sendPushToUserIds(
   title: string,
   body: string,
   data: Record<string, string> = {},
-): Promise<void> {
+): Promise<PushDeliveryReport> {
+  const empty: PushDeliveryReport = {
+    requested: 0,
+    accepted: 0,
+    failed: 0,
+    errorCodes: [],
+  };
   const unique = [...new Set(userIds.filter(Boolean))];
-  if (unique.length === 0) return;
+  if (unique.length === 0) return empty;
 
   const db = admin.firestore();
   const refs = unique.map((uid) => db.collection("users").doc(uid));
@@ -110,11 +187,19 @@ export async function sendPushToUserIds(
   }
 
   const messages: ExpoPushMessage[] = [];
+  const seenTokens = new Set<string>();
+  const withoutToken: string[] = [];
   for (const snap of snaps) {
     const tokens = extractExpoTokens(
       (snap.data() || {}) as Record<string, unknown>,
     );
+    if (tokens.length === 0) {
+      withoutToken.push(snap.id);
+      continue;
+    }
     for (const token of tokens) {
+      if (seenTokens.has(token)) continue;
+      seenTokens.add(token);
       messages.push({
         to: token,
         sound: "default",
@@ -127,5 +212,10 @@ export async function sendPushToUserIds(
     }
   }
 
-  await sendExpoPushMessages(messages);
+  // Distingue « le destinataire n'a jamais enregistré de jeton » d'un échec de livraison.
+  if (withoutToken.length > 0) {
+    console.warn("[push] destinataires sans jeton Expo valide :", withoutToken);
+  }
+
+  return sendExpoPushMessages(messages);
 }

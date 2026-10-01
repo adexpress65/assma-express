@@ -1,0 +1,1193 @@
+{
+  "mode": "dry-run",
+  "sellerId": "zc94oBEXpEXEzGD2DgqmpjGVuMv2",
+  "rate": 83.82,
+  "plannedCount": 147,
+  "skippedCount": 1,
+  "planned": [
+    {
+      "id": "0gbn9qWvjCxGMuHAdnii",
+      "name": "Pochette d'Expédition Holographique",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "1VCQ8mPI5Ypug7TsGfj3",
+      "name": "亚马逊FBA五层爆款外贸物流快递包装正方形纸箱10-40CM现货当天发",
+      "oldPrice": 5.6,
+      "priceXOF": 469,
+      "variantConverted": 1,
+      "hasChinese": true
+    },
+    {
+      "id": "2M3qgiFpNjyPHu2UoGfx",
+      "name": "Collection \"Héritage\" – Bocaux de Stockage en Verre Borosilicate & Bois Précieux",
+      "oldPrice": 1275,
+      "priceXOF": 106870,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "2g6CKBjG8c9wXaUHdxkU",
+      "name": "Enveloppe d'Expédition Personnalisée",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "2u75tF0rHFZv1k8GD4Wx",
+      "name": "Pochette d'Expédition Auto-Adhésive",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "3s9Lxy21BJ6HlM8bkfG7",
+      "name": "Bouteille en Verre \"Swing Top\" – L'Élégance Rétro au Service de la Fraîcheur",
+      "oldPrice": 753,
+      "priceXOF": 63116,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "4ijD5dyHzu6WoP5DOXnS",
+      "name": "Sac Shopping à Poignées Découpées",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "5H03w932NHPraFimEnOi",
+      "name": "Sac Cadeau Cristal avec Nœud Satin personnalisé",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "5W9h7BpwK4ot9DeU5VCo",
+      "name": "Coffret Cadeau Premium personnalisable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "6GcgAITCTJyozgYmZK7H",
+      "name": "mélangeur à ruban horizontal",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "6XxEYFlkhUhDdlIPcP9l",
+      "name": "Pochette Stand-Up personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "7OEAFjocNgU7EbMUcaT2",
+      "name": "Petits pots ou contenants transparents",
+      "oldPrice": 578,
+      "priceXOF": 48448,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "7hk1NKddx3P59kB3MORY",
+      "name": "Pochette Stand-Up avec Zip et Fenêtre personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "85PZOOvBQZf6Ld1VivRt",
+      "name": "Éco-Poche Verseuse Sana personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "9GiIwfxrJeVg6wJmLGO9",
+      "name": "Gobelets en plastique PET transparent",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "9RB71A1xWuAcdD8modSo",
+      "name": "Boîte à gâteau pour tranche individuelle",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 4,
+      "hasChinese": false
+    },
+    {
+      "id": "9SDY7GENFsGtq95lABVT",
+      "name": "Montre LED Brillante",
+      "oldPrice": 1326,
+      "priceXOF": 111145,
+      "variantConverted": 4,
+      "hasChinese": false
+    },
+    {
+      "id": "A9oberadNasOjqyDehgO",
+      "name": "Pochette d’Emballage Polyvalente personnalisé",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "B48rML9ktaQtAHSpnE46",
+      "name": "Nom de l'article : Pochette de Rangement à Glissière Givrée",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "BRBZbG2IpEslMVZJcS2e",
+      "name": "Ensemble de Pots à Condiments \"Natura\" – L’Art d’Organiser Votre Cuisine",
+      "oldPrice": 1087,
+      "priceXOF": 91112,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "C0P4h2vm9iYgteHjOemB",
+      "name": "Récipient en papier jetable polyvalent",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 2,
+      "hasChinese": false
+    },
+    {
+      "id": "CE66ySCMvx4ME24GGrDi",
+      "name": "Sachets Doypack transparents",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "CJVSjLeL96pHhlAk29yl",
+      "name": "Pochette d'Expédition Métallisée Brillante",
+      "oldPrice": 3,
+      "priceXOF": 251,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "CV7HbQ1ft0zdx09oYDCS",
+      "name": "Pot de stockage cylindrique en plastique transparent",
+      "oldPrice": 678,
+      "priceXOF": 56830,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Cdi0hNu6I9YyTuQg75y4",
+      "name": "Pochette de Sauce Individuelle personnaliser",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "CeZMS1XxhoxIHaqt4eEk",
+      "name": "Sac Shopping Boutique Renforcé personnalisé",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Cr0UaRL81UVmhe2n42jH",
+      "name": "Pot Individuel à Operculer personnaliser",
+      "oldPrice": 6,
+      "priceXOF": 503,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Dzx5pnWTB9uf2EFifdaz",
+      "name": "Pochette Stand-Up à Fenêtre Brillante",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "ELnaJSzjVlP6vJQZxMIr",
+      "name": "Sacs Boutique Chic en Papier",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Ev0T8JBfSdmufPnHsR7h",
+      "name": "Pochette Souple avec Cordon Latéral",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "FFfNpYYkOX7Dt0vUi9bl",
+      "name": "Cônes à frites en papier Kraft",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Fdgw81LESWkNUuwdJWmf",
+      "name": "pochette d'emballage personnalisable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "FleKQFNtprlm7gYQZcDU",
+      "name": "Bol alimentaire rond en papier kraft",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "G57Cnbn8JjlqatjmLSdE",
+      "name": "Canettes en plastique PET transparentes",
+      "oldPrice": 578,
+      "priceXOF": 48448,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "GEe6zgwcPxPHLGOL3Gg7",
+      "name": "Pochette Zippée Dépolie avec Curseur",
+      "oldPrice": 6,
+      "priceXOF": 503,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "IAD7IdOQsK3G45QbX17c",
+      "name": "Pochette Filtre Infuseur personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "INkw96ywkFGRuFdEs7oX",
+      "name": "Boîte alimentaire rectangulaire jetable",
+      "oldPrice": 542,
+      "priceXOF": 45430,
+      "variantConverted": 4,
+      "hasChinese": false
+    },
+    {
+      "id": "IbM5ssyXeDhFwLpBya2c",
+      "name": "Éclat de Soie - Crèmes Mains Nomades personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "IubU6FdBgJPrJTHYvGbC",
+      "name": "Pot de Conservation \"Zen\" – L'Alliance du Verre Borosilicate et du Bois",
+      "oldPrice": 1070,
+      "priceXOF": 89687,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "J3o3E3tO19pbrROa0JF8",
+      "name": "pochette d'emballage flexible",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "JDzhME6uPKPlp44hMKhX",
+      "name": "Pochette Souple à Fond Carré personnaliser",
+      "oldPrice": 3,
+      "priceXOF": 251,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "JOrQUGabgbbu1WPiw1Jz",
+      "name": "Pochette Stand-Up avec Fenêtre personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "KB2i2F8j6xeSzNxFBPUG",
+      "name": "Bocal à Épices \"Pure\" – L'Harmonie du Bambou et du Verre Borosilicate",
+      "oldPrice": 747,
+      "priceXOF": 62614,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "KGd55NcZoqBDrVZjEA7H",
+      "name": "flacon pulvérisateur (spray) transparent",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "KHZvgfgejZDjgiGeEdp8",
+      "name": "Pot à Dessert avec Couvercle Dôme personnaliser",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "L9h4jIqJ0paxy5d9amHI",
+      "name": "Gobelets en papier à double paroi",
+      "oldPrice": 506,
+      "priceXOF": 42413,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "MW7R7w6r0kX19eKnq4Nu",
+      "name": "Pochettes \"Doypack\" en papier Kraft brun",
+      "oldPrice": 536,
+      "priceXOF": 44928,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Mk6tjhcbc4wmu1cwLMMU",
+      "name": "pochette d'emballage personnalisable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Mq3ueYNrPiLu1MK0sa07",
+      "name": "Boîte alimentaire jetable rectangulaire",
+      "oldPrice": 566,
+      "priceXOF": 47442,
+      "variantConverted": 2,
+      "hasChinese": false
+    },
+    {
+      "id": "N3UB0oJj4fglgoWEFf7l",
+      "name": "Pochette Souple Haute Clarté personnaliser",
+      "oldPrice": 3,
+      "priceXOF": 251,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "OAaFgEip9OiP1IITsAOC",
+      "name": "Pochette d'Épicerie Fine à Poignée et Fenêtre",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "OC11Vgul9nCkHqX9EN6W",
+      "name": "Sacs Doypack en papier Kraft blanc,",
+      "oldPrice": 524,
+      "priceXOF": 43922,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "OYGm2q3EmdVVueUQNqxU",
+      "name": "Bouteille en Verre Carrée \"Sleek\" – L'Esthétique Moderne au Service de vos Jus",
+      "oldPrice": 694,
+      "priceXOF": 58171,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "PgxKU5VXofpgC1Xylkp5",
+      "name": "Pochette d'Expédition Biodégradable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Q07hI1QUdZPk6DHLK9Rq",
+      "name": "复合卷膜PET卷材PE巧克力热封膜奶茶猫条奶粉咖啡条铝箔袋cpp",
+      "oldPrice": 25,
+      "priceXOF": 2096,
+      "variantConverted": 1,
+      "hasChinese": true
+    },
+    {
+      "id": "QC399CiQNoYQiA099abr",
+      "name": "Pochette Shopping Élégance Semi-Transparente personnaliser",
+      "oldPrice": 6,
+      "priceXOF": 503,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "QeoTrC2uCPG8fFksXBbE",
+      "name": "Seau en plastique carré transparent",
+      "oldPrice": 649,
+      "priceXOF": 54399,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "R5tkF7wyaCGUso7D38cQ",
+      "name": "pot de cannette transparent en plastique",
+      "oldPrice": 82,
+      "priceXOF": 6873,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "RVrBr9aY9gZWSADhdCWK",
+      "name": "Sac de Récolte en Filet",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "RZk10yZsVuHPPEiw1Sxb",
+      "name": "pochette d'emballage",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "RaDW4HqhfiHUXmllRoUA",
+      "name": "Boîtes d'œufs transparentes",
+      "oldPrice": 594,
+      "priceXOF": 49789,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "RonwBD3tBJDeCyTtALpe",
+      "name": "Conteneur rond miniature scellé",
+      "oldPrice": 506,
+      "priceXOF": 42413,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "SGdtvXF3SbA5nEOnTUAq",
+      "name": "Pochette Isotherme à Bandoulière",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "SLmXGnxFNs569pF4Zhcp",
+      "name": "Pochette gourde à bec verseur",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "SQBPC1oVEixWGmEBNy5h",
+      "name": "Pochette Cadeau en Organza",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "SnA8t6hiEOiM76wMuN0E",
+      "name": "Pochette d’emballage Élégance Mariage personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "StVUJq3ZRq7fKbhztZZI",
+      "name": "Barquettes alimentaires rectangulaires",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 2,
+      "hasChinese": false
+    },
+    {
+      "id": "U01OeYvDeyjsdBk38Cd6",
+      "name": "Pochette Stand-Up Transparente personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "UDz1WlnLzTEtEaH1GdDT",
+      "name": "Boîte d'emballage individuelle",
+      "oldPrice": 577,
+      "priceXOF": 48364,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "VMmEBA6FgVC4UvwvNjVi",
+      "name": "Barquette en aluminium jetable",
+      "oldPrice": 589,
+      "priceXOF": 49370,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "XH2Fk9lyDRD7GyNHIcOl",
+      "name": "Gobelet jetable en PET transparent",
+      "oldPrice": 512,
+      "priceXOF": 42916,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "XSw5v17Q0l2kNWJomOS9",
+      "name": "Pochette Cadeau Transparente à Poignée personnalisable",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "XmiHEeLDTxA5WQa34KPt",
+      "name": "Mini moule à gâteau jetable",
+      "oldPrice": 548,
+      "priceXOF": 45933,
+      "variantConverted": 4,
+      "hasChinese": false
+    },
+    {
+      "id": "Xu6yNmoVxbPd1eu7xE38",
+      "name": "Gobelets PET Cristallin 500 ml – La Fraîcheur à emporter",
+      "oldPrice": 536,
+      "priceXOF": 44928,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "Y25NDSRBHoP9cgLjLZDw",
+      "name": "Bols à soupe jetables",
+      "oldPrice": 536,
+      "priceXOF": 44928,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "YOMHs9dJkOixaD8xYXig",
+      "name": "Pochette Cadeau Animaux avec Poignée",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "YQYxhYU8whjhmkwgu8pY",
+      "name": "Pochette Souple Haute Clarté",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "YSmGsfKF2GcVqAafQJ1F",
+      "name": "Sac Shopping de Luxe personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "YfEd94XElB1qZYXwg7C8",
+      "name": "Enveloppe d'Expédition en Plastique",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "af6609960OEtAvF5I0fx",
+      "name": "Gobelets en plastique",
+      "oldPrice": 506,
+      "priceXOF": 42413,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "b2BXITQ04QvRmGlOZ3pK",
+      "name": "Bouteille en Verre Traditionnelle – Élégance & Conservation Authentique",
+      "oldPrice": 712,
+      "priceXOF": 59680,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "bKMpwp8KgHywmsSvwDOq",
+      "name": "Flacons en verre transparent avec compte-gouttes",
+      "oldPrice": 572,
+      "priceXOF": 47945,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "cC7Zni6YfZi5S7Ielbft",
+      "name": "Sac-Panier Translucide Gourmet",
+      "oldPrice": 3,
+      "priceXOF": 251,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "cDhGd6gw1HSxTNYYiyyt",
+      "name": "pochette d'emballage",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "cId5d8c6B4qm3YXhDfhB",
+      "name": "Gobelet PET Premium – L’Éclat au Service de vos Boissons",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "cma22kZlyclcpAvs4LnL",
+      "name": "d'emballage flexible",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "crlO1X9qewGbUr6BoaV8",
+      "name": "Sac Shopping en Papier Kraft personnaliser",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "cyi1J41reDFjFWjlrWPr",
+      "name": "Pochette Cadeau Transparente à Poignées Design",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "dRL5oZQ8xCg1LciRR4ti",
+      "name": "Enveloppe d'Expédition à Bulles",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "eT4Rr3THA0LC5L0A5FsC",
+      "name": "Conteneurs alimentaires à emporter",
+      "oldPrice": 542,
+      "priceXOF": 45430,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "f03D6aSj5IoWGiimVZam",
+      "name": "Pochette Gourde à Bec Verseur",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "fQLGxi0TM6u5WQVSgeRg",
+      "name": "Pochette d'emballage alimentaire transparente",
+      "oldPrice": 554,
+      "priceXOF": 46436,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "fRxtbVYpXD89wuMz4jJy",
+      "name": "pochette d'emballage personnalisable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "gFAnDFmOp3j2YuzvHKWT",
+      "name": "Étui Boulanger Fraîcheur",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "gHDcqJscvAsvgWKKvQdz",
+      "name": "Cabas Non Tissé à Poignée Découpée",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "gvefmMWy2xktvnD58t42",
+      "name": "Boîte repas en plastique",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 2,
+      "hasChinese": false
+    },
+    {
+      "id": "gxFhzuJikVDxPuDsA5z5",
+      "name": "Petit contenant à sauce jetable",
+      "oldPrice": 524,
+      "priceXOF": 43922,
+      "variantConverted": 2,
+      "hasChinese": false
+    },
+    {
+      "id": "hPikhdGq6wUqT8Kt3BbU",
+      "name": "Boîte à gâteau individuelle jetable",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "hdWGFelkRXMa2yLulvwP",
+      "name": "Bouteilles plastiques personnalisées (PET)",
+      "oldPrice": 578,
+      "priceXOF": 48448,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "iAvaC4Vihn4ZsXz0hQOz",
+      "name": "Sachet à Fermeture Intégrée",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "iKJhkpXy378ekw2aFRjJ",
+      "name": "pochette d'emballage flexible",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "iZ3BihNv5W7l25WLsyFf",
+      "name": "Bocal de Stockage Géant en Verre – Élégance & Conservation",
+      "oldPrice": 659,
+      "priceXOF": 55237,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "icahlH6N7BEImXqG3IvG",
+      "name": "Pochette d’emballage en filet**\nOo",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "iiHMZPqAMMMQRqrjeVlL",
+      "name": "Pochette Souple à Soufflets personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "iqoRtvzzkHcy8vGxPAVH",
+      "name": "Conteneur alimentaire translucide",
+      "oldPrice": 560,
+      "priceXOF": 46939,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "ivTRTr83ewvNpan2OGFL",
+      "name": "Ensemble de conteneurs alimentaires",
+      "oldPrice": 506,
+      "priceXOF": 42413,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "ix92PpUckxaoit2GX8cM",
+      "name": "pochette d'emballage flexible",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "jaD4x1uTPWgY7nyhVX95",
+      "name": "一次性透明吸嘴袋饮料果汁袋带吸嘴奶茶豆浆自立袋中药液体包装袋",
+      "oldPrice": 0.025,
+      "priceXOF": 2,
+      "variantConverted": 1,
+      "hasChinese": true
+    },
+    {
+      "id": "jvCd2X3xtjdePHkr24du",
+      "name": "Récipient en plastique rond et transparent",
+      "oldPrice": 560,
+      "priceXOF": 46939,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "kHutdFnpL4x3lRLUwLRT",
+      "name": "Boîtes de rangement en plastique PP transparent",
+      "oldPrice": 619,
+      "priceXOF": 51885,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "kTDuPvupoULiVuV9Y3Ct",
+      "name": "Sac Shopping Boutique Renforcé",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "kfolqq2HU7NFZfbXUzAH",
+      "name": "Charlottes Alimentaires Élastiques",
+      "oldPrice": 506,
+      "priceXOF": 42413,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "kwV2YawrIWloco0hY94X",
+      "name": "Pochette d’emballage Fête Florale personnalisé",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "lcRANH1mMzin1eSmfySB",
+      "name": "Gobelet de Transport avec Couvercle personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "lnj0eADmNP9AFtzimfZr",
+      "name": "Boîtes à sauce rondes jetables",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "mVWXLiIOurZtucIJCJYi",
+      "name": "Sac de Présentation Cristal à Anses Souples personnalisé",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "nPfWvOPxyJXCxJCt56oi",
+      "name": "Boîte Dôme Cristalline pour Pâtisserie",
+      "oldPrice": 553,
+      "priceXOF": 46352,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "olkiVVs2viuoT0HLpWkd",
+      "name": "Boîte d'emballage en plastique en forme de cœur,",
+      "oldPrice": 583,
+      "priceXOF": 48867,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "peadzgKRcbHd4tSUXrei",
+      "name": "pochette d'emballage flexible",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 0,
+      "hasChinese": false
+    },
+    {
+      "id": "plJxzU5aLjwNKjMlQhUs",
+      "name": "Emballage Pratique personnalisé",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "qY4uSDj29IL28EK9S01J",
+      "name": "Sacs en plastique transparents avec fermeture adhésive",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "qf7a4mQXIRm32VndX9Zm",
+      "name": "Petits pots cosmétiques",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "qoMeG2ROmwia62RgFj2Z",
+      "name": "pochette d'emballage",
+      "oldPrice": 4,
+      "priceXOF": 335,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "qzx98RgTu0QbNXNItM3D",
+      "name": "Pochette Zippée Transparente pour Bijoux",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "r3ViSR0gAp9nynLEco5x",
+      "name": "Boîte à Tiramisu & Desserts Premium – Transparence Cristalline",
+      "oldPrice": 542,
+      "priceXOF": 45430,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "rMmmjVSU67eqDZH3a3fI",
+      "name": "Sac sous vide scellable",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "rT0EBtyZrNCT52brcAmC",
+      "name": "Pots à Épices Design en Verre & Bambou – L'Élégance au Service de la Fraîcheur",
+      "oldPrice": 1087,
+      "priceXOF": 91112,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "rrQfBRxm49p0XF7FjiIp",
+      "name": "Pochette d’emballage personnaliser",
+      "oldPrice": 5,
+      "priceXOF": 419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "s4JgpWpQaeWxlzLlC6QV",
+      "name": "Pochette d’emballage Mariage Élégant personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "sU3UlkOpn6Yg8txkJp1e",
+      "name": "Emballages alimentaires écologiques",
+      "oldPrice": 506,
+      "priceXOF": 42413,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "t3cDfyeVrzBx1UfaJHYJ",
+      "name": "pochettes d'emballage personnalisable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "tcseLm0Gq1ah4gkC4e6g",
+      "name": "Sachets en plastique transparents à fermeture pression",
+      "oldPrice": 518,
+      "priceXOF": 43419,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "tjjXD3UHfKURZDgNrq8d",
+      "name": "Sachet Gourmet Délice à Poignée personnaliser",
+      "oldPrice": 3,
+      "priceXOF": 251,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "tnXgm8MlUjQXzlas3FxI",
+      "name": "Pot de Conditionnement Alimentaire personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "uNniJMWQqOJsyNvDzFuo",
+      "name": "Pochette d'Emballage à Fenêtre",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "uibBLWZVGw7mRCf5Q8z5",
+      "name": "Pochette Stick Individuelle",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "v9wNXWsz1u5kF0jPKH7R",
+      "name": "Gobelet jetable haut de gamme",
+      "oldPrice": 547,
+      "priceXOF": 45850,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "vE4D0BHavKXUvZWd0Ec6",
+      "name": "牛皮纸袋自封袋茶叶包装袋食品袋茶叶袋分装袋密封袋批发商用定制",
+      "oldPrice": 0.023,
+      "priceXOF": 2,
+      "variantConverted": 1,
+      "hasChinese": true
+    },
+    {
+      "id": "vv1syW0M1Oo0NPdG7zLf",
+      "name": "Boîte à gâteaux bombée",
+      "oldPrice": 554,
+      "priceXOF": 46436,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "w3MkwyV5tO7hvkFqbNIX",
+      "name": "Barquettes alimentaires rectangulaires",
+      "oldPrice": 530,
+      "priceXOF": 44425,
+      "variantConverted": 2,
+      "hasChinese": false
+    },
+    {
+      "id": "wV1C3g8iF50ayeKhBEhz",
+      "name": "Boîte d'Expédition Compacte personnalisé",
+      "oldPrice": 8,
+      "priceXOF": 671,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "xRUilKI5hFt6xK6aUiyt",
+      "name": "Sacs Kraft Éco-Couleurs",
+      "oldPrice": 3,
+      "priceXOF": 251,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "xrqTbuZrtScVnANuSqMY",
+      "name": "pochette d'emballage flexible",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "xz6TPGdeBIySccyrkjNB",
+      "name": "Sac Cadeau à Fenêtre Panoramique personnalisable",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "y5sS7iGVFmUuqK7WcVsr",
+      "name": "Ensemble de verrines à dessert jetables",
+      "oldPrice": 536,
+      "priceXOF": 44928,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "y7lNBoudCgHsrhdZozAV",
+      "name": "Pochette d’emballage à thème ange personnaliser",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    },
+    {
+      "id": "yqd7I4cZQL0I6QbnSr3b",
+      "name": "pochette d'emballage",
+      "oldPrice": 2,
+      "priceXOF": 168,
+      "variantConverted": 1,
+      "hasChinese": false
+    }
+  ],
+  "skipped": [
+    {
+      "id": "f7BI2R6sTbuw6CmMRSCo",
+      "reason": "price 18194 >= 2000",
+      "name": "Bâtonnets en bois naturels",
+      "oldPrice": 18194
+    }
+  ]
+}

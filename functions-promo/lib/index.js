@@ -28,11 +28,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendProductPromoBroadcast = void 0;
 const admin = __importStar(require("firebase-admin"));
+const core_1 = require("firebase-functions/v2/core");
 const https_1 = require("firebase-functions/v2/https");
 const expo_server_sdk_1 = __importDefault(require("expo-server-sdk"));
-if (admin.apps.length === 0) {
-    admin.initializeApp();
-}
+(0, core_1.onInit)(() => {
+    if (admin.apps.length === 0) {
+        admin.initializeApp();
+    }
+});
 const expo = new expo_server_sdk_1.default();
 function stringifyData(data) {
     const out = {};
@@ -96,21 +99,44 @@ async function sendProductPromoToAllUsers(title, body, productId, imageUrl) {
     await sendExpoPushMessages(messages);
     return { success: true, count: messages.length };
 }
+function normalizeTokenRole(raw) {
+    const value = String(raw ?? "")
+        .trim()
+        .toLowerCase();
+    if (value === "super-admin" ||
+        value === "super_admin" ||
+        value === "superadmin" ||
+        value === "super admin") {
+        return "super-admin";
+    }
+    return value;
+}
+async function assertSuperAdmin(request) {
+    if (!request.auth?.uid) {
+        throw new https_1.HttpsError("unauthenticated", "Connexion requise");
+    }
+    const fromClaim = normalizeTokenRole(request.auth.token?.role);
+    if (fromClaim === "super-admin") {
+        return;
+    }
+    console.warn("[auth-role] custom claim absent, fallback Firestore", {
+        uid: request.auth.uid,
+        tokenRole: request.auth.token?.role ?? null,
+    });
+    const db = admin.firestore();
+    const adminSnap = await db.collection("users").doc(request.auth.uid).get();
+    const fromFs = normalizeTokenRole(adminSnap.data()?.role);
+    if (fromFs !== "super-admin") {
+        throw new https_1.HttpsError("permission-denied", "Action réservée aux super-administrateurs");
+    }
+}
 exports.sendProductPromoBroadcast = (0, https_1.onCall)({
     region: "europe-west1",
     cors: true,
     timeoutSeconds: 540,
     memory: "512MiB",
 }, async (request) => {
-    if (!request.auth?.uid) {
-        throw new https_1.HttpsError("unauthenticated", "Connexion requise");
-    }
-    const db = admin.firestore();
-    const adminSnap = await db.collection("users").doc(request.auth.uid).get();
-    const role = String(adminSnap.data()?.role || "").trim();
-    if (role !== "super-admin") {
-        throw new https_1.HttpsError("permission-denied", "Action réservée aux super-administrateurs");
-    }
+    await assertSuperAdmin(request);
     const title = String(request.data?.title || "").trim();
     const body = String(request.data?.body || "").trim();
     const productId = String(request.data?.productId || "").trim();

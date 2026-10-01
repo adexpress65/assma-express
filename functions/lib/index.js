@@ -23,7 +23,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.visualImageSearch = exports.conversationModeration = exports.onProductTranslate = exports.onProductWrite = exports.onNewChatMessagePush = exports.askAsmaAI = void 0;
+exports.updateExchangeRates = exports.lookupUserRoleSnapshot = exports.setUserRole = exports.visualImageSearch = exports.conversationModeration = exports.onProductTranslate = exports.onCompanyUpdated = exports.onCompanyDeleted = exports.onProductWrite = exports.onNewChatMessagePush = exports.askAsmaAI = void 0;
 const admin = __importStar(require("firebase-admin"));
 if (admin.apps.length === 0) {
     admin.initializeApp();
@@ -34,10 +34,19 @@ var onNewChatMessagePush_1 = require("./onNewChatMessagePush");
 Object.defineProperty(exports, "onNewChatMessagePush", { enumerable: true, get: function () { return onNewChatMessagePush_1.onNewChatMessagePush; } });
 var onProductWrite_1 = require("./onProductWrite");
 Object.defineProperty(exports, "onProductWrite", { enumerable: true, get: function () { return onProductWrite_1.onProductWrite; } });
+var onCompanyChange_1 = require("./onCompanyChange");
+Object.defineProperty(exports, "onCompanyDeleted", { enumerable: true, get: function () { return onCompanyChange_1.onCompanyDeleted; } });
+Object.defineProperty(exports, "onCompanyUpdated", { enumerable: true, get: function () { return onCompanyChange_1.onCompanyUpdated; } });
 var onProductTranslate_1 = require("./onProductTranslate");
 Object.defineProperty(exports, "onProductTranslate", { enumerable: true, get: function () { return onProductTranslate_1.onProductTranslate; } });
 var conversationModeration_1 = require("./conversationModeration");
 Object.defineProperty(exports, "conversationModeration", { enumerable: true, get: function () { return conversationModeration_1.conversationModeration; } });
 var visualImageSearch_1 = require("./visualImageSearch");
 Object.defineProperty(exports, "visualImageSearch", { enumerable: true, get: function () { return visualImageSearch_1.visualImageSearch; } });
+var setUserRole_1 = require("./setUserRole");
+Object.defineProperty(exports, "setUserRole", { enumerable: true, get: function () { return setUserRole_1.setUserRole; } });
+var lookupUserRoleSnapshot_1 = require("./lookupUserRoleSnapshot");
+Object.defineProperty(exports, "lookupUserRoleSnapshot", { enumerable: true, get: function () { return lookupUserRoleSnapshot_1.lookupUserRoleSnapshot; } });
+var updateExchangeRates_1 = require("./updateExchangeRates");
+Object.defineProperty(exports, "updateExchangeRates", { enumerable: true, get: function () { return updateExchangeRates_1.updateExchangeRates; } });
 //# sourceMappingURL=index.js.map

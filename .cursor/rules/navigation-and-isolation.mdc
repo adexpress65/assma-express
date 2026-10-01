@@ -1,0 +1,32 @@
+---
+description: Interdit router.back() après succès et limite les régressions en cascade
+globs:
+  - apps/mobile/app/seller/add-product.tsx
+  - apps/mobile/app/super-admin/add-product.tsx
+  - apps/mobile/src/utils/safeNavigate.ts
+  - apps/mobile/app/checkout/**/*.tsx
+  - apps/mobile/app/product/**/*.tsx
+alwaysApply: false
+---
+
+# Navigation et isolation (A2Express)
+
+## Après un succès (produit, commande, paiement)
+
+- **Interdit** : `router.back()`, `navigation.goBack()`, `router.canGoBack()` puis `back()`.
+- Sur Android, `canGoBack()` peut être vrai alors que `back()` **ferme l’Activity**.
+- Utiliser `goBackOrReplace` / `replaceAfterAlert` (`src/utils/safeNavigate.ts`) vers une **route interne explicite**.
+- Après création produit : **Voir le produit** → `/product/{id}` (fallback dashboard). **Continuer** → rester + reset formulaire. Jamais quitter l’app.
+
+## Isolation
+
+- Ne pas modifier en même temps ajout produit, checkout, rôles, catalogue, dashboard admin.
+- Ne pas recopier un handler d’un écran 3000 lignes vers un autre sans tests du parcours.
+- Un OTA ne doit pas embarquer des workstreams non demandés.
+
+## Vérification minimale après changement
+
+1. `npm run test:critical` dans `apps/mobile`
+2. Ajout produit vendeur : Continuer (reste) + Voir le produit (fiche)
+3. Ajout produit admin : idem
+4. Si checkout/paiement touché : commande → paiement → confirmation (pas de 0 FCFA implicite)

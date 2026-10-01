@@ -1,10 +1,10 @@
 import * as admin from "firebase-admin";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import {
+  createAlgoliaProductsIndex,
+  shouldRemoveProductFromAlgolia,
+} from "./algoliaProducts";
 import { pineconeApiKey } from "./pineconeParams";
-
-const ALGOLIA_APP_ID = "ZYRHOXK3WR";
-const ALGOLIA_ADMIN_KEY = "db3194e274569db32e5938952f5a3ffd";
-const ALGOLIA_INDEX_NAME = "products";
 
 type ProductWriteDeps = {
   algoliasearch: typeof import("algoliasearch").default;
@@ -40,15 +40,14 @@ export const onProductWrite = onDocumentWritten(
   {
     document: "products/{productId}",
     secrets: [pineconeApiKey],
+    timeoutSeconds: 120,
+    retry: false,
   },
   async (event) => {
     const { algoliasearch, pinecone, visualMeta, notif } =
       await loadProductWriteDeps();
 
-    const getAlgoliaIndex = () => {
-      const client = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_ADMIN_KEY);
-      return client.initIndex(ALGOLIA_INDEX_NAME);
-    };
+    const getAlgoliaIndex = () => createAlgoliaProductsIndex(algoliasearch);
 
     const productId = event.params.productId;
     const before = event.data?.before;
@@ -75,12 +74,27 @@ export const onProductWrite = onDocumentWritten(
     const data = after.data();
     if (!data) return;
 
+    /**
+     * Désactivation (cascade boutique ou action manuelle) : même traitement
+     * Algolia qu’une suppression de document. Sans ça, `saveObject` réindexerait
+     * le produit après un `isActive=false`. On ne touche pas aux embeddings
+     * Firestore ni à Pinecone (le document produit existe toujours).
+     */
+    if (shouldRemoveProductFromAlgolia(data)) {
+      try {
+        await index.deleteObject(productId);
+      } catch (err) {
+        console.error("Algolia deleteObject (produit inactif):", err);
+      }
+      return;
+    }
+
     const record: Record<string, unknown> = {
       objectID: productId,
       name: data.name || "Produit sans nom",
       nameLower: (data.name || "").toLowerCase(),
       category: data.categoryName || data.category || "Général",
-      price: data.price || 0,
+      price: data.priceXOF ?? data.price ?? 0,
       imageUrl: data.mainImage || data.imageUrl || null,
       featured: data.featured === true,
       updatedAt: Date.now(),
@@ -156,16 +170,38 @@ export const onProductWrite = onDocumentWritten(
         }
       }
 
+      const isCreate = !before?.exists;
       const wasFeatured = Boolean(
         before?.exists && before.data()?.featured === true,
       );
       const isFeatured = data.featured === true;
-      if (isFeatured && !wasFeatured) {
-        await notif.sendGlobalPushNotification(
-          "🔥 Nouveau sur A2Express !",
-          `Découvrez : ${data.name || "un produit"}.`,
-          { productId, type: "featured_product" },
-        );
+      const productName =
+        typeof data.name === "string" && data.name.trim()
+          ? data.name.trim()
+          : "un produit";
+
+      /**
+       * Une seule push par produit créé. Le client + Render + les updates
+       * (id, traductions) ne doivent plus renvoyer le même message.
+       */
+      if (isCreate) {
+        const key = notif.newProductIdempotencyKey(productId);
+        if (await notif.claimNotificationOnce(key, "onProductWrite.create")) {
+          await notif.sendGlobalPushNotification(
+            "Nouveau produit sur A2Express",
+            productName,
+            { productId, type: "new_product" },
+          );
+        }
+      } else if (isFeatured && !wasFeatured) {
+        const key = notif.featuredProductIdempotencyKey(productId);
+        if (await notif.claimNotificationOnce(key, "onProductWrite.featured")) {
+          await notif.sendGlobalPushNotification(
+            "🔥 Nouveau sur A2Express !",
+            `Découvrez : ${productName}.`,
+            { productId, type: "featured_product" },
+          );
+        }
       }
     } catch (err) {
       console.error("Erreur:", err);

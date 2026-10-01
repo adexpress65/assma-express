@@ -26,10 +26,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.onProductWrite = void 0;
 const admin = __importStar(require("firebase-admin"));
 const firestore_1 = require("firebase-functions/v2/firestore");
+const algoliaProducts_1 = require("./algoliaProducts");
 const pineconeParams_1 = require("./pineconeParams");
-const ALGOLIA_APP_ID = "ZYRHOXK3WR";
-const ALGOLIA_ADMIN_KEY = "db3194e274569db32e5938952f5a3ffd";
-const ALGOLIA_INDEX_NAME = "products";
 let productWriteDepsPromise = null;
 function loadProductWriteDeps() {
     if (!productWriteDepsPromise) {
@@ -50,12 +48,11 @@ function loadProductWriteDeps() {
 exports.onProductWrite = (0, firestore_1.onDocumentWritten)({
     document: "products/{productId}",
     secrets: [pineconeParams_1.pineconeApiKey],
+    timeoutSeconds: 120,
+    retry: false,
 }, async (event) => {
     const { algoliasearch, pinecone, visualMeta, notif } = await loadProductWriteDeps();
-    const getAlgoliaIndex = () => {
-        const client = algoliasearch(ALGOLIA_APP_ID, ALGOLIA_ADMIN_KEY);
-        return client.initIndex(ALGOLIA_INDEX_NAME);
-    };
+    const getAlgoliaIndex = () => (0, algoliaProducts_1.createAlgoliaProductsIndex)(algoliasearch);
     const productId = event.params.productId;
     const before = event.data?.before;
     const after = event.data?.after;
@@ -81,12 +78,21 @@ exports.onProductWrite = (0, firestore_1.onDocumentWritten)({
     const data = after.data();
     if (!data)
         return;
+    if ((0, algoliaProducts_1.shouldRemoveProductFromAlgolia)(data)) {
+        try {
+            await index.deleteObject(productId);
+        }
+        catch (err) {
+            console.error("Algolia deleteObject (produit inactif):", err);
+        }
+        return;
+    }
     const record = {
         objectID: productId,
         name: data.name || "Produit sans nom",
         nameLower: (data.name || "").toLowerCase(),
         category: data.categoryName || data.category || "Général",
-        price: data.price || 0,
+        price: data.priceXOF ?? data.price ?? 0,
         imageUrl: data.mainImage || data.imageUrl || null,
         featured: data.featured === true,
         updatedAt: Date.now(),
@@ -152,10 +158,23 @@ exports.onProductWrite = (0, firestore_1.onDocumentWritten)({
                 console.warn("Mise à jour métadonnées Pinecone:", e);
             }
         }
+        const isCreate = !before?.exists;
         const wasFeatured = Boolean(before?.exists && before.data()?.featured === true);
         const isFeatured = data.featured === true;
-        if (isFeatured && !wasFeatured) {
-            await notif.sendGlobalPushNotification("🔥 Nouveau sur A2Express !", `Découvrez : ${data.name || "un produit"}.`, { productId, type: "featured_product" });
+        const productName = typeof data.name === "string" && data.name.trim()
+            ? data.name.trim()
+            : "un produit";
+        if (isCreate) {
+            const key = notif.newProductIdempotencyKey(productId);
+            if (await notif.claimNotificationOnce(key, "onProductWrite.create")) {
+                await notif.sendGlobalPushNotification("Nouveau produit sur A2Express", productName, { productId, type: "new_product" });
+            }
+        }
+        else if (isFeatured && !wasFeatured) {
+            const key = notif.featuredProductIdempotencyKey(productId);
+            if (await notif.claimNotificationOnce(key, "onProductWrite.featured")) {
+                await notif.sendGlobalPushNotification("🔥 Nouveau sur A2Express !", `Découvrez : ${productName}.`, { productId, type: "featured_product" });
+            }
         }
     }
     catch (err) {

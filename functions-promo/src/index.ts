@@ -3,12 +3,15 @@
  * causé par le gros `functions/` (recherche image, Pinecone, etc.).
  */
 import * as admin from "firebase-admin";
+import { onInit } from "firebase-functions/v2/core";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import Expo, { type ExpoPushMessage } from "expo-server-sdk";
 
-if (admin.apps.length === 0) {
-  admin.initializeApp();
-}
+onInit(() => {
+  if (admin.apps.length === 0) {
+    admin.initializeApp();
+  }
+});
 
 const expo = new Expo();
 
@@ -87,6 +90,49 @@ async function sendProductPromoToAllUsers(
   return { success: true, count: messages.length };
 }
 
+function normalizeTokenRole(raw: unknown): string {
+  const value = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    value === "super-admin" ||
+    value === "super_admin" ||
+    value === "superadmin" ||
+    value === "super admin"
+  ) {
+    return "super-admin";
+  }
+  return value;
+}
+
+async function assertSuperAdmin(request: {
+  auth?: { uid: string; token: Record<string, unknown> };
+}): Promise<void> {
+  if (!request.auth?.uid) {
+    throw new HttpsError("unauthenticated", "Connexion requise");
+  }
+
+  const fromClaim = normalizeTokenRole(request.auth.token?.role);
+  if (fromClaim === "super-admin") {
+    return;
+  }
+
+  console.warn("[auth-role] custom claim absent, fallback Firestore", {
+    uid: request.auth.uid,
+    tokenRole: request.auth.token?.role ?? null,
+  });
+
+  const db = admin.firestore();
+  const adminSnap = await db.collection("users").doc(request.auth.uid).get();
+  const fromFs = normalizeTokenRole(adminSnap.data()?.role);
+  if (fromFs !== "super-admin") {
+    throw new HttpsError(
+      "permission-denied",
+      "Action réservée aux super-administrateurs",
+    );
+  }
+}
+
 export const sendProductPromoBroadcast = onCall(
   {
     region: "europe-west1",
@@ -95,19 +141,7 @@ export const sendProductPromoBroadcast = onCall(
     memory: "512MiB",
   },
   async (request) => {
-    if (!request.auth?.uid) {
-      throw new HttpsError("unauthenticated", "Connexion requise");
-    }
-
-    const db = admin.firestore();
-    const adminSnap = await db.collection("users").doc(request.auth.uid).get();
-    const role = String(adminSnap.data()?.role || "").trim();
-    if (role !== "super-admin") {
-      throw new HttpsError(
-        "permission-denied",
-        "Action réservée aux super-administrateurs",
-      );
-    }
+    await assertSuperAdmin(request);
 
     const title = String(request.data?.title || "").trim();
     const body = String(request.data?.body || "").trim();
