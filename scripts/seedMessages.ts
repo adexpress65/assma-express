@@ -2,7 +2,23 @@
 import { collection, addDoc, getDocs, serverTimestamp } from "firebase/firestore";
 import { db } from "../src/config/firebase";
 
+const SUPPORT_INBOX_UID = "biU1QvlrGtZeqTLdbLONLGbyVQ92";
+
+function assertMessagingSeedAllowed() {
+  const onEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+  const flagged = process.env.MESSAGING_SEED_OK === "1";
+  if (!onEmulator || !flagged) {
+    console.error(
+      "Refus: seed messagerie autorisé seulement avec FIRESTORE_EMULATOR_HOST et MESSAGING_SEED_OK=1.",
+    );
+    process.exit(1);
+  }
+}
+
+assertMessagingSeedAllowed();
+
 const seedMessages = async () => {
+  assertMessagingSeedAllowed();
   console.log("💬 Démarrage du seed des messages...");
 
   try {
@@ -67,7 +83,14 @@ const seedMessages = async () => {
           break;
       }
 
+      const participants = Array.isArray(convData.participants) ? convData.participants : [];
+      if (participants.includes(SUPPORT_INBOX_UID)) {
+        throw new Error("Seed refusé: le super-admin ne peut pas être destinataire.");
+      }
       for (const msg of messages) {
+        if (msg.senderId === SUPPORT_INBOX_UID) {
+          throw new Error("Seed refusé: le super-admin ne peut pas être destinataire.");
+        }
         await addDoc(messagesRef, msg);
       }
 

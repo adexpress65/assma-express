@@ -1,6 +1,21 @@
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../src/config/firebase";
 
+const SUPPORT_INBOX_UID = "biU1QvlrGtZeqTLdbLONLGbyVQ92";
+
+function assertMessagingSeedAllowed() {
+  const onEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+  const flagged = process.env.MESSAGING_SEED_OK === "1";
+  if (!onEmulator || !flagged) {
+    console.error(
+      "Refus: seed messagerie autorisé seulement avec FIRESTORE_EMULATOR_HOST et MESSAGING_SEED_OK=1.",
+    );
+    process.exit(1);
+  }
+}
+
+assertMessagingSeedAllowed();
+
 
 
 /**
@@ -9,6 +24,10 @@ import { db } from "../src/config/firebase";
  */
 
 async function seedConversations(userId: string) {
+  assertMessagingSeedAllowed();
+  if (userId === SUPPORT_INBOX_UID) {
+    throw new Error("Seed refusé: le super-admin ne peut pas être destinataire.");
+  }
   console.log("🚀 Démarrage du seed des conversations...");
 
   const conversations = [
@@ -156,6 +175,12 @@ async function seedConversations(userId: string) {
 
   try {
     for (const conversation of conversations) {
+      const participants = Array.isArray(conversation.participants)
+        ? conversation.participants
+        : [];
+      if (participants.includes(SUPPORT_INBOX_UID)) {
+        throw new Error("Seed refusé: le super-admin ne peut pas être destinataire.");
+      }
       const docRef = await addDoc(collection(db, "conversations"), conversation);
       console.log(`✅ Conversation créée : ${conversation.title} (ID: ${docRef.id})`);
     }

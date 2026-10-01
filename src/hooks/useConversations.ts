@@ -8,12 +8,8 @@ import {
   where, 
   onSnapshot, 
   orderBy,
-  addDoc,
-  doc,
-  getDoc
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
-import { initializeConversations, testFirebaseConnection } from '../config/initFirebaseData';
 
 // Types
 export type TabType = 'social' | 'business' | 'shopping';
@@ -177,17 +173,6 @@ export const useConversations = () => {
       setError(null);
       
       console.log('👤 Chargement conversations pour:', currentUser.uid);
-      console.log('📡 Connexion Firebase établie');
-
-      // Tester la connexion
-      const totalConvs = await testFirebaseConnection();
-      console.log('📊 Conversations existantes dans Firestore:', totalConvs);
-
-      // Si aucune conversation, initialiser
-      if (totalConvs === 0) {
-        console.log('🔄 Initialisation des données...');
-        await initializeConversations();
-      }
 
       // Écouter les conversations en temps réel
       const conversationsRef = collection(db, 'conversations');
@@ -376,130 +361,6 @@ export const useConversations = () => {
     );
   }, [conversations]);
 
-  // Ajouter une conversation test
-  const addTestConversation = useCallback(async (tab: TabType) => {
-    if (!currentUser?.uid) {
-      Alert.alert('Erreur', 'Vous devez être connecté');
-      return;
-    }
-    
-    try {
-      const conversationsRef = collection(db, 'conversations');
-      const now = new Date();
-      
-      let testData: any = {
-        title: '',
-        type: '',
-        participants: [currentUser.uid],
-        participantNames: { [currentUser.uid]: 'Vous' },
-        participantAvatars: { [currentUser.uid]: '👤' },
-        lastMessage: 'Message de test',
-        lastMessageTime: now,
-        unreadCount: { [currentUser.uid]: 1 },
-        createdAt: now,
-        updatedAt: now,
-      };
-      
-      switch (tab) {
-        case 'social':
-          testData = {
-            ...testData,
-            title: 'Groupe Test Social',
-            type: 'group',
-            participants: [...testData.participants, 'test_user_1', 'test_user_2'],
-            participantNames: {
-              ...testData.participantNames,
-              'test_user_1': 'Test User 1',
-              'test_user_2': 'Test User 2'
-            },
-            participantAvatars: {
-              ...testData.participantAvatars,
-              'test_user_1': '😀',
-              'test_user_2': '😎'
-            },
-            lastMessage: 'Bienvenue dans le groupe test! 🎉',
-            socialData: {
-              isLive: Math.random() > 0.5,
-              isChannel: true,
-              channelType: 'public'
-            }
-          };
-          break;
-          
-        case 'business':
-          testData = {
-            ...testData,
-            title: 'Entreprise Test',
-            type: 'business',
-            participants: [...testData.participants, 'test_company'],
-            participantNames: {
-              ...testData.participantNames,
-              'test_company': 'Entreprise Test'
-            },
-            participantAvatars: {
-              ...testData.participantAvatars,
-              'test_company': '🏢'
-            },
-            lastMessage: 'Bonjour, comment pouvons-nous vous aider?',
-            businessData: {
-              companyId: 'test_company',
-              companyName: 'Entreprise Test',
-              status: 'online',
-              verified: true,
-              category: 'Test',
-              responseTime: '5 min',
-              rating: 4.5,
-              chatEnabled: true
-            }
-          };
-          break;
-          
-        case 'shopping':
-          testData = {
-            ...testData,
-            title: 'Commande Test #TEST123',
-            type: 'order',
-            participants: [...testData.participants, 'test_store'],
-            participantNames: {
-              ...testData.participantNames,
-              'test_store': 'Boutique Test'
-            },
-            participantAvatars: {
-              ...testData.participantAvatars,
-              'test_store': '🛍️'
-            },
-            lastMessage: 'Votre commande test est en préparation',
-            shoppingData: {
-              orderId: `TEST-${Date.now()}`,
-              orderStatus: 'processing',
-              totalAmount: '299 DH',
-              itemsCount: 1,
-              estimatedDelivery: 'Demain',
-              productName: 'Produit Test',
-              productImage: '📦'
-            }
-          };
-          break;
-      }
-      
-      const docRef = await addDoc(conversationsRef, testData);
-      
-      Alert.alert('✅', 'Conversation test créée !', [
-        { 
-          text: 'OK', 
-          onPress: () => {
-            // Recharger les conversations
-            loadConversations();
-          }
-        }
-      ]);
-      
-    } catch (error) {
-      console.error('❌ Erreur création test:', error);
-      Alert.alert('❌', 'Erreur lors de la création');
-    }
-  }, [currentUser?.uid, loadConversations]);
-
   // Marquer une story comme vue
   const markStoryAsSeen = useCallback((storyId: string) => {
     setStories(prev =>
@@ -529,7 +390,6 @@ export const useConversations = () => {
     markAsRead,
     markStoryAsSeen,
     searchConversations,
-    addTestConversation,
     loadConversations,
     
     // Utilitaires

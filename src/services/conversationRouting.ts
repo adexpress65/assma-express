@@ -16,7 +16,6 @@
  *  - seller_to_customer    → participants = [clientUid, sellerUid]
  */
 import {
-  arrayUnion,
   doc,
   getDoc,
   serverTimestamp,
@@ -64,8 +63,9 @@ export function companyOwnerCandidates(
 }
 
 /**
- * Ordre : sellerId produit/route d’abord, puis ownerUid/ownerId/sellerUid/uid
- * de la société. Tout UID égal au support est ignoré. Aucun fallback admin.
+ * Propriétaires société (ownerUid, ownerId, sellerUid, uid), hors support.
+ * Le sellerId produit n’est retenu que s’il fait partie de ces propriétaires :
+ * un UID arbitraire, y compris le super-admin, n’est jamais destinataire.
  */
 export function pickStoreOwnerUid(input: {
   productSellerUid?: string | null;
@@ -76,29 +76,25 @@ export function pickStoreOwnerUid(input: {
   const support = nonEmptyId(input.supportInboxUid ?? SUPPORT_INBOX_UID);
   if (support) blocked.add(support);
 
-  const ordered: string[] = [];
-  const productSeller = nonEmptyId(input.productSellerUid);
-  if (productSeller) ordered.push(productSeller);
+  const candidates: string[] = [];
+  const seen = new Set<string>();
   for (const id of input.companyCandidates) {
     const clean = nonEmptyId(id);
-    if (clean) ordered.push(clean);
+    if (!clean || blocked.has(clean) || seen.has(clean)) continue;
+    seen.add(clean);
+    candidates.push(clean);
   }
 
-  const unique: string[] = [];
-  const seen = new Set<string>();
-  for (const id of ordered) {
-    if (blocked.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    unique.push(id);
-  }
+  const productSeller = nonEmptyId(input.productSellerUid);
+  if (productSeller && seen.has(productSeller)) return productSeller;
 
-  if (unique.length === 0) {
+  if (candidates.length === 0) {
     throw new MessagingRoutingError(
       "STORE_OWNER_UNRESOLVED",
       "Impossible de déterminer le propriétaire de la boutique. Le message n’a pas été envoyé au support.",
     );
   }
-  return unique[0];
+  return candidates[0];
 }
 
 export function canonicalStoreConversationId(
@@ -210,9 +206,48 @@ export async function resolveStoreOwnerUid(input: {
   return { sellerUid, companyName, companyLogo };
 }
 
+function distinctIds(ids: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+function readExistingThread(data: Record<string, unknown>, conversationId: string) {
+  const sellerUid = nonEmptyId(data.sellerUid);
+  const clientUid = nonEmptyId(data.clientUid);
+  const participants = Array.isArray(data.participants)
+    ? data.participants.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  if (!sellerUid || !clientUid) {
+    throw new MessagingRoutingError(
+      "INVALID_EXISTING",
+      "Conversation existante incomplète. Elle doit être corrigée par la migration, pas réécrite ici.",
+    );
+  }
+  return { id: conversationId, sellerUid, clientUid, participants };
+}
+
+/** Crée le document seulement s’il n’existe pas. Jamais de merge qui réécrit le routage. */
+async function createConversationIfMissing(
+  conversationId: string,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  const ref = doc(db, "conversations", conversationId);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return false;
+  await setDoc(ref, payload);
+  return true;
+}
+
 /**
- * Crée ou fusionne le document conversation boutique.
- * N’ajoute le viewer aux participants que s’il est client ou vendeur.
+ * Crée le document conversation boutique s’il n’existe pas.
+ * Un fil déjà présent n’est pas réécrit (pas de changement de sellerUid / participants).
  */
 export async function bootstrapStoreConversation(
   input: StoreBootstrapInput,
@@ -223,6 +258,14 @@ export async function bootstrapStoreConversation(
     throw new MessagingRoutingError(
       "INVALID_BOOTSTRAP",
       "companyId et utilisateur connecté sont obligatoires.",
+    );
+  }
+
+  const existingSnap = await getDoc(doc(db, "conversations", input.conversationId));
+  if (existingSnap.exists()) {
+    return readExistingThread(
+      existingSnap.data() as Record<string, unknown>,
+      input.conversationId,
     );
   }
 
@@ -247,18 +290,22 @@ export async function bootstrapStoreConversation(
     );
   }
 
-  const participants = buildKindParticipants("customer_to_store", {
-    clientUid,
-    sellerUid,
-  });
+  const participants = distinctIds(
+    buildKindParticipants("customer_to_store", { clientUid, sellerUid }),
+  );
+  if (!participants.includes(viewerUid)) {
+    throw new MessagingRoutingError(
+      "VIEWER_NOT_PARTICIPANT",
+      "Seul le client ou le propriétaire de la boutique peut ouvrir ce fil.",
+    );
+  }
 
-  const title =
-    nonEmptyId(input.companyName) || companyName || "Boutique";
+  const title = nonEmptyId(input.companyName) || companyName || "Boutique";
   const logo = nonEmptyId(input.companyLogo) || companyLogo || "";
-  const viewerIsClient = viewerUid === clientUid;
-  const viewerIsSeller = viewerUid === sellerUid;
+  const clientName = nonEmptyId(input.clientName) || "Client";
+  const clientAvatar = nonEmptyId(input.clientAvatar) || "";
 
-  const payload: Record<string, unknown> = {
+  await createConversationIfMissing(input.conversationId, {
     id: input.conversationId,
     conversationKind: "customer_to_store" as ConversationKind,
     type: "seller",
@@ -268,33 +315,20 @@ export async function bootstrapStoreConversation(
     title,
     sellerUid,
     clientUid,
-    participants: arrayUnion(...participants),
-    [`participantNames.${sellerUid}`]: title,
-    [`participantNames.${companyId}`]: title,
-    [`participantAvatars.${sellerUid}`]: logo,
-    [`participantAvatars.${companyId}`]: logo,
+    clientName,
+    clientAvatar,
+    participants,
+    participantNames: {
+      [sellerUid]: title,
+      [clientUid]: clientName,
+    },
+    participantAvatars: {
+      [sellerUid]: logo,
+      [clientUid]: clientAvatar,
+    },
+    createdBy: viewerUid,
+    createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  };
-
-  if (viewerIsClient) {
-    const clientName = nonEmptyId(input.clientName) || "Client";
-    const clientAvatar = nonEmptyId(input.clientAvatar) || "";
-    payload.createdBy = viewerUid;
-    payload.clientName = clientName;
-    payload.clientAvatar = clientAvatar;
-    payload[`participantNames.${clientUid}`] = clientName;
-    payload[`participantAvatars.${clientUid}`] = clientAvatar;
-  } else if (!viewerIsSeller) {
-    if (typeof __DEV__ !== "undefined" && __DEV__) {
-      console.warn(
-        "[messagerie] viewer ignoré (ni client ni vendeur)",
-        { viewerUid, clientUid, sellerUid },
-      );
-    }
-  }
-
-  await setDoc(doc(db, "conversations", input.conversationId), payload, {
-    merge: true,
   });
 
   return { id: input.conversationId, sellerUid, clientUid, participants };
@@ -309,23 +343,102 @@ export async function bootstrapSupportConversation(input: {
     throw new MessagingRoutingError("MISSING_CLIENT", "clientUid manquant.");
   }
   const conversationId = `support_${clientUid}`;
-  const participants = buildKindParticipants("customer_to_support", { clientUid });
-  await setDoc(
-    doc(db, "conversations", conversationId),
-    {
-      id: conversationId,
-      conversationKind: "customer_to_support" as ConversationKind,
-      type: "support",
-      title: "Support A2Express",
-      sellerUid: SUPPORT_INBOX_UID,
-      clientUid,
-      participants: arrayUnion(...participants),
-      [`participantNames.${SUPPORT_INBOX_UID}`]: "Support A2Express",
-      [`participantNames.${clientUid}`]: nonEmptyId(input.clientName) || "Client",
-      createdBy: clientUid,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
+  const existingSnap = await getDoc(doc(db, "conversations", conversationId));
+  if (existingSnap.exists()) return conversationId;
+
+  const participants = distinctIds(
+    buildKindParticipants("customer_to_support", { clientUid }),
   );
+  const clientName = nonEmptyId(input.clientName) || "Client";
+  await createConversationIfMissing(conversationId, {
+    id: conversationId,
+    conversationKind: "customer_to_support" as ConversationKind,
+    type: "support",
+    title: "Support A2Express",
+    sellerUid: SUPPORT_INBOX_UID,
+    clientUid,
+    participants,
+    participantNames: {
+      [SUPPORT_INBOX_UID]: "Support A2Express",
+      [clientUid]: clientName,
+    },
+    createdBy: clientUid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
   return conversationId;
+}
+
+/**
+ * Fil vendeur → client (photo de colis, suivi). Même propriétaire boutique
+ * que customer_to_store. Ne réécrit pas un fil déjà ouvert.
+ */
+export async function bootstrapSellerToCustomerConversation(input: {
+  conversationId: string;
+  companyId: string;
+  viewerUid: string;
+  clientUid: string;
+  clientName?: string | null;
+  companyName?: string | null;
+  companyLogo?: string | null;
+}): Promise<{ id: string; sellerUid: string; clientUid: string; participants: string[] }> {
+  const companyId = nonEmptyId(input.companyId);
+  const viewerUid = nonEmptyId(input.viewerUid);
+  const clientUid = nonEmptyId(input.clientUid);
+  if (!companyId || !viewerUid || !clientUid) {
+    throw new MessagingRoutingError(
+      "INVALID_BOOTSTRAP",
+      "companyId, client et utilisateur connecté sont obligatoires.",
+    );
+  }
+
+  const existingSnap = await getDoc(doc(db, "conversations", input.conversationId));
+  if (existingSnap.exists()) {
+    return readExistingThread(
+      existingSnap.data() as Record<string, unknown>,
+      input.conversationId,
+    );
+  }
+
+  const resolved = await resolveStoreOwnerUid({ companyId });
+  const sellerUid = resolved.sellerUid;
+  const participants = distinctIds(
+    buildKindParticipants("seller_to_customer", { clientUid, sellerUid }),
+  );
+  if (!participants.includes(viewerUid)) {
+    throw new MessagingRoutingError(
+      "VIEWER_NOT_PARTICIPANT",
+      "Seul le client ou le propriétaire de la boutique peut ouvrir ce fil.",
+    );
+  }
+
+  const title = nonEmptyId(input.companyName) || resolved.companyName || "Boutique";
+  const logo = nonEmptyId(input.companyLogo) || resolved.companyLogo || "";
+  const clientName = nonEmptyId(input.clientName) || "Client";
+
+  await createConversationIfMissing(input.conversationId, {
+    id: input.conversationId,
+    conversationKind: "seller_to_customer" as ConversationKind,
+    type: "seller",
+    companyId,
+    companyName: title,
+    companyLogo: logo,
+    title,
+    sellerUid,
+    clientUid,
+    clientName,
+    participants,
+    participantNames: {
+      [sellerUid]: title,
+      [clientUid]: clientName,
+    },
+    participantAvatars: {
+      [sellerUid]: logo,
+    },
+    createdBy: viewerUid,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  return { id: input.conversationId, sellerUid, clientUid, participants };
 }

@@ -99,14 +99,13 @@ export default function useAppNavigation() {
       });
     },
     
-    chat: (sellerId: string, productId?: string, sellerName?: string) => {
+    chat: (sellerId: string, _productId?: string, sellerName?: string) => {
       router.push({
-        pathname: '/chat',
-        params: { 
-          sellerId,
-          productId: productId || '',
-          sellerName: encodeURIComponent(sellerName || 'Vendeur')
-        }
+        pathname: "/company/[id]",
+        params: {
+          id: sellerId,
+          name: encodeURIComponent(sellerName || "Vendeur"),
+        },
       });
     },
     

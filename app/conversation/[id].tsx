@@ -31,7 +31,6 @@ import { useRequireAuth } from "../../src/contexts/AuthGuardContext";
 import { useMessages } from "../../src/contexts/MessagesContext";
 import ProductMessageCard from "../../src/components/ProductMessageCard";
 import {
-  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -41,7 +40,6 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  setDoc,
   startAfter,
   where,
   type QueryDocumentSnapshot,

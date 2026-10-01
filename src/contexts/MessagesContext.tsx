@@ -2,13 +2,13 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, 
   query, where, orderBy, limit, startAfter, onSnapshot, writeBatch, 
-  serverTimestamp, Timestamp, setDoc, arrayUnion, DocumentData, QueryDocumentSnapshot 
+  serverTimestamp, Timestamp, setDoc, DocumentData, QueryDocumentSnapshot 
 } from 'firebase/firestore';
 import { Alert } from 'react-native';
 import { db } from '../config/firebase'; // Ajustez selon votre chemin d'import firebase
 import {
-  SUPPORT_INBOX_UID,
   bootstrapStoreConversation,
+  bootstrapSupportConversation,
   canonicalStoreConversationId,
   MessagingRoutingError,
 } from '../services/conversationRouting';
@@ -76,19 +76,6 @@ const toParticipantIds = (value: unknown): string[] => {
     })
     .filter((id) => id.length > 0);
 };
-
-function clientUidFromCanonicalId(
-  conversationId: string,
-  companyId?: string | null,
-): string | null {
-  if (companyId && conversationId.startsWith(`${companyId}_`)) {
-    const suffix = conversationId.slice(companyId.length + 1);
-    return suffix || null;
-  }
-  const i = conversationId.lastIndexOf('_');
-  if (i <= 0 || i === conversationId.length - 1) return null;
-  return conversationId.slice(i + 1);
-}
 
 function mapConversationDocs(
   docs: QueryDocumentSnapshot<DocumentData>[],
@@ -189,7 +176,6 @@ export const MessagesProvider: React.FC<{
   const sellerUidConversations = useRef<Conversation[]>([]);
   const supportConversations = useRef<Conversation[]>([]);
   const recoveredConversations = useRef<Conversation[]>([]);
-  const repairedCanonical = useRef<Set<string>>(new Set());
 
   const publishConversations = () => {
     const merged = mergeConversationLists([
@@ -210,42 +196,6 @@ export const MessagesProvider: React.FC<{
       return;
     }
     setConversations(merged);
-  };
-  };
-
-  const repairMissingClientParticipant = (conv: Conversation, actorUid: string) => {
-    const suffix = clientUidFromCanonicalId(conv.id, typeof conv.companyId === 'string' ? conv.companyId : null);
-    if (!suffix || suffix === actorUid) return;
-    if (suffix === conv.companyId || suffix === conv.sellerUid) return;
-    const parts = Array.isArray(conv.participants) ? conv.participants : [];
-    const needsParticipant = !parts.includes(suffix);
-    const needsClientUid = conv.clientUid !== suffix;
-    if (!needsParticipant && !needsClientUid) return;
-    const key = `${conv.id}:${suffix}`;
-    if (repairedCanonical.current.has(key)) return;
-    repairedCanonical.current.add(key);
-    updateDoc(doc(db, 'conversations', conv.id), {
-      ...(needsParticipant ? { participants: arrayUnion(suffix) } : {}),
-      ...(needsClientUid ? { clientUid: suffix } : {}),
-    }).catch(() => {
-      repairedCanonical.current.delete(key);
-    });
-  };
-
-  const restoreSelfAsParticipant = (conv: Conversation, uid: string) => {
-    const parts = Array.isArray(conv.participants) ? conv.participants : [];
-    if (parts.includes(uid)) return;
-    const suffix = clientUidFromCanonicalId(conv.id, typeof conv.companyId === 'string' ? conv.companyId : null);
-    if (suffix !== uid && conv.clientUid !== uid) return;
-    const key = `self:${conv.id}:${uid}`;
-    if (repairedCanonical.current.has(key)) return;
-    repairedCanonical.current.add(key);
-    updateDoc(doc(db, 'conversations', conv.id), {
-      participants: arrayUnion(uid),
-      clientUid: uid,
-    }).catch(() => {
-      repairedCanonical.current.delete(key);
-    });
   };
 
   // ================================
@@ -280,7 +230,6 @@ export const MessagesProvider: React.FC<{
         setHasMoreConversations(snapshot.docs.length === 20);
         const list = mapConversationDocs(snapshot.docs);
         participantConversations.current = list;
-        list.forEach((conv) => repairMissingClientParticipant(conv, uid));
         publishConversations();
         setLoading(false);
       },
@@ -299,7 +248,6 @@ export const MessagesProvider: React.FC<{
       (snapshot) => {
         const list = mapConversationDocs(snapshot.docs);
         clientUidConversations.current = list;
-        list.forEach((conv) => restoreSelfAsParticipant(conv, uid));
         publishConversations();
       },
       (error) => {
@@ -365,7 +313,6 @@ export const MessagesProvider: React.FC<{
             const snap = await getDoc(doc(db, 'conversations', convId));
             if (!snap.exists()) return;
             const conv = { id: snap.id, ...snap.data() } as Conversation;
-            restoreSelfAsParticipant(conv, uid);
             recovered.push(conv);
           }),
         );
@@ -528,83 +475,74 @@ export const MessagesProvider: React.FC<{
         ...options
       };
 
+      const { increment } = await import('firebase/firestore');
+      const convRef = doc(db, 'conversations', conversationId);
+      let convSnap = await getDoc(convRef);
+
+      if (!convSnap.exists()) {
+        if (conversationId.startsWith('support_')) {
+          const supportClientUid = conversationId.slice('support_'.length);
+          if (!supportClientUid || supportClientUid !== user.uid) {
+            throw new MessagingRoutingError(
+              'MISSING_CONVERSATION',
+              'Fil support introuvable.',
+            );
+          }
+          await bootstrapSupportConversation({
+            clientUid: supportClientUid,
+            clientName: user.displayName || 'Client',
+          });
+        } else {
+          const cached = conversations.find((c) => c.id === conversationId);
+          const optionCompany =
+            typeof options.companyId === 'string' ? options.companyId.trim() : '';
+          const suffixCompany =
+            conversationId.endsWith(`_${user.uid}`)
+              ? conversationId.slice(0, conversationId.length - user.uid.length - 1)
+              : '';
+          const companyId =
+            optionCompany ||
+            (typeof cached?.companyId === 'string' ? cached.companyId : '') ||
+            suffixCompany;
+          if (!companyId) {
+            throw new MessagingRoutingError(
+              'MISSING_CONVERSATION',
+              'Conversation introuvable. Ouvrez-la depuis la boutique avant d’envoyer.',
+            );
+          }
+          await bootstrapStoreConversation({
+            conversationId,
+            companyId,
+            viewerUid: user.uid,
+            productSellerUid:
+              typeof options.sellerUid === 'string' ? options.sellerUid : null,
+            clientUid: user.uid,
+            clientName: user.displayName || 'Client',
+          });
+        }
+        convSnap = await getDoc(convRef);
+      }
+
       await addDoc(collection(db, 'conversations', conversationId, 'messages'), messageData);
 
-      const { increment, arrayUnion } = await import('firebase/firestore');
-      const convRef = doc(db, 'conversations', conversationId);
-
-      const conversation = conversations.find(c => c.id === conversationId);
-      const convSnap = await getDoc(convRef);
-      const convLive = convSnap.exists() ? convSnap.data() : null;
-      const companyIdFromCache =
-        typeof conversation?.companyId === 'string'
-          ? conversation.companyId
-          : typeof convLive?.companyId === 'string'
-            ? convLive.companyId
-            : null;
-      const clientUidFromCache =
-        typeof conversation?.clientUid === 'string'
-          ? conversation.clientUid
-          : typeof convLive?.clientUid === 'string'
-            ? convLive.clientUid
-            : null;
-      const sellerUidFromCache =
-        typeof conversation?.sellerUid === 'string'
-          ? conversation.sellerUid
-          : typeof convLive?.sellerUid === 'string'
-            ? convLive.sellerUid
-            : null;
-      const parsedClientUid =
-        clientUidFromCanonicalId(conversationId, companyIdFromCache) || clientUidFromCache;
-      const parsedCompanyId =
-        companyIdFromCache ||
-        (parsedClientUid && conversationId.endsWith(`_${parsedClientUid}`)
-          ? conversationId.slice(0, conversationId.length - parsedClientUid.length - 1)
-          : null);
-
-      const kind =
-        (typeof convLive?.conversationKind === 'string' && convLive.conversationKind) ||
-        (convLive?.type === 'support' ? 'customer_to_support' : 'customer_to_store');
-
-      const routingParticipants =
-        kind === 'customer_to_support'
-          ? [parsedClientUid, SUPPORT_INBOX_UID]
-          : [parsedClientUid, sellerUidFromCache];
-
-      const participantIds = routingParticipants.filter(
-        (id, i, arr): id is string => Boolean(id) && arr.indexOf(id) === i,
-      );
-
-      const senderLooksLikeSeller = user.uid === sellerUidFromCache;
-      const clientUidToPersist =
-        parsedClientUid && (!senderLooksLikeSeller || parsedClientUid !== user.uid)
-          ? parsedClientUid
-          : null;
-
-      const unreadTargets = new Set(
-        participantIds.filter((id) => id !== user.uid),
-      );
-
+      const participants = Array.isArray(convSnap.data()?.participants)
+        ? (convSnap.data()?.participants as string[])
+        : [];
       const updateData: Record<string, any> = {
-        id: conversationId,
         lastMessage: safeText,
         lastMessageType: type,
         lastMessageTime: serverTimestamp(),
         updatedAt: serverTimestamp(),
         [`unreadCount.${user.uid}`]: 0,
         messageCount: increment(1),
-        participants: arrayUnion(...participantIds),
-        ...(clientUidToPersist ? { clientUid: clientUidToPersist } : {}),
-        ...(parsedCompanyId ? { companyId: parsedCompanyId } : {}),
-        ...(sellerUidFromCache ? { sellerUid: sellerUidFromCache } : {}),
       };
+      participants
+        .filter((id) => id && id !== user.uid)
+        .forEach((id) => {
+          updateData[`unreadCount.${id}`] = increment(1);
+        });
 
-      unreadTargets.forEach((id) => {
-        updateData[`unreadCount.${id}`] = increment(1);
-      });
-
-      // UTILISATION DE setDoc AVEC MERGE AU LIEU DE updateDoc POUR ÉVITER L'ERREUR DE DOCUMENT MANQUANT
-      await setDoc(convRef, updateData, { merge: true });
+      await updateDoc(convRef, updateData);
     } catch (error) {
       console.error('❌ Erreur envoi message:', error);
       throw error;

@@ -222,13 +222,11 @@ function PremiumSuppliersSection({ products, suppliers }: PremiumSuppliersSectio
 
   // ✅ CORRECTION : Navigation vers la messagerie
   const navigateToChat = (supplier: Supplier) => {
-    console.log('🔄 Navigation vers chat avec:', supplier.id);
-    
     router.push({
-      pathname: "/chat",
-      params: { 
-        sellerId: supplier.id,
-        sellerName: encodeURIComponent(supplier.name || '')
+      pathname: "/company/[id]",
+      params: {
+        id: supplier.id,
+        name: encodeURIComponent(supplier.name || ""),
       },
     });
   };

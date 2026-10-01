@@ -26,69 +26,6 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import { getUserDisplayLabel } from '../utils/userIdentity';
 
 export class MessagingService {
-  // Créer une nouvelle conversation
-  static async createConversation(data: {
-    title: string;
-    type: 'order' | 'inquiry' | 'support' | 'partner' | 'direct';
-    participants: string[];
-    participantNames: { [userId: string]: string };
-    participantAvatars: { [userId: string]: string };
-    orderData?: {
-      orderId: string;
-      orderNumber: string;
-      status: string;
-      totalAmount: string;
-      productName?: string;
-      productImage?: string;
-    };
-    partnerData?: {
-      companyId: string;
-      companyName: string;
-      verified: boolean;
-      category: string;
-      responseTime: string;
-      rating: number;
-      online: boolean;
-    };
-    metadata?: {
-      productId?: string;
-      categoryId?: string;
-      liveStreamId?: string;
-      ticketNumber?: string;
-    };
-  }) {
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) throw new Error('Utilisateur non connecté');
-
-      const conversationData = {
-        ...data,
-        lastMessage: 'Conversation démarrée',
-        lastMessageTime: serverTimestamp(),
-        unreadCount: data.participants.reduce((acc, participant) => ({
-          ...acc,
-          [participant]: participant === currentUser.uid ? 0 : 1
-        }), {}),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      };
-
-      const conversationRef = await addDoc(collection(db, 'conversations'), conversationData);
-      
-      // Envoyer un message de bienvenue
-      await this.sendMessage(conversationRef.id, {
-        text: 'Bienvenue ! Comment pouvons-nous vous aider ?',
-        type: 'system',
-        metadata: {}
-      });
-
-      return conversationRef.id;
-    } catch (error) {
-      console.error('Error creating conversation:', error);
-      throw error;
-    }
-  }
-
   // Envoyer un message
   static async sendMessage(conversationId: string, data: {
     text: string;

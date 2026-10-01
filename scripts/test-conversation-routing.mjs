@@ -32,27 +32,24 @@ function pickStoreOwnerUid(input) {
   const support = nonEmptyId(input.supportInboxUid ?? SUPPORT_INBOX_UID);
   if (support) blocked.add(support);
 
-  const ordered = [];
-  const productSeller = nonEmptyId(input.productSellerUid);
-  if (productSeller) ordered.push(productSeller);
+  const candidates = [];
+  const seen = new Set();
   for (const id of input.companyCandidates) {
     const clean = nonEmptyId(id);
-    if (clean) ordered.push(clean);
+    if (!clean || blocked.has(clean) || seen.has(clean)) continue;
+    seen.add(clean);
+    candidates.push(clean);
   }
 
-  const unique = [];
-  const seen = new Set();
-  for (const id of ordered) {
-    if (blocked.has(id) || seen.has(id)) continue;
-    seen.add(id);
-    unique.push(id);
-  }
-  if (unique.length === 0) {
+  const productSeller = nonEmptyId(input.productSellerUid);
+  if (productSeller && seen.has(productSeller)) return productSeller;
+
+  if (candidates.length === 0) {
     const err = new Error("STORE_OWNER_UNRESOLVED");
     err.code = "STORE_OWNER_UNRESOLVED";
     throw err;
   }
-  return unique[0];
+  return candidates[0];
 }
 
 function buildKindParticipants(kind, input) {
@@ -117,6 +114,14 @@ test("ownerUid de société est préféré à uid si pas de sellerId produit", (
     pickStoreOwnerUid({ companyCandidates: candidates }),
     "seller_real",
   );
+});
+
+test("un sellerId produit hors propriétaires société est ignoré", () => {
+  const seller = pickStoreOwnerUid({
+    productSellerUid: "intrus_ou_super_admin",
+    companyCandidates: ["seller_real", SUPPORT_INBOX_UID],
+  });
+  assert.equal(seller, "seller_real");
 });
 
 test("un utilisateur hors participants n’est pas dans le fil boutique", () => {

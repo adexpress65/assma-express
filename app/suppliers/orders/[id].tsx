@@ -15,8 +15,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { doc, getDoc, getDocs, updateDoc, setDoc, collection, addDoc, query, where, limit, serverTimestamp, arrayUnion, increment } from 'firebase/firestore';
+import { doc, getDoc, getDocs, updateDoc, collection, query, where, limit } from 'firebase/firestore';
 import { db, auth, storage } from '@/config/firebase';
+import { bootstrapSellerToCustomerConversation } from '@/services/conversationRouting';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale/fr';
@@ -626,107 +627,46 @@ const handleSendPackedPhoto = async () => {
       }
       // Même schéma que la fiche produit : un fil par boutique ET par client.
       const chatId = `${companyId}_${clientId}`;
-      const chatRef = doc(db, 'conversations', chatId);
-      const chatSnap = await getDoc(chatRef);
-      const existing = chatSnap.exists()
-        ? (chatSnap.data() as Record<string, unknown>)
-        : null;
 
       let companyName =
-        (typeof existing?.companyName === 'string' && existing.companyName.trim()) ||
         (typeof firstItem?.companyName === 'string' && firstItem.companyName.trim()) ||
         (typeof firstItem?.seller === 'string' && firstItem.seller.trim()) ||
         (typeof order.companyName === 'string' && order.companyName.trim()) ||
         '';
-      let companyLogo =
-        typeof existing?.companyLogo === 'string' && existing.companyLogo
-          ? existing.companyLogo
-          : null;
+      let companyLogo: string | null = null;
 
-      if (!companyName || !companyLogo) {
-        try {
-          const companySnap = await getDoc(doc(db, 'companies', companyId));
-          if (companySnap.exists()) {
-            const companyData = companySnap.data() as Record<string, unknown>;
-            if (!companyName) {
-              companyName =
-                (typeof companyData.name === 'string' && companyData.name.trim()) ||
-                (typeof companyData.companyName === 'string' &&
-                  companyData.companyName.trim()) ||
-                '';
-            }
-            if (!companyLogo) {
-              companyLogo =
-                (typeof companyData.logo === 'string' && companyData.logo) ||
-                (typeof companyData.companyLogo === 'string' && companyData.companyLogo) ||
-                null;
-            }
+      try {
+        const companySnap = await getDoc(doc(db, 'companies', companyId));
+        if (companySnap.exists()) {
+          const companyData = companySnap.data() as Record<string, unknown>;
+          if (!companyName) {
+            companyName =
+              (typeof companyData.name === 'string' && companyData.name.trim()) ||
+              (typeof companyData.companyName === 'string' &&
+                companyData.companyName.trim()) ||
+              '';
           }
-        } catch {
-          // Nom / logo optionnels : on continue avec les fallbacks commande.
+          companyLogo =
+            (typeof companyData.logo === 'string' && companyData.logo) ||
+            (typeof companyData.companyLogo === 'string' && companyData.companyLogo) ||
+            null;
         }
+      } catch {
+        // Nom / logo optionnels : le service relit la société.
       }
       if (!companyName) companyName = 'Boutique';
 
       const clientName = orderClientName || 'Client';
-      const sellerUid = currentUser.uid;
-      const existingParticipants = Array.isArray(existing?.participants)
-        ? (existing.participants as string[])
-        : [];
-      // Achat avec le compte boutique : ne pas garder un autre participant
-      // collé par erreur (ex. Tidjo) sur le fil uid_uid.
-      const participants = Array.from(
-        new Set(
-          (selfPurchase
-            ? [clientId, sellerUid, companyId]
-            : [...existingParticipants, clientId, sellerUid, companyId]
-          ).filter(Boolean),
-        ),
-      );
-      const existingNames =
-        existing?.participantNames && typeof existing.participantNames === 'object'
-          ? (existing.participantNames as Record<string, string>)
-          : {};
-      const existingAvatars =
-        existing?.participantAvatars && typeof existing.participantAvatars === 'object'
-          ? (existing.participantAvatars as Record<string, string>)
-          : {};
-
-      const packedPayload: Record<string, unknown> = {
-        id: chatId,
+      const opened = await bootstrapSellerToCustomerConversation({
+        conversationId: chatId,
         companyId,
-        companyName,
-        companyLogo: companyLogo || '',
-        title: (typeof existing?.title === 'string' && existing.title) || companyName,
-        type: (typeof existing?.type === 'string' && existing.type) || 'seller',
-        sellerUid,
+        viewerUid: currentUser.uid,
         clientUid: clientId,
         clientName,
-        // arrayUnion : sans l'UID client dans participants, sa messagerie reste vide.
-        participants: arrayUnion(...participants),
-        participantNames: {
-          ...existingNames,
-          [clientId]: clientName,
-          [companyId]: companyName,
-          [sellerUid]: companyName,
-        },
-        participantAvatars: {
-          ...existingAvatars,
-          [companyId]: companyLogo || existingAvatars[companyId] || '',
-          [sellerUid]: companyLogo || existingAvatars[sellerUid] || '',
-        },
-        updatedAt: serverTimestamp(),
-        lastMessageTime: serverTimestamp(),
-        [`unreadCount.${clientId}`]: increment(1),
-        [`unreadCount.${sellerUid}`]: 0,
-      };
-      if (!chatSnap.exists()) {
-        packedPayload.createdAt = serverTimestamp();
-        packedPayload.createdBy = clientId;
-        packedPayload.lastMessage = `Photo du colis emballé pour la commande #${order.id}`;
-      }
-
-      await setDoc(chatRef, packedPayload, { merge: true });
+        companyName,
+        companyLogo,
+      });
+      const sellerUid = opened.sellerUid;
 
       const priceText = `${Number(order.total || 0).toLocaleString('fr-FR')} FCFA`;
       const initialMessage = `Photo du colis emballé pour la commande #${order.id} - Montant : ${priceText}`;
