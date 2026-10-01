@@ -20,7 +20,7 @@
     "web": "expo start --web",
     "prebuild": "expo prebuild",
     "migrate:products-company-seller": "node ./scripts/migrate-products-company-seller.mjs",
-    "test:critical": "node --test ./scripts/test-safe-navigate.mjs ./scripts/test-notification-dedup.mjs ./scripts/test-conversation-routing.mjs"
+    "test:critical": "node --test ./scripts/test-safe-navigate.mjs ./scripts/test-notification-dedup.mjs ./scripts/test-conversation-routing.mjs ./scripts/test-no-direct-conversation-write.mjs"
   },
   "dependencies": {
     "@babel/runtime": "^7.26.0",
