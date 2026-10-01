@@ -4,9 +4,10 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 function extractPossibleOwnerUids(data: Record<string, unknown> | undefined): string[] {
   if (!data) return [];
   const candidates: unknown[] = [
-    data.uid,
+    data.ownerUid,
     data.ownerId,
     data.sellerUid,
+    data.uid,
     data.userId,
     data.createdBy,
   ];
@@ -49,20 +50,28 @@ export const onNewChatMessagePush = onDocumentCreated(
     }
 
     const conv = convSnap.data() || {};
+    const kind = String(conv.conversationKind || conv.type || "");
     const participants = (conv.participants as string[] | undefined) || [];
+    const sellerUid = typeof conv.sellerUid === "string" ? conv.sellerUid.trim() : "";
+    const clientUid = typeof conv.clientUid === "string" ? conv.clientUid.trim() : "";
     // L'app écrit `muted.{uid}` ; `mute` n'est conservé que pour d'anciens documents.
     const muted =
       (conv.muted as Record<string, boolean> | undefined) ||
       (conv.mute as Record<string, boolean> | undefined) ||
       {};
 
-    console.log(`[Push Chat] Participants bruts :`, participants);
-    console.log(`[Push Chat] Map muted :`, muted);
+    console.log(`[Push Chat] Kind=${kind} Participants bruts :`, participants);
 
     const recipientSet = new Set<string>();
+    const allowList = new Set(
+      [
+        ...participants,
+        sellerUid,
+        clientUid,
+      ].filter((id) => typeof id === "string" && id.trim()),
+    );
 
-    // 1. Ajouter les participants directs (hors expéditeur)
-    for (const p of participants) {
+    for (const p of allowList) {
       if (p && p !== senderId) {
         if (muted[p]) {
           console.log(`[Push Chat] Participant ${p} ignoré car muté.`);
@@ -72,66 +81,21 @@ export const onNewChatMessagePush = onDocumentCreated(
       }
     }
 
-    // 2. SECOURS CLIENT : Si l'UID du client est dans createdBy / userId / customerId
-    const possibleClientUids = [
-      conv.createdBy,
-      conv.userId,
-      conv.customerId,
-      conv.clientId,
-    ];
-    for (const cUid of possibleClientUids) {
-      if (typeof cUid === "string" && cUid.trim() && cUid !== senderId) {
-        const cleanUid = cUid.trim();
-        if (muted[cleanUid]) {
-          console.log(`[Push Chat] Client secours ${cleanUid} ignoré car muté.`);
-        } else {
-          recipientSet.add(cleanUid);
-        }
-      }
-    }
-
-    // 3. SECOURS BOUTIQUE : Si un destinataire est un ID de boutique, résoudre vers l'UID du propriétaire
+    // Anciens fils : si un participant est un companyId, résoudre le owner (jamais le sender).
     const db = admin.firestore();
     const currentRecipients = [...recipientSet];
     for (const candidate of currentRecipients) {
       const userSnap = await db.collection("users").doc(candidate).get();
-      if (userSnap.exists) continue; // C'est déjà un UID utilisateur valide
-
+      if (userSnap.exists) continue;
       const companySnap = await db.collection("companies").doc(candidate).get();
-      if (companySnap.exists) {
-        const owners = extractPossibleOwnerUids(
-          companySnap.data() as Record<string, unknown>,
-        );
-        for (const ownerUid of owners) {
-          if (ownerUid !== senderId && !muted[ownerUid]) recipientSet.add(ownerUid);
-        }
+      if (!companySnap.exists) continue;
+      const owners = extractPossibleOwnerUids(
+        companySnap.data() as Record<string, unknown>,
+      );
+      recipientSet.delete(candidate);
+      for (const ownerUid of owners) {
+        if (ownerUid !== senderId && !muted[ownerUid]) recipientSet.add(ownerUid);
       }
-    }
-
-    // Renfort Boutique si conv.companyId existe
-    const companyId =
-      typeof conv.companyId === "string" && conv.companyId ? conv.companyId : null;
-    if (companyId) {
-      const companySnap = await db.collection("companies").doc(companyId).get();
-      if (companySnap.exists) {
-        const owners = extractPossibleOwnerUids(
-          companySnap.data() as Record<string, unknown>,
-        );
-        for (const ownerUid of owners) {
-          if (ownerUid !== senderId && !muted[ownerUid]) recipientSet.add(ownerUid);
-        }
-      }
-
-      const members = await db
-        .collection("users")
-        .where("companyId", "==", companyId)
-        .get();
-      members.forEach((memberDoc) => {
-        const uid = memberDoc.id;
-        if (uid && uid !== senderId && !muted[uid]) {
-          recipientSet.add(uid);
-        }
-      });
     }
 
     const recipients = [...recipientSet];

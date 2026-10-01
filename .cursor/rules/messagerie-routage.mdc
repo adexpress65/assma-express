@@ -1,0 +1,18 @@
+---
+description: Interdit de créer une conversation hors du service de routage central.
+globs: "**/*.{ts,tsx,js}"
+alwaysApply: false
+---
+
+# Messagerie — service central obligatoire
+
+Ne jamais créer, fusionner ou réassigner une conversation Firestore en dehors de `apps/mobile/src/services/conversationRouting.ts` (`bootstrapStoreConversation`, `bootstrapSupportConversation`, `createOrGet` via MessagesContext).
+
+Interdit :
+
+- `addDoc(collection(db, 'conversations'), …)` pour un fil client/boutique
+- `arrayUnion(user.uid)` sur une conversation boutique si l’utilisateur n’est ni `clientUid` ni `sellerUid`
+- tout fallback vers un UID super-admin / support pour un fil boutique
+- mettre `companyId` dans `participants` (c’est un champ, pas un destinataire)
+
+Le destinataire boutique se calcule uniquement à partir du type `customer_to_store` et du `storeId` / `sellerUid` produit, jamais d’un rôle `admin`.
