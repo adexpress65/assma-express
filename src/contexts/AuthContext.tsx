@@ -1,5 +1,5 @@
 // apps/mobile/src/contexts/AuthContext.tsx - VERSION FINALE CORRIGÉE
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -10,11 +10,23 @@ import {
   GoogleAuthProvider,
   signInWithCredential,
   sendEmailVerification,
-  AuthError
+  AuthError,
+  signInWithPhoneNumber,
+  type ApplicationVerifier,
+  type ConfirmationResult,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, Timestamp, collection, query, where, getDocs, limit, writeBatch } from 'firebase/firestore';
 import { auth, db } from '@/config/firebase';
 import { setSentryUser } from '@/config/sentry';
+import { resolveAuthorizedRole } from '@/utils/resolveAuthRole';
+import {
+  getUserDisplayLabel,
+  isPhoneAuthUser,
+  isSocialAuthProvider,
+  mapFirebaseAuthProvider,
+  profileNeedsDisplayName,
+} from '@/utils/userIdentity';
+import { isRecaptchaCancelled, recaptchaCancelledError } from '@/components/auth/FirebaseRecaptchaVerifierModal';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { Alert } from 'react-native';
@@ -30,19 +42,23 @@ interface AuthUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  phoneNumber: string | null;
   emailVerified: boolean;
   providerData: any[];
 }
 
 interface UserProfile {
   uid: string;
+  /** Chaîne vide autorisée (compte téléphone sans e-mail). */
   email: string;
   displayName: string;
+  name?: string;
   role: UserRole;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   isActive: boolean;
   phoneNumber?: string;
+  photoURL?: string;
   address?: string;
   providerId?: string;
   socialAccounts?: {
@@ -76,6 +92,8 @@ interface AuthContextType {
   userRole: UserRole;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** `true` lorsque aucune session Firebase n'est active (parcours invité). */
+  isGuest: boolean;
   authError: string | null;
   
   login: (email: string, password: string) => Promise<void>;
@@ -84,8 +102,12 @@ interface AuthContextType {
   updateUserProfile: (updates: Partial<UserProfile>) => Promise<void>;
   
   signInWithGoogle: () => Promise<void>;
-  signInWithFacebook: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  /** Envoie le SMS OTP (E.164). Le verifier reCAPTCHA vient de la WebView. */
+  sendPhoneCode: (phoneE164: string, appVerifier: ApplicationVerifier) => Promise<void>;
+  confirmPhoneCode: (code: string) => Promise<{ needsProfileName: boolean }>;
+  completePhoneProfile: (fullName: string) => Promise<void>;
+  clearPhoneChallenge: () => void;
   
   clearError: () => void;
   
@@ -98,6 +120,8 @@ interface AuthContextType {
   
   refreshUserProfile: () => Promise<void>;
   updateEmailVerification: () => Promise<void>;
+  /** Compte dont le provider principal est le téléphone (SMS OTP). */
+  isPhoneProvider: boolean;
   
   // Debug
   debugLogState: () => void;
@@ -123,16 +147,76 @@ const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
 };
 
 // Définir les rôles valides pour la création
-const VALID_CREATION_ROLES: UserRole[] = ['customer', 'seller', 'admin'];
+const VALID_CREATION_ROLES: UserRole[] = ['customer', 'seller'];
 
 const normalizeStoredRole = (role: unknown): UserRole | null => {
   const raw = String(role ?? '').trim().toLowerCase();
   if (['super-admin', 'super_admin', 'superadmin', 'super admin'].includes(raw)) return 'super-admin';
   if (raw === 'admin') return 'admin';
   if (raw === 'seller') return 'seller';
-  if (raw === 'customer') return 'customer';
+  if (raw === 'customer' || raw === 'client' || raw === 'user') return 'customer';
   if (raw === 'visitor') return 'visitor';
   return null;
+};
+
+const roleForNewProfile = (role: UserRole): UserRole => {
+  if (role === 'seller') return 'seller';
+  if (role === 'admin' || role === 'super-admin') return role;
+  return 'customer';
+};
+
+const phoneLookupValues = (phone: string): string[] => {
+  const raw = String(phone || '').trim();
+  const digits = raw.replace(/\D/g, '');
+  const values = new Set<string>();
+  if (raw) values.add(raw);
+  if (digits) {
+    values.add(digits);
+    values.add(`+${digits}`);
+  }
+  return [...values];
+};
+
+const findUserDocByPhone = async (phone: string, excludeUid: string) => {
+  try {
+    const snaps = await Promise.all(
+      phoneLookupValues(phone).map((value) =>
+        getDocs(query(collection(db, 'users'), where('phoneNumber', '==', value), limit(5))),
+      ),
+    );
+    for (const snap of snaps) {
+      const match = snap.docs.find((d) => d.id !== excludeUid && d.data()?.mergedIntoUid == null);
+      if (match) return match;
+    }
+    for (const snap of snaps) {
+      const match = snap.docs.find((d) => d.id !== excludeUid);
+      if (match) return match;
+    }
+  } catch (error) {
+    console.warn('⚠️ Recherche profil par téléphone impossible:', error);
+  }
+  return null;
+};
+
+const reassignOrdersToUid = async (fromUid: string, toUid: string) => {
+  try {
+    const ordersSnap = await getDocs(
+      query(collection(db, 'orders'), where('userId', '==', fromUid), limit(100)),
+    );
+    if (ordersSnap.empty) return;
+    const batch = writeBatch(db);
+    ordersSnap.forEach((orderDoc) => {
+      batch.update(orderDoc.ref, {
+        userId: toUid,
+        previousUserId: fromUid,
+        updatedAt: Timestamp.now(),
+      });
+    });
+    await batch.commit();
+    console.log(`📦 ${ordersSnap.size} commande(s) réassociée(s) vers ${toUid}`);
+  } catch (error) {
+    console.warn('⚠️ Réassociation des commandes partielle:', error);
+  }
 };
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -148,6 +232,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     error: null
   });
 
+  const phoneConfirmationRef = useRef<ConfirmationResult | null>(null);
+
   // Configuration Google Auth
   const [request, response, promptAsync] = Google.useAuthRequest({
     expoClientId: GOOGLE_CONFIG.expoClientId,
@@ -162,10 +248,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   ? normalizeStoredRole(authState.userProfile.role) || 'visitor'
   : 'visitor';
   const isAuthenticated = !!authState.user;
+  const isGuest = !authState.user && !authState.isLoading;
   const isSuperAdmin = userRole === 'super-admin';
   const isAdmin = userRole === 'admin';
   const isSeller = userRole === 'seller';
   const isCustomer = userRole === 'customer';
+  const isPhoneProvider = isPhoneAuthUser(authState.user, authState.userProfile);
 
   useEffect(() => {
     const u = authState.user;
@@ -182,6 +270,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     email: firebaseUser.email,
     displayName: firebaseUser.displayName,
     photoURL: firebaseUser.photoURL,
+    phoneNumber: firebaseUser.phoneNumber,
     emailVerified: firebaseUser.emailVerified,
     providerData: firebaseUser.providerData
   }), []);
@@ -231,8 +320,36 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           case 'auth/network-request-failed':
             errorMessage = 'Problème de connexion réseau';
             break;
+          case 'auth/invalid-phone-number':
+          case 'auth/missing-phone-number':
+            errorMessage = 'Numéro de téléphone invalide';
+            break;
+          case 'auth/quota-exceeded':
+          case 'auth/error-code:-39':
+            errorMessage =
+              'Firebase a refusé l’envoi du SMS (quota, anti-abus ou pays non desservi). Réessayez plus tard ou utilisez un numéro de test.';
+            break;
+          case 'auth/captcha-check-failed':
+            errorMessage = 'Échec de la vérification de sécurité. Réessayez';
+            break;
+          case 'auth/invalid-verification-code':
+          case 'auth/invalid-verification-id':
+            errorMessage = 'Code SMS incorrect';
+            break;
+          case 'auth/code-expired':
+          case 'auth/session-expired':
+            errorMessage = 'Le code a expiré. Renvoyez un nouveau SMS';
+            break;
+          case 'auth/missing-verification-code':
+            errorMessage = 'Saisissez le code à 6 chiffres';
+            break;
           default:
-            errorMessage = authError.message || defaultMessage;
+            if (/error-code:-39/i.test(authError.code) || /error-code:-39/i.test(authError.message)) {
+              errorMessage =
+                'Firebase a refusé l’envoi du SMS (quota, anti-abus ou pays non desservi). Réessayez plus tard ou utilisez un numéro de test.';
+            } else {
+              errorMessage = authError.message || defaultMessage;
+            }
         }
       } else {
         errorMessage = error.message || defaultMessage;
@@ -266,32 +383,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Créer un profil utilisateur par défaut
   const createDefaultProfile = useCallback((
-    uid: string, 
-    email: string, 
-    displayName: string, 
+    firebaseUser: User,
     role: UserRole = 'customer',
-    provider?: string
+    provider?: string,
+    displayNameOverride?: string,
   ): UserProfile => {
     const now = Timestamp.now();
-    
+    const storedRole = roleForNewProfile(role);
+    const resolvedProvider = mapFirebaseAuthProvider(
+      firebaseUser.providerData?.[0]?.providerId,
+      provider,
+    );
+    const email = firebaseUser.email || '';
+    const phoneNumber = firebaseUser.phoneNumber || undefined;
+    const explicitName = String(displayNameOverride ?? '').trim();
+    const authName = String(firebaseUser.displayName || '').trim();
+    const displayName = explicitName || authName || (provider === 'phone' ? '' : getUserDisplayLabel({
+      displayName: firebaseUser.displayName,
+      email,
+      phoneNumber,
+    }));
+
     const profile: UserProfile = {
-      uid,
+      uid: firebaseUser.uid,
       email,
       displayName,
-      role,
+      role: storedRole,
       createdAt: now,
       updatedAt: now,
       isActive: true,
-      lastLogin: now
+      lastLogin: now,
     };
 
-    if (provider) {
-      profile.providerId = provider;
-      profile.socialAccounts = { [provider.toLowerCase()]: true };
+    if (phoneNumber) {
+      profile.phoneNumber = phoneNumber;
+    }
+    if (displayName) {
+      profile.name = displayName;
+    }
+    if (firebaseUser.photoURL) {
+      profile.photoURL = firebaseUser.photoURL;
+    }
+    if (resolvedProvider) {
+      profile.providerId = resolvedProvider;
+      if (isSocialAuthProvider(resolvedProvider)) {
+        profile.socialAccounts = { [resolvedProvider]: true };
+      }
     }
 
-    // Ajouter des infos selon le rôle
-    if (role === 'seller') {
+    if (storedRole === 'seller') {
       profile.sellerInfo = {
         shopName: displayName,
         isVerified: false,
@@ -299,11 +439,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         totalSales: 0,
         businessType: 'individual'
       };
-    } else if (role === 'admin' || role === 'super-admin') {
+    } else if (storedRole === 'admin' || storedRole === 'super-admin') {
       profile.adminInfo = {
-        permissions: ROLE_PERMISSIONS[role],
+        permissions: ROLE_PERMISSIONS[storedRole],
         department: 'Administration',
-        accessLevel: role === 'super-admin' ? 100 : 50
+        accessLevel: storedRole === 'super-admin' ? 100 : 50
       };
     }
 
@@ -311,96 +451,162 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
 // 🔥 VERSION HYBRIDE SÉCURISÉE : SANS FILTRE STRICT ET ADAPTÉE POUR APPLE
-const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string): Promise<UserProfile> => {
+const loadUserProfile = useCallback(async (
+  firebaseUser: User,
+  provider?: string,
+  creationRole: UserRole = 'customer',
+): Promise<UserProfile> => {
   try {
     const userRef = doc(db, 'users', firebaseUser.uid);
     const userDoc = await getDoc(userRef);
-    
+    const resolvedProvider = mapFirebaseAuthProvider(
+      firebaseUser.providerData?.[0]?.providerId,
+      provider,
+    );
+
     if (userDoc.exists()) {
       const existingData = userDoc.data();
-      
-      // Si le document existe mais n'a pas de champ rôle, on met customer par défaut
-      if (!existingData.role) {
-        console.warn(`⚠️ Document existant sans champ 'role' pour UID: ${firebaseUser.uid}`);
-        const updates = {
-          role: 'customer',
-          lastLogin: Timestamp.now(),
-          updatedAt: Timestamp.now()
-        };
-        await updateDoc(userRef, updates);
-        return {
-          ...existingData,
-          role: 'customer',
-          lastLogin: updates.lastLogin,
-          updatedAt: updates.updatedAt
-        } as UserProfile;
-      }
-      
-      // Préparer la mise à jour de l'activité
+      const authorizedRole = await resolveAuthorizedRole(
+        firebaseUser,
+        existingData.role,
+      );
+
       const updates: Record<string, any> = {
         lastLogin: Timestamp.now(),
-        updatedAt: Timestamp.now()
+        updatedAt: Timestamp.now(),
       };
-      
-      // Gestion propre du provider social (ex: pour Apple ou Google)
-      if (provider) {
-        updates['providerId'] = provider;
-        updates[`socialAccounts.${provider.toLowerCase()}`] = true;
+
+      if (resolvedProvider) {
+        updates.providerId = resolvedProvider;
+        if (isSocialAuthProvider(resolvedProvider)) {
+          updates[`socialAccounts.${resolvedProvider}`] = true;
+        }
       }
-      
+
+      const authPhone = firebaseUser.phoneNumber || '';
+      if (authPhone && !existingData.phoneNumber) {
+        updates.phoneNumber = authPhone;
+      }
+
+      const existingName = String(existingData.name || existingData.displayName || '').trim();
+      const authName = String(firebaseUser.displayName || '').trim();
+      if (!existingName && authName) {
+        updates.displayName = authName;
+        updates.name = authName;
+      }
+
       await updateDoc(userRef, updates);
-      
-      // On reprend STRICTEMENT le rôle stocké dans Firestore sans le filtrer ni le modifier
+
+      const resolvedName = String(
+        updates.displayName || existingData.displayName || existingData.name || firebaseUser.displayName || '',
+      ).trim();
+
       const profile: UserProfile = {
         uid: firebaseUser.uid,
         email: existingData.email || firebaseUser.email || '',
-        displayName: existingData.displayName || firebaseUser.displayName || 'Utilisateur',
-        role: existingData.role, // 🔥 GARDE LA VALEUR BRUTE DE FIRESTORE ('super-admin')
+        displayName: resolvedName,
+        name: String(updates.name || existingData.name || resolvedName || '').trim() || undefined,
+        role: authorizedRole,
         createdAt: existingData.createdAt || Timestamp.now(),
         updatedAt: updates.updatedAt,
         isActive: existingData.isActive !== false,
         lastLogin: updates.lastLogin,
-        phoneNumber: existingData.phoneNumber || '',
+        phoneNumber: existingData.phoneNumber || firebaseUser.phoneNumber || '',
+        photoURL: existingData.photoURL || firebaseUser.photoURL || undefined,
         address: existingData.address || '',
-        providerId: provider || existingData.providerId || '',
+        providerId: resolvedProvider || existingData.providerId || '',
         socialAccounts: existingData.socialAccounts || {},
         sellerInfo: existingData.sellerInfo,
         adminInfo: existingData.adminInfo,
-        companyId: existingData.companyId
+        companyId: existingData.companyId,
       };
-      
-      if (provider) {
+
+      if (isSocialAuthProvider(resolvedProvider)) {
         profile.socialAccounts = {
           ...profile.socialAccounts,
-          [provider.toLowerCase()]: true
+          [resolvedProvider]: true,
         };
       }
-      
-      console.log(`✅ [Auth] Profil chargé avec succès - Rôle appliqué : ${profile.role}`);
+
+      console.log(`✅ [Auth] Profil chargé — rôle autorisé : ${profile.role}`);
       return profile;
-      
-    } else {
-  // NOUVEAU COMPTE (ex: Première inscription ou premier Sign In With Apple)
-  console.log(`🆕 Création nouveau profil - UID: ${firebaseUser.uid}`);
+    }
 
-  // ⚠️ Définir ici ton super admin (à adapter)
-  const isSuperAdmin = firebaseUser.email === "ton-email@exemple.com";
-  const defaultRole = isSuperAdmin ? "super-admin" : "customer";
+    const phone = firebaseUser.phoneNumber || '';
+    if (phone) {
+      const existingByPhone = await findUserDocByPhone(phone, firebaseUser.uid);
+      if (existingByPhone) {
+        console.log(`🔗 Profil existant trouvé pour ${phone} — uid ${existingByPhone.id}`);
+        const existingData = existingByPhone.data();
+        const fallbackRole = roleForNewProfile(
+          VALID_CREATION_ROLES.includes(creationRole) ? creationRole : 'customer',
+        );
+        const authorizedRole = await resolveAuthorizedRole(
+          firebaseUser,
+          existingData.role || fallbackRole,
+        );
+        const existingName = String(existingData.name || existingData.displayName || '').trim();
+        const adopted: UserProfile = {
+          ...createDefaultProfile(
+            firebaseUser,
+            roleForNewProfile(authorizedRole),
+            resolvedProvider,
+            existingName,
+          ),
+          email: existingData.email || firebaseUser.email || '',
+          displayName: existingName,
+          name: existingName || undefined,
+          createdAt: existingData.createdAt || Timestamp.now(),
+          phoneNumber: phone,
+          photoURL: existingData.photoURL || firebaseUser.photoURL || undefined,
+          address: existingData.address || '',
+          socialAccounts: existingData.socialAccounts || {},
+          sellerInfo: existingData.sellerInfo,
+          adminInfo: existingData.adminInfo,
+          companyId: existingData.companyId,
+        };
+        if (resolvedProvider && isSocialAuthProvider(resolvedProvider)) {
+          adopted.socialAccounts = {
+            ...adopted.socialAccounts,
+            [resolvedProvider]: true,
+          };
+        }
+        await setDoc(userRef, {
+          ...cleanFirestoreData(adopted),
+          linkedFromUid: existingByPhone.id,
+        });
+        try {
+          await updateDoc(existingByPhone.ref, {
+            mergedIntoUid: firebaseUser.uid,
+            isActive: false,
+            updatedAt: Timestamp.now(),
+          });
+        } catch (error) {
+          console.warn('⚠️ Ancien profil non marqué comme fusionné:', error);
+        }
+        await reassignOrdersToUid(existingByPhone.id, firebaseUser.uid);
+        console.log(`✅ Profil téléphone lié depuis ${existingByPhone.id}`);
+        return adopted;
+      }
+    }
 
-  const defaultProfile = createDefaultProfile(
-    firebaseUser.uid,
-    firebaseUser.email || '',
-    firebaseUser.displayName || 'Utilisateur',
-    defaultRole,
-    provider
-  );
+    console.log(`🆕 Création nouveau profil - UID: ${firebaseUser.uid}`);
 
-  const cleanProfile = cleanFirestoreData(defaultProfile);
-  await setDoc(userRef, cleanProfile);
+    const fallbackRole = roleForNewProfile(
+      VALID_CREATION_ROLES.includes(creationRole) ? creationRole : 'customer',
+    );
+    const authorizedRole = await resolveAuthorizedRole(firebaseUser, fallbackRole);
+    const defaultProfile = createDefaultProfile(
+      firebaseUser,
+      roleForNewProfile(authorizedRole),
+      resolvedProvider,
+    );
 
-  console.log(`✅ Nouveau profil créé avec rôle: ${defaultRole}`);
-  return defaultProfile;
-}
+    const cleanProfile = cleanFirestoreData(defaultProfile);
+    await setDoc(userRef, cleanProfile);
+
+    console.log(`✅ Nouveau profil créé avec rôle: ${defaultProfile.role}`);
+    return defaultProfile;
   } catch (error) {
     console.error('❌ Erreur critique dans loadUserProfile:', error);
     throw error instanceof Error ? error : new Error('Erreur chargement profil utilisateur');
@@ -445,10 +651,11 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
   // Mettre à jour la vérification email
   const updateEmailVerification = useCallback(async (): Promise<void> => {
     if (!auth.currentUser) return;
-    
+    if (isPhoneAuthUser(auth.currentUser)) return;
+
     await auth.currentUser.reload();
     const updatedUser = auth.currentUser;
-    
+
     const authUser = firebaseUserToAuthUser(updatedUser);
     setAuthState(prev => ({
       ...prev,
@@ -484,39 +691,12 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
         await updateProfile(firebaseUser, { displayName });
       }
 
-      // Envoyer email de vérification
-      await sendEmailVerification(firebaseUser);
-
-      // Vérifier si le document existe déjà
-      const userRef = doc(db, 'users', firebaseUser.uid);
-      const existingDoc = await getDoc(userRef);
-      
-      if (existingDoc.exists()) {
-        console.warn(`⚠️ Document utilisateur existe déjà pour UID: ${firebaseUser.uid}`);
-        const existingProfile = await loadUserProfile(firebaseUser);
-        
-        const authUser = firebaseUserToAuthUser(firebaseUser);
-        setAuthState({
-          user: authUser,
-          userProfile: existingProfile,
-          isLoading: false,
-          error: null
-        });
-        
-        console.log(`✅ Utilisateur existant reconnecté - Rôle: ${existingProfile.role}`);
-        return;
+      if (firebaseUser.email) {
+        await sendEmailVerification(firebaseUser);
       }
 
-      // Créer le nouveau profil Firestore
-      const userProfile = createDefaultProfile(
-        firebaseUser.uid,
-        email,
-        displayName,
-        role
-      );
-
-      const cleanProfile = cleanFirestoreData(userProfile);
-      await setDoc(userRef, cleanProfile);
+      const storedRole: UserRole = role === 'seller' ? 'seller' : 'customer';
+      const userProfile = await loadUserProfile(firebaseUser, 'password', storedRole);
 
       const authUser = firebaseUserToAuthUser(firebaseUser);
 
@@ -527,14 +707,14 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
         error: null
       });
 
-      console.log(`✅ Utilisateur créé - Rôle: ${role} - Vérification email envoyée`);
+      console.log(`✅ Utilisateur créé - Rôle autorisé: ${userProfile.role}`);
       
     } catch (error) {
       const errorMessage = handleAuthError(error, 'Erreur lors de l\'inscription');
       setAuthState(prev => ({ ...prev, isLoading: false }));
       throw new Error(errorMessage);
     }
-  }, [cleanFirestoreData, createDefaultProfile, firebaseUserToAuthUser, handleAuthError, loadUserProfile]);
+  }, [firebaseUserToAuthUser, handleAuthError, loadUserProfile]);
 
   // Connexion
   const login = useCallback(async (email: string, password: string): Promise<void> => {
@@ -601,19 +781,6 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
     }
   }, [firebaseUserToAuthUser, handleAuthError, loadUserProfile, promptAsync]);
 
-  // Connexion Facebook
-  const signInWithFacebook = useCallback(async (): Promise<void> => {
-    try {
-      Alert.alert(
-        'Fonctionnalité à venir',
-        'La connexion Facebook sera disponible dans une prochaine mise à jour.',
-        [{ text: 'OK' }]
-      );
-    } catch (error) {
-      handleAuthError(error, 'Erreur lors de la connexion Facebook');
-    }
-  }, [handleAuthError]);
-
   // Connexion Apple
   const signInWithApple = useCallback(async (): Promise<void> => {
     try {
@@ -626,6 +793,104 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
       handleAuthError(error, 'Erreur lors de la connexion Apple');
     }
   }, [handleAuthError]);
+
+  const sendPhoneCode = useCallback(async (
+    phoneE164: string,
+    appVerifier: ApplicationVerifier,
+  ): Promise<void> => {
+    try {
+      setAuthState(prev => ({ ...prev, error: null }));
+      const confirmation = await signInWithPhoneNumber(auth, phoneE164, appVerifier);
+      phoneConfirmationRef.current = confirmation;
+      console.log(`📱 SMS OTP envoyé vers ${phoneE164}`);
+    } catch (error) {
+      phoneConfirmationRef.current = null;
+      if (isRecaptchaCancelled(error)) {
+        throw recaptchaCancelledError();
+      }
+      handleAuthError(error, 'Impossible d\'envoyer le SMS');
+      throw error;
+    }
+  }, [handleAuthError]);
+
+  const confirmPhoneCode = useCallback(async (
+    code: string,
+  ): Promise<{ needsProfileName: boolean }> => {
+    const confirmation = phoneConfirmationRef.current;
+    if (!confirmation) {
+      throw new Error('Aucun code SMS en attente. Renvoyez un nouveau code.');
+    }
+
+    try {
+      setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
+      const userCredential = await confirmation.confirm(code.trim());
+      const firebaseUser = userCredential.user;
+      const profile = await loadUserProfile(firebaseUser, 'phone', 'customer');
+      phoneConfirmationRef.current = null;
+
+      setAuthState({
+        user: firebaseUserToAuthUser(firebaseUser),
+        userProfile: profile,
+        isLoading: false,
+        error: null,
+      });
+
+      const needsProfileName = profileNeedsDisplayName(
+        profile,
+        firebaseUser.phoneNumber || profile.phoneNumber,
+      );
+      console.log(
+        `✅ Connexion téléphone — rôle: ${profile.role} — ${firebaseUser.phoneNumber}` +
+          (needsProfileName ? ' — nom à renseigner' : ''),
+      );
+      return { needsProfileName };
+    } catch (error) {
+      const errorMessage = handleAuthError(error, 'Code SMS invalide');
+      setAuthState(prev => ({ ...prev, isLoading: false }));
+      throw new Error(errorMessage);
+    }
+  }, [firebaseUserToAuthUser, handleAuthError, loadUserProfile]);
+
+  const completePhoneProfile = useCallback(async (fullName: string): Promise<void> => {
+    const trimmed = fullName.trim().replace(/\s+/g, ' ');
+    if (trimmed.length < 2) {
+      throw new Error('Saisissez votre nom et prénom.');
+    }
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+      throw new Error('Utilisateur non connecté');
+    }
+
+    try {
+      await updateProfile(firebaseUser, { displayName: trimmed });
+      await updateDoc(doc(db, 'users', firebaseUser.uid), {
+        displayName: trimmed,
+        name: trimmed,
+        updatedAt: Timestamp.now(),
+      });
+      const refreshed = auth.currentUser ?? firebaseUser;
+      setAuthState(prev => ({
+        ...prev,
+        user: firebaseUserToAuthUser(refreshed),
+        userProfile: prev.userProfile
+          ? {
+              ...prev.userProfile,
+              displayName: trimmed,
+              name: trimmed,
+              updatedAt: Timestamp.now(),
+            }
+          : prev.userProfile,
+      }));
+      console.log(`✅ Nom du profil téléphone enregistré: ${trimmed}`);
+    } catch (error) {
+      const errorMessage = handleAuthError(error, 'Impossible d’enregistrer le nom');
+      throw new Error(errorMessage);
+    }
+  }, [firebaseUserToAuthUser, handleAuthError]);
+
+  const clearPhoneChallenge = useCallback(() => {
+    phoneConfirmationRef.current = null;
+  }, []);
 
   // Déconnexion
   const logout = useCallback(async (): Promise<void> => {
@@ -798,6 +1063,7 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
     userRole,
     isLoading: authState.isLoading,
     isAuthenticated,
+    isGuest,
     authError: authState.error,
     
     login,
@@ -806,12 +1072,16 @@ const loadUserProfile = useCallback(async (firebaseUser: User, provider?: string
     updateUserProfile,
     
     signInWithGoogle,
-    signInWithFacebook,
     signInWithApple,
+    sendPhoneCode,
+    confirmPhoneCode,
+    completePhoneProfile,
+    clearPhoneChallenge,
     
     clearError,
     refreshUserProfile,
     updateEmailVerification,
+    isPhoneProvider,
     
     isSuperAdmin,
     isAdmin,
@@ -852,33 +1122,16 @@ export const useAuthGuard = (requiredRole?: UserRole | UserRole[]): boolean => {
 
 // 🔥 FONCTION DE DÉPANNAGE : Réparer manuellement un rôle
 export const useRoleRepair = () => {
-  const { user, refreshUserProfile } = useAuth();
-  
-  const repairUserRole = useCallback(async (correctRole: UserRole): Promise<void> => {
+  const { user } = useAuth();
+
+  const repairUserRole = useCallback(async (_correctRole: UserRole): Promise<void> => {
     if (!user) {
       throw new Error('Utilisateur non connecté');
     }
-    
-    try {
-      console.log(`🔧 Réparation manuelle du rôle pour ${user.email}`);
-      console.log(`Ancien rôle: ${user.role} -> Nouveau rôle: ${correctRole}`);
-      
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        role: correctRole,
-        updatedAt: Timestamp.now()
-      });
-      
-      console.log(`✅ Rôle réparé: ${correctRole}`);
-      
-      // Rafraîchir le profil
-      await refreshUserProfile();
-      
-    } catch (error) {
-      console.error('❌ Erreur réparation rôle:', error);
-      throw error;
-    }
-  }, [user, refreshUserProfile]);
-  
+    throw new Error(
+      'Le rôle ne peut plus être modifié depuis le client. Utiliser la Cloud Function setUserRole.',
+    );
+  }, [user]);
+
   return { repairUserRole };
 };

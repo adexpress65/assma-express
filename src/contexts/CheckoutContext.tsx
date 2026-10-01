@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import type { OrderData, ShippingAddress, ShippingSelection } from '../types/order';
 import type { CartSummary } from '../types/cart';
+import { buildShippingMethodFields } from '../utils/orderShipping';
 
 interface CheckoutContextType {
   orderData: OrderData | null;
@@ -10,6 +11,8 @@ interface CheckoutContextType {
   setShippingAddress: (address: ShippingAddress) => void;
   /** Met à jour le choix de livraison et recalcule le total (étape 2) */
   setShipping: (selection: ShippingSelection) => void;
+  /** Retrait entrepôt / livraison domicile (indépendant des frais). */
+  setDeliveryMode: (mode: 'pickup' | 'home') => void;
   /** Met à jour le résumé financier */
   setSummary: (summary: CartSummary) => void;
   /** Vide la commande en cours (après paiement réussi) */
@@ -50,18 +53,34 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
           : Number(prev.summary?.subtotal) || 0;
       const shipping = Number(selection.cost) || 0;
       const discount = 0;
-      const newTotal = subtotal + shipping;
+      const warehouseFeeTotal = Number(prev.summary?.warehouseFeeTotal) || 0;
+      const warehouseFees = prev.summary?.warehouseFees ?? [];
+      const newTotal = subtotal + shipping + warehouseFeeTotal;
+      const methodFields = buildShippingMethodFields({
+        method: selection.method,
+        option: selection.option,
+      });
       return {
         ...prev,
         shipping: selection,
+        ...methodFields,
         summary: {
           ...prev.summary,
           subtotal,
           shipping,
           discount,
+          warehouseFees,
+          warehouseFeeTotal,
           total: newTotal,
         },
       };
+    });
+  }, []);
+
+  const setDeliveryMode = useCallback((mode: 'pickup' | 'home') => {
+    setOrderData((prev) => {
+      if (!prev) return prev;
+      return { ...prev, deliveryMode: mode };
     });
   }, []);
 
@@ -78,7 +97,7 @@ export function CheckoutProvider({ children }: { children: ReactNode }) {
 
   return (
     <CheckoutContext.Provider
-      value={{ orderData, initOrder, setShippingAddress, setShipping, setSummary, clearOrder }}
+      value={{ orderData, initOrder, setShippingAddress, setShipping, setDeliveryMode, setSummary, clearOrder }}
     >
       {children}
     </CheckoutContext.Provider>

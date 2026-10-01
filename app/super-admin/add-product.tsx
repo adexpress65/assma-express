@@ -3,14 +3,16 @@ import {
   View, Text, StyleSheet, SafeAreaView, ScrollView, 
   TextInput, TouchableOpacity, Alert, Switch, Image,
   ActivityIndicator, Linking, Modal, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform,
-  InteractionManager,
+  InteractionManager, BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, type Href } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { collection, addDoc, getDocs, query, orderBy, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useOperationalStaffAccess } from '@/hooks/useOperationalStaffAccess';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTranslation } from 'react-i18next';
 import AddAttributeModal from "@/components/AddAttributeModal"; // Changé ici : import default
 import { db, storage } from '@/config/firebase';
 import { computeImageHashes } from '@/utils/imageHash';
@@ -18,6 +20,30 @@ import {
   buildFirestoreProductI18nFields,
   extractProductI18nFormFields,
 } from '@/utils/productLocale';
+import {
+  DEFAULT_WAREHOUSE_FEES_CONFIG,
+  parseWarehouseFeesConfig,
+  type WarehouseFeeEntry,
+} from '@/utils/warehouseFee';
+import { useExchangeRates } from '@/hooks/useExchangeRates';
+import {
+  PRODUCT_PRICE_CURRENCIES,
+  PRICE_ADJUSTMENT_STEPS,
+  buildCatalogPriceFields,
+  convertToXOF,
+  getCurrencyMeta,
+  getRateToXOF,
+  parseProductPriceCurrency,
+  type ProductPriceCurrency,
+} from '@/utils/productPrice';
+import {
+  goBackOrReplace,
+  replaceAfterAlert,
+  resolveProductCreateSuccessNav,
+  stayAfterAlert,
+} from '@/utils/safeNavigate';
+
+const ADMIN_ADD_PRODUCT_FALLBACK = '/super-admin/dashboard' as const;
 
 // Types pour les attributs dynamiques
 type Attribute = {
@@ -155,9 +181,23 @@ const normalizeVolumeInput = (rawVolume: string): { raw: string; numeric: number
   return { raw: normalized, numeric: parsed };
 };
 
+function resolveCompanyOwnerUid(
+  company: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!company) return null;
+  for (const key of ["uid", "ownerId", "ownerUid", "sellerUid"] as const) {
+    const value = company[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 export default function AddProductScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { user, userRole } = useAuth();
+  const isStaffCatalog = userRole === "admin" || userRole === "super-admin";
+  const { allowed, isLoading: accessLoading } = useOperationalStaffAccess();
   const { productId } = useLocalSearchParams<{ productId: string }>();
   const isEditMode = !!productId;
   
@@ -186,6 +226,9 @@ export default function AddProductScreen() {
   
   // --- AJUSTEMENT DE PRIX RAPIDE (OPTIONNEL) ---
   const [priceAdjustment, setPriceAdjustment] = useState<number>(0);
+  const [priceCurrency, setPriceCurrency] = useState<ProductPriceCurrency>('XOF');
+  const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
+  const { rates: exchangeRates } = useExchangeRates();
   
   // --- ÉTATS POUR LES ENTREPRISES ---
   const [companies, setCompanies] = useState<any[]>([]);
@@ -213,6 +256,10 @@ export default function AddProductScreen() {
 
   // --- ÉTATS POUR LA GESTION DE LA LIVRAISON GRATUITE ---
   const [hasFreeShipping, setHasFreeShipping] = useState(false);
+  const [originWarehouseId, setOriginWarehouseId] = useState<string>('');
+  const [warehouseOptions, setWarehouseOptions] = useState<WarehouseFeeEntry[]>(
+    DEFAULT_WAREHOUSE_FEES_CONFIG.warehouses,
+  );
 
   const [form, setForm] = useState({
     title: '',
@@ -225,6 +272,7 @@ export default function AddProductScreen() {
     originalPrice: '',
     category: '',
     stock: '10',
+    unlimitedStock: false,
     sku: '',
     weight: '',
     dimensions: '',
@@ -243,6 +291,20 @@ export default function AddProductScreen() {
   // --- CALCUL DU PRIX FINAL ---
   const basePrice = Number(form.price) || 0;
   const finalPrice = basePrice + priceAdjustment;
+  const currencyMeta = getCurrencyMeta(priceCurrency);
+  const rateToXof = getRateToXOF(priceCurrency, exchangeRates);
+  const priceXofPreview = convertToXOF(finalPrice, priceCurrency, exchangeRates);
+  const adjustmentSteps = PRICE_ADJUSTMENT_STEPS[priceCurrency] || [];
+  const isForeignCurrency = priceCurrency !== 'XOF';
+
+  const selectPriceCurrency = (code: ProductPriceCurrency) => {
+    setPriceCurrency(code);
+    setShowCurrencyDropdown(false);
+    const steps = PRICE_ADJUSTMENT_STEPS[code] || [];
+    if (!steps.some((s) => s.amount === priceAdjustment)) {
+      setPriceAdjustment(0);
+    }
+  };
 
   // --- FONCTION POUR GÉNÉRER TOUTES LES COMBINAISONS (PRODUIT CARTÉSIEN) ---
   const generateCombinations = (): Array<{ [key: string]: string }> => {
@@ -362,12 +424,44 @@ useEffect(() => {
     return () => task.cancel();
   }, []);
 
+  useEffect(() => {
+    if (!isStaffCatalog) return;
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'warehouseFees'));
+        if (snap.exists()) {
+          const parsed = parseWarehouseFeesConfig(snap.data());
+          setWarehouseOptions(parsed.warehouses.filter((w) => w.active));
+        }
+      } catch (e) {
+        console.warn('warehouseFees load', e);
+      }
+    })();
+  }, [isStaffCatalog]);
+
+  useEffect(() => {
+    if (!isStaffCatalog) return;
+    if (!form.price.trim()) return;
+    const n = Number(form.price);
+    if (!Number.isFinite(n) || n > 1) return;
+    if (originWarehouseId.trim()) return;
+    setOriginWarehouseId("guangzhou");
+  }, [isStaffCatalog, form.price, originWarehouseId]);
+
   // --- CHARGEMENT DES DONNÉES DU PRODUIT EN MODIFICATION ---
   useEffect(() => {
     if (isEditMode && productId) {
       loadProductData();
     }
   }, [productId]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      goBackOrReplace(router, ADMIN_ADD_PRODUCT_FALLBACK);
+      return true;
+    });
+    return () => sub.remove();
+  }, [router]);
 
   const loadProductData = async () => {
     try {
@@ -376,11 +470,30 @@ useEffect(() => {
       
       if (!productDoc.exists()) {
         Alert.alert('Erreur', 'Produit non trouvé');
-        router.back();
+        goBackOrReplace(router, ADMIN_ADD_PRODUCT_FALLBACK);
         return;
       }
 
       const productData = productDoc.data();
+      const loadedCurrency = parseProductPriceCurrency(productData.priceCurrency);
+      setPriceCurrency(loadedCurrency);
+
+      const loadedAdjustment = Number(productData.priceAdjustment) || 0;
+      let loadedBase = productData.basePrice?.toString() || productData.price?.toString() || '';
+      if (productData.priceOriginal != null && Number.isFinite(Number(productData.priceOriginal))) {
+        const original = Number(productData.priceOriginal);
+        const recovered = original - loadedAdjustment;
+        loadedBase = String(recovered > 0 ? recovered : original);
+      }
+
+      let loadedCompareAt = productData.originalPrice?.toString() || '';
+      if (
+        loadedCurrency !== 'XOF' &&
+        productData.originalPriceOriginal != null &&
+        Number.isFinite(Number(productData.originalPriceOriginal))
+      ) {
+        loadedCompareAt = String(productData.originalPriceOriginal);
+      }
       
       const i18nForm = extractProductI18nFormFields(productData as Record<string, unknown>);
       setForm({
@@ -390,10 +503,11 @@ useEffect(() => {
         titleZh: i18nForm.titleZh,
         descriptionEn: i18nForm.descriptionEn,
         descriptionZh: i18nForm.descriptionZh,
-        price: productData.basePrice?.toString() || productData.price?.toString() || '',
-        originalPrice: productData.originalPrice?.toString() || '',
+        price: loadedBase,
+        originalPrice: loadedCompareAt,
         category: productData.categoryName || '',
         stock: productData.stockQuantity?.toString() || '10',
+        unlimitedStock: productData.unlimitedStock === true,
         sku: productData.specifications?.modelNumber || '',
         weight:
           productData.specifications?.weight?.toString?.() ||
@@ -437,7 +551,7 @@ useEffect(() => {
         setGeneratedVariants(productData.variants.map((v: any) => ({
           id: v.id,
           combination: v.combination || {},
-          price: v.price,
+          price: Number(v.priceOriginal ?? v.price) || 0,
           stock: v.stock,
           sku: v.sku,
           image: v.image,
@@ -464,6 +578,12 @@ useEffect(() => {
 
       if (productData.hasFreeShipping !== undefined) {
         setHasFreeShipping(productData.hasFreeShipping);
+      }
+
+      if (productData.originWarehouseId) {
+        setOriginWarehouseId(String(productData.originWarehouseId));
+      } else if (Number(productData.price ?? productData.priceXOF ?? 0) <= 1) {
+        setOriginWarehouseId("guangzhou");
       }
 
       if (productData.personalization) {
@@ -511,7 +631,10 @@ useEffect(() => {
             location: data.location,
             isPremium: data.isPremium,
             logo: data.logo ?? null,
-            uid: data.uid ?? d.id,
+            uid: data.uid ?? null,
+            ownerId: data.ownerId ?? null,
+            ownerUid: data.ownerUid ?? null,
+            sellerUid: data.sellerUid ?? null,
           };
         });
         console.log(`✅ ${companiesList.length} entreprises chargées`);
@@ -724,6 +847,18 @@ useEffect(() => {
       return;
     }
 
+    if (
+      isStaffCatalog &&
+      Number(form.price) <= 1 &&
+      !originWarehouseId.trim()
+    ) {
+      Alert.alert(
+        'Entrepôt requis',
+        'Les produits à 0 / 1 FCFA nécessitent un entrepôt d\'origine.',
+      );
+      return;
+    }
+
     if (!form.category) {
       Alert.alert('Erreur', 'Veuillez sélectionner une catégorie');
       return;
@@ -778,7 +913,8 @@ useEffect(() => {
       const variantsWithImages = generatedVariants.map(variant => ({
         id: variant.id,
         combination: variant.combination,
-        price: Number(variant.price),
+        price: convertToXOF(Number(variant.price), priceCurrency, exchangeRates),
+        priceOriginal: Number(variant.price),
         stock: Number(variant.stock),
         sku: variant.sku,
         image: uploadedImageUrls[0],
@@ -789,23 +925,38 @@ useEffect(() => {
 
       // Préparer les attributs pour Firestore
       const attributesForFirestore = attributes
-        .filter(attr => selectedAttributes.includes(attr.name))
+        .filter(attr => selectedAttributes.includes(attr.name) && attr.values.length > 0)
         .map(attr => ({
           id: attr.id,
           name: attr.name,
           values: attr.values,
         }));
 
-      const resolvedSellerUid =
-        userRole === 'admin' ? selectedCompany?.uid : user?.uid;
+      const resolvedSellerUid = isStaffCatalog
+        ? resolveCompanyOwnerUid(selectedCompany)
+        : user?.uid ?? null;
 
       if (!selectedCompany?.id || !resolvedSellerUid) {
-        Alert.alert("Erreur", "Impossible de déterminer le vendeur");
+        Alert.alert(
+          "Erreur",
+          isStaffCatalog
+            ? "Impossible de déterminer le propriétaire de la boutique (uid manquant)."
+            : "Impossible de déterminer le vendeur",
+        );
         return;
       }
       
       const normalizedWeight = normalizeWeightInput(form.weight);
       const normalizedVolume = normalizeVolumeInput(form.volume);
+
+      const catalogPrices = buildCatalogPriceFields({
+        basePrice,
+        finalPrice,
+        originalPriceInput: form.originalPrice ? Number(form.originalPrice) : null,
+        priceAdjustment,
+        priceCurrency,
+        rates: exchangeRates,
+      });
 
       const productData = {
         id: isEditMode ? productId : "", 
@@ -824,11 +975,16 @@ useEffect(() => {
           descriptionEn: form.descriptionEn,
           descriptionZh: form.descriptionZh,
         }),
-        price: finalPrice,
-        basePrice: basePrice,
-        originalPrice: form.originalPrice ? Number(form.originalPrice) : null,
-        currency: 'XOF',
-        priceAdjustment: priceAdjustment,
+        price: catalogPrices.price,
+        basePrice: catalogPrices.basePrice,
+        originalPrice: catalogPrices.originalPrice,
+        currency: catalogPrices.currency,
+        priceAdjustment: catalogPrices.priceAdjustment,
+        priceOriginal: catalogPrices.priceOriginal,
+        priceCurrency: catalogPrices.priceCurrency,
+        priceXOF: catalogPrices.priceXOF,
+        exchangeRateUsed: catalogPrices.exchangeRateUsed,
+        originalPriceOriginal: catalogPrices.originalPriceOriginal,
         
         images: uploadedImageUrls,
         mainImage: uploadedImageUrls[0],
@@ -858,9 +1014,18 @@ useEffect(() => {
         hasFreeShipping: hasFreeShipping,
         freeShippingBadge: hasFreeShipping ? 'Livraison gratuite' : null,
 
+        ...(isStaffCatalog
+          ? {
+              originWarehouseId: originWarehouseId.trim() || null,
+              originWarehouseLabel:
+                warehouseOptions.find((w) => w.id === originWarehouseId.trim())
+                  ?.label || null,
+            }
+          : {}),
+
         isActive: form.isActive,
         status: 'published',
-        inStock: totalStock > 0,
+        inStock: form.unlimitedStock || totalStock > 0,
         isVerified: userRole === 'admin',
         
         featured: form.featured,
@@ -871,6 +1036,7 @@ useEffect(() => {
         premiumSupplier: selectedCompany.isPremium || form.premiumSupplier,
 
         stockQuantity: totalStock,
+        unlimitedStock: form.unlimitedStock,
         minOrder: Number(form.minOrder) || 1,
         // Compat logistique: certains écrans lisent encore le poids racine.
         weight: normalizedWeight.numeric,
@@ -937,21 +1103,21 @@ useEffect(() => {
           [
             {
               text: 'OK',
-              onPress: () => router.back()
+              onPress: () => replaceAfterAlert(router, ADMIN_ADD_PRODUCT_FALLBACK),
             }
           ]
         );
 
       } else {
-        const docRef = await addDoc(collection(db, 'products'), {
+        const docRef = doc(collection(db, 'products'));
+        await setDoc(docRef, {
           ...productData,
+          id: docRef.id,
           createdAt: new Date(),
           sellerUid: resolvedSellerUid,
           creatorId: user.uid,
           createdBy: userRole === 'admin' ? 'admin' : 'company'
         });
-        
-        await updateDoc(docRef, { id: docRef.id });
         
         await addDoc(collection(db, 'product_updates'), {
           productId: docRef.id,
@@ -960,18 +1126,6 @@ useEffect(() => {
           updatedBy: user.uid
         });
 
-        try {
-          await fetch('https://ngenius-backend.onrender.com/notify-new-product', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              productId: docRef.id,
-              name: productData.name,
-              imageUrl: productData.imageUrl,
-            }),
-          });
-        } catch (e) {}
-
         clearInterval(progressInterval);
         
         Alert.alert(
@@ -979,13 +1133,27 @@ useEffect(() => {
           `Produit créé avec ${generatedVariants.length} variantes à prix individuels !`,
           [
             {
-              text: 'Voir les produits',
-              onPress: () => router.back()
+              text: 'Voir le produit',
+              onPress: () => {
+                const nav = resolveProductCreateSuccessNav(
+                  'view',
+                  docRef.id,
+                  ADMIN_ADD_PRODUCT_FALLBACK,
+                );
+                if (nav.kind === 'replace') {
+                  replaceAfterAlert(
+                    router,
+                    nav.href as Href,
+                    ADMIN_ADD_PRODUCT_FALLBACK,
+                  );
+                }
+              },
             },
             {
-              text: 'Créer un autre',
-              onPress: resetForm
-            }
+              text: 'Continuer',
+              style: 'cancel',
+              onPress: () => stayAfterAlert(resetForm),
+            },
           ]
         );
       }
@@ -1052,6 +1220,7 @@ useEffect(() => {
       originalPrice: '',
       category: '',
       stock: '10',
+      unlimitedStock: false,
       sku: '',
       weight: '',
       dimensions: '',
@@ -1074,6 +1243,8 @@ useEffect(() => {
     setSelectedAttributes(['Couleur', 'Taille']);
     setGeneratedVariants([]);
     setPriceAdjustment(0);
+    setPriceCurrency('XOF');
+    setShowCurrencyDropdown(false);
     setSelectedCompany(null);
     setShowCategoryDropdown(false);
     setShowCompanyDropdown(false);
@@ -1119,6 +1290,14 @@ useEffect(() => {
     </View>
   );
 
+  if (accessLoading || !allowed) {
+    return (
+      <SafeAreaView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </SafeAreaView>
+    );
+  }
+
   if (initialLoading) {
     return (
       <SafeAreaView style={styles.centerContainer}>
@@ -1140,7 +1319,7 @@ useEffect(() => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => goBackOrReplace(router, ADMIN_ADD_PRODUCT_FALLBACK)}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>
@@ -1354,14 +1533,51 @@ useEffect(() => {
             </View>
           </View>
 
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Devise du prix</Text>
+            <TouchableOpacity
+              style={styles.picker}
+              onPress={() => setShowCurrencyDropdown(!showCurrencyDropdown)}
+            >
+              <Text style={styles.pickerTextSelected}>{currencyMeta.label}</Text>
+              <Ionicons name="chevron-down" size={16} color="#999" />
+            </TouchableOpacity>
+            {showCurrencyDropdown && (
+              <View style={styles.currencyDropdown}>
+                {PRODUCT_PRICE_CURRENCIES.map((opt) => (
+                  <TouchableOpacity
+                    key={opt.code}
+                    style={[
+                      styles.currencyOption,
+                      priceCurrency === opt.code && styles.currencyOptionActive,
+                    ]}
+                    onPress={() => selectPriceCurrency(opt.code)}
+                  >
+                    <Text
+                      style={[
+                        styles.currencyOptionText,
+                        priceCurrency === opt.code && styles.currencyOptionTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                    {priceCurrency === opt.code ? (
+                      <Ionicons name="checkmark" size={16} color="#FF6B00" />
+                    ) : null}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+
           <View style={styles.row}>
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>
-                Prix normal (F CFA) <Text style={styles.required}>*</Text>
+                Prix normal <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={styles.input}
-                placeholder="18900"
+                placeholder={isForeignCurrency ? '100' : '18900'}
                 keyboardType="numeric"
                 value={form.price}
                 onChangeText={(text) => setForm({...form, price: text})}
@@ -1369,24 +1585,29 @@ useEffect(() => {
               {form.price && (
                 <View style={styles.priceSummary}>
                   <Text style={styles.priceSummaryText}>
-                    Prix normal: <Text style={styles.priceValue}>{basePrice.toLocaleString()} F CFA</Text>
+                    Prix normal: <Text style={styles.priceValue}>{basePrice.toLocaleString()} {isForeignCurrency ? currencyMeta.inputHint : 'F CFA'}</Text>
                   </Text>
                   {priceAdjustment > 0 && (
                     <Text style={styles.priceSummaryText}>
-                      + Ajustement: <Text style={styles.adjustmentValue}>+{priceAdjustment} F</Text>
+                      + Ajustement: <Text style={styles.adjustmentValue}>+{priceAdjustment} {currencyMeta.symbol}</Text>
                     </Text>
                   )}
                   <Text style={styles.finalPriceText}>
-                    Prix final: <Text style={styles.finalPriceValue}>{finalPrice.toLocaleString()} F CFA</Text>
+                    Prix final: <Text style={styles.finalPriceValue}>{finalPrice.toLocaleString()} {isForeignCurrency ? currencyMeta.inputHint : 'F CFA'}</Text>
                   </Text>
                 </View>
               )}
+              {isForeignCurrency && form.price ? (
+                <Text style={styles.fxPreviewText}>
+                  Équivaut à environ {priceXofPreview.toLocaleString()} F CFA (Taux : 1 {priceCurrency} = {rateToXof} XOF)
+                </Text>
+              ) : null}
             </View>
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
               <Text style={styles.label}>Prix original</Text>
               <TextInput
                 style={styles.input}
-                placeholder="22000"
+                placeholder={isForeignCurrency ? '120' : '22000'}
                 keyboardType="numeric"
                 value={form.originalPrice}
                 onChangeText={(text) => setForm({...form, originalPrice: text})}
@@ -1394,56 +1615,37 @@ useEffect(() => {
             </View>
           </View>
 
-          {/* AJUSTEMENT DE PRIX RAPIDE */}
+          {adjustmentSteps.length > 0 && (
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Ajustement rapide (optionnel)</Text>
             <Text style={styles.optionalDescription}>
               Ajouter un montant fixe au prix normal
             </Text>
             <View style={styles.priceToggleContainer}>
+              {adjustmentSteps.map((step) => (
               <TouchableOpacity
+                key={step.amount}
                 style={[
                   styles.priceToggle,
-                  priceAdjustment === 500 && styles.priceToggleActive
+                  priceAdjustment === step.amount && styles.priceToggleActive
                 ]}
-                onPress={() => setPriceAdjustment(priceAdjustment === 500 ? 0 : 500)}
+                onPress={() => setPriceAdjustment(priceAdjustment === step.amount ? 0 : step.amount)}
               >
                 <View style={styles.priceToggleContent}>
                   <Ionicons 
-                    name={priceAdjustment === 500 ? "checkmark-circle" : "add-circle-outline"} 
+                    name={priceAdjustment === step.amount ? "checkmark-circle" : "add-circle-outline"} 
                     size={16} 
-                    color={priceAdjustment === 500 ? "#FFF" : "#666"} 
+                    color={priceAdjustment === step.amount ? "#FFF" : "#666"} 
                   />
                   <Text style={[
                     styles.priceToggleText,
-                    priceAdjustment === 500 && styles.priceToggleTextActive
+                    priceAdjustment === step.amount && styles.priceToggleTextActive
                   ]}>
-                    +500 F
+                    {step.label}
                   </Text>
                 </View>
               </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[
-                  styles.priceToggle,
-                  priceAdjustment === 1000 && styles.priceToggleActive
-                ]}
-                onPress={() => setPriceAdjustment(priceAdjustment === 1000 ? 0 : 1000)}
-              >
-                <View style={styles.priceToggleContent}>
-                  <Ionicons 
-                    name={priceAdjustment === 1000 ? "checkmark-circle" : "add-circle-outline"} 
-                    size={16} 
-                    color={priceAdjustment === 1000 ? "#FFF" : "#666"} 
-                  />
-                  <Text style={[
-                    styles.priceToggleText,
-                    priceAdjustment === 1000 && styles.priceToggleTextActive
-                  ]}>
-                    +1000 F
-                  </Text>
-                </View>
-              </TouchableOpacity>
+              ))}
               
               {priceAdjustment > 0 && (
                 <TouchableOpacity
@@ -1460,6 +1662,7 @@ useEffect(() => {
               )}
             </View>
           </View>
+          )}
 
           {/* SECTION CATÉGORIE */}
           <View style={styles.inputGroup}>
@@ -1699,7 +1902,7 @@ useEffect(() => {
 
                 <View style={styles.variantRow}>
                   <View style={[styles.variantInputGroup, { flex: 1, marginRight: 8 }]}>
-                    <Text style={styles.variantInputLabel}>Prix (F CFA)</Text>
+                    <Text style={styles.variantInputLabel}>Prix ({currencyMeta.inputHint})</Text>
                     <TextInput
                       style={styles.variantInput}
                       value={variant.price.toString()}
@@ -1733,7 +1936,7 @@ useEffect(() => {
               <View style={styles.variantsSummaryRow}>
                 <Text style={styles.variantsSummaryLabel}>Prix moyen:</Text>
                 <Text style={styles.variantsSummaryValue}>
-                  {Math.round(generatedVariants.reduce((sum, v) => sum + v.price, 0) / generatedVariants.length).toLocaleString()} F CFA
+                  {Math.round(generatedVariants.reduce((sum, v) => sum + v.price, 0) / generatedVariants.length).toLocaleString()} {currencyMeta.inputHint}
                 </Text>
               </View>
               <View style={styles.variantsSummaryRow}>
@@ -1940,12 +2143,26 @@ useEffect(() => {
             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
               <Text style={styles.label}>Stock par défaut</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, form.unlimitedStock && styles.inputDisabled]}
                 placeholder="10"
                 keyboardType="numeric"
+                editable={!form.unlimitedStock}
                 value={form.stock}
                 onChangeText={(text) => setForm({...form, stock: text})}
               />
+              <TouchableOpacity
+                style={styles.unlimitedRow}
+                onPress={() => setForm({ ...form, unlimitedStock: !form.unlimitedStock })}
+              >
+                <Ionicons
+                  name={form.unlimitedStock ? 'checkbox' : 'square-outline'}
+                  size={22}
+                  color="#FF6B00"
+                />
+                <Text style={styles.unlimitedLabel}>
+                  {t('app.supplier.stockView.unlimitedStock')}
+                </Text>
+              </TouchableOpacity>
             </View>
             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
               <Text style={styles.label}>Commande minimum</Text>
@@ -2068,6 +2285,52 @@ useEffect(() => {
               </View>
             )}
           </View>
+
+          {isStaffCatalog && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Entrepôt d'origine (0 FCFA)</Text>
+              <Text style={styles.optionalDescription}>
+                Obligatoire pour les produits à 0 / 1 FCFA — frais logistique client
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                <TouchableOpacity
+                  style={[
+                    styles.priceToggle,
+                    !originWarehouseId && styles.priceToggleActive,
+                  ]}
+                  onPress={() => setOriginWarehouseId('')}
+                >
+                  <Text
+                    style={[
+                      styles.priceToggleText,
+                      !originWarehouseId && styles.priceToggleTextActive,
+                    ]}
+                  >
+                    Aucun
+                  </Text>
+                </TouchableOpacity>
+                {warehouseOptions.map((w) => (
+                  <TouchableOpacity
+                    key={w.id}
+                    style={[
+                      styles.priceToggle,
+                      originWarehouseId === w.id && styles.priceToggleActive,
+                    ]}
+                    onPress={() => setOriginWarehouseId(w.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.priceToggleText,
+                        originWarehouseId === w.id && styles.priceToggleTextActive,
+                      ]}
+                    >
+                      {w.label} ({w.feeUsd}$)
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
 
         {/* RÉSUMÉ FINAL */}
@@ -2106,14 +2369,22 @@ useEffect(() => {
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Prix de base:</Text>
             <Text style={styles.summaryValue}>
-              {basePrice.toLocaleString()} F CFA
+              {basePrice.toLocaleString()} {isForeignCurrency ? currencyMeta.inputHint : 'F CFA'}
             </Text>
           </View>
+          {isForeignCurrency && (
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Prix client (F CFA):</Text>
+              <Text style={styles.summaryValue}>
+                {priceXofPreview.toLocaleString()} F CFA
+              </Text>
+            </View>
+          )}
           {priceAdjustment > 0 && (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Ajustement:</Text>
               <Text style={[styles.summaryValue, styles.adjustmentValue]}>
-                +{priceAdjustment} F CFA
+                +{priceAdjustment} {isForeignCurrency ? currencyMeta.inputHint : 'F CFA'}
               </Text>
             </View>
           )}
@@ -2410,6 +2681,21 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     backgroundColor: '#FFF',
   },
+  inputDisabled: {
+    backgroundColor: '#F3F4F6',
+    color: '#9CA3AF',
+  },
+  unlimitedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  unlimitedLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
   textArea: { 
     height: 100, 
     textAlignVertical: 'top' 
@@ -2434,6 +2720,40 @@ const styles = StyleSheet.create({
   pickerTextSelected: { 
     fontSize: 16, 
     color: '#333' 
+  },
+  currencyDropdown: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    backgroundColor: '#FFF',
+    overflow: 'hidden',
+  },
+  currencyOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  currencyOptionActive: {
+    backgroundColor: '#FFF5EE',
+  },
+  currencyOptionText: {
+    fontSize: 15,
+    color: '#333',
+  },
+  currencyOptionTextActive: {
+    color: '#FF6B00',
+    fontWeight: '600',
+  },
+  fxPreviewText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
   },
   dropdown: {
     position: 'absolute', 

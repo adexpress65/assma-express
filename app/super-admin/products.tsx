@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useOperationalStaffAccess } from '@/hooks/useOperationalStaffAccess';
 
 interface Product {
   id: string;
@@ -26,7 +27,9 @@ interface Product {
 
 export default function ProductsScreen() {
   const router = useRouter();
-  const { user, userRole } = useAuth();
+  const { user, userRole, isSuperAdmin, isAdmin } = useAuth();
+  const isOperationalStaff = isSuperAdmin || isAdmin;
+  const { allowed, isLoading: accessLoading } = useOperationalStaffAccess({ redirectOnDeny: false });
   
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,7 +82,7 @@ export default function ProductsScreen() {
 
   // Logique de "Debounce" pour la recherche
   useEffect(() => {
-    if (user && userRole === 'super-admin') {
+    if (user && isOperationalStaff) {
       const delayDebounceFn = setTimeout(() => {
         loadProducts(searchQuery);
       }, 500); // Délai de 500ms
@@ -132,6 +135,14 @@ export default function ProductsScreen() {
       </View>
     </View>
   );
+
+  if (accessLoading || !allowed) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>

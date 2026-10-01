@@ -13,6 +13,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { getLocalizedProductText } from '../utils/productLocale';
+import { useRequireAuth } from '../contexts/AuthGuardContext';
 import { db } from '../config/firebase';
 import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 
@@ -23,6 +24,7 @@ interface BestSellersProps {
 export default function BestSellers({ sellerId }: BestSellersProps) {
   const router = useRouter();
   const { i18n } = useTranslation();
+  const { requireAuth } = useRequireAuth();
   const [bestSellers, setBestSellers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -125,7 +127,11 @@ export default function BestSellers({ sellerId }: BestSellersProps) {
   };
 
   const handleAddToCart = (product: any, event: any) => {
-    event.stopPropagation(); // Éviter la navigation
+    event.stopPropagation();
+    if (!requireAuth({
+      reason: 'add_to_cart',
+      onAuthorized: () => handleAddToCart(product, { stopPropagation: () => {} }),
+    })) return;
     const displayName = getLocalizedProductText(
       product.name,
       'name',

@@ -16,6 +16,7 @@ import {
   isOrderPaymentRejected,
 } from "@/features/super-admin/orders/orderPayment";
 import { PAYMENT_ENDPOINTS } from "@/config/api";
+import { clearInFlightPayment } from "@/services/ngeniusVerify";
 
 type PaymentPhase = "pending" | "paid" | "failed" | "unconfirmed";
 
@@ -37,6 +38,7 @@ export default function PendingScreen() {
 
   const [phase, setPhase] = useState<PaymentPhase>("pending");
   const [isRechecking, setIsRechecking] = useState(false);
+  const [networkUnstable, setNetworkUnstable] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const phaseRef = useRef<PaymentPhase>("pending");
@@ -59,6 +61,7 @@ export default function PendingScreen() {
     if (phaseRef.current === "paid") return;
     phaseRef.current = "paid";
     if (isMountedRef.current) setPhase("paid");
+    if (orderId) void clearInFlightPayment(orderId);
 
     console.log("[Pending] Paiement confirmé, redirection vers la confirmation", {
       orderId,
@@ -72,6 +75,11 @@ export default function PendingScreen() {
     }, 1500);
   }, [orderId, router]);
 
+  const stopScheduledVerifications = useCallback(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  }, []);
+
   const verifyWithBackend = useCallback(async () => {
     if (!orderId || phaseRef.current === "paid") return;
 
@@ -82,6 +90,10 @@ export default function PendingScreen() {
         body: JSON.stringify({ orderId }),
       });
 
+      if (isMountedRef.current) setNetworkUnstable(false);
+
+      // Le corps est exploité même sur un code HTTP d'erreur : il porte le
+      // verdict de vérification (415 NGenius, référence absente, ...).
       const result = await response.json().catch(() => null);
 
       console.log("[Pending] Réponse de vérification NGenius", {
@@ -90,20 +102,47 @@ export default function PendingScreen() {
         result,
       });
 
-      if (!response.ok || !result) return;
+      if (!result) return;
 
       if (result.isPaid === true) {
         confirmPaid();
-      } else if (result.isFailed === true) {
+        return;
+      }
+
+      // Refus avéré par la passerelle.
+      if (result.isFailed === true) {
+        stopScheduledVerifications();
+        if (orderId) void clearInFlightPayment(orderId);
         applyPhase("failed");
+        return;
+      }
+
+      // Vérification impossible : on cesse d'attendre au lieu de laisser
+      // l'utilisateur devant un écran de chargement jusqu'au dernier palier.
+      const reportedStatus = String(result.status ?? "").toUpperCase();
+      if (
+        result.verified === false ||
+        result.success === false ||
+        reportedStatus === "FAILED" ||
+        reportedStatus === "CANCELLED"
+      ) {
+        console.log("[Pending] Vérification non concluante, arrêt de l'attente", {
+          orderId,
+          reportedStatus,
+          httpStatus: response.status,
+          error: result.error,
+        });
+        stopScheduledVerifications();
+        applyPhase("unconfirmed");
       }
     } catch (err) {
       console.log("[Pending] Vérification backend indisponible", {
         orderId,
         error: err instanceof Error ? err.message : String(err),
       });
+      if (isMountedRef.current) setNetworkUnstable(true);
     }
-  }, [applyPhase, confirmPaid, orderId]);
+  }, [applyPhase, confirmPaid, orderId, stopScheduledVerifications]);
 
   const handleManualRecheck = useCallback(async () => {
     setIsRechecking(true);
@@ -161,6 +200,7 @@ export default function PendingScreen() {
         if (isCheckoutPaymentConfirmed(data)) {
           confirmPaid();
         } else if (isOrderPaymentRejected(data)) {
+          if (orderId) void clearInFlightPayment(orderId);
           applyPhase("failed");
         }
       },
@@ -222,6 +262,11 @@ export default function PendingScreen() {
             <Text style={styles.subtitle}>
               Nous synchronisons le statut de votre transaction auprès de la banque.
             </Text>
+            {networkUnstable ? (
+              <Text style={styles.networkHint}>
+                Connexion instable, vérification en cours...
+              </Text>
+            ) : null}
 
             <View style={styles.infoBox}>
               <Ionicons name="information-circle-outline" size={18} color="#4A5568" />
@@ -359,6 +404,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 20,
+  },
+  networkHint: {
+    fontSize: 13,
+    color: "#C05621",
+    textAlign: "center",
+    lineHeight: 18,
+    marginTop: -12,
+    marginBottom: 16,
+    fontWeight: "600",
   },
   infoBox: {
     flexDirection: "row",

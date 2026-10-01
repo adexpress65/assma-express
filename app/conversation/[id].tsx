@@ -26,9 +26,12 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { getUserDisplayLabel } from "../../src/utils/userIdentity";
+import { useRequireAuth } from "../../src/contexts/AuthGuardContext";
 import { useMessages } from "../../src/contexts/MessagesContext";
 import ProductMessageCard from "../../src/components/ProductMessageCard";
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -73,6 +76,99 @@ function normalizeRouteParam(value: string | string[] | undefined): string | nul
     }
   }
   return current || null;
+}
+
+function clientUidFromCanonicalId(
+  conversationId: string,
+  companyId?: string | null,
+): string | null {
+  if (companyId && conversationId.startsWith(`${companyId}_`)) {
+    const suffix = conversationId.slice(companyId.length + 1);
+    return suffix || null;
+  }
+  const i = conversationId.lastIndexOf("_");
+  if (i <= 0 || i === conversationId.length - 1) return null;
+  return conversationId.slice(i + 1);
+}
+
+/** UID acheteur à afficher : jamais l'UID du boutiquier/super-admin connecté. */
+function resolvePeerClientUid(
+  conv: Record<string, unknown> | null | undefined,
+  viewerUid: string | undefined,
+  options?: {
+    conversationId?: string | null;
+    companyId?: string | null;
+    routeClientUid?: string | null;
+  },
+): string | null {
+  if (!viewerUid) return null;
+  const companyId =
+    options?.companyId ||
+    (typeof conv?.companyId === "string" ? conv.companyId : null);
+  const routeClientUid = options?.routeClientUid || null;
+  if (routeClientUid && routeClientUid !== viewerUid) return routeClientUid;
+  const fromCanonical = options?.conversationId
+    ? clientUidFromCanonicalId(options.conversationId, companyId)
+    : null;
+  if (fromCanonical && fromCanonical !== viewerUid) return fromCanonical;
+  if (!conv) return null;
+  const sellerUid = typeof conv.sellerUid === "string" ? conv.sellerUid : null;
+  const raw =
+    (typeof conv.clientUid === "string" && conv.clientUid) ||
+    (typeof conv.createdBy === "string" && conv.createdBy) ||
+    null;
+  const viewerIsShop = viewerUid === companyId || viewerUid === sellerUid;
+  if (raw && (!viewerIsShop || raw !== viewerUid)) return raw;
+  const parts = Array.isArray(conv.participants) ? conv.participants : [];
+  const peer = parts.find(
+    (p): p is string =>
+      typeof p === "string" &&
+      p.length > 0 &&
+      p !== viewerUid &&
+      p !== companyId &&
+      p !== sellerUid,
+  );
+  return peer ?? null;
+}
+
+function isGenericAccountLabel(name: string | null | undefined): boolean {
+  const n = String(name || "").trim().toLowerCase();
+  return !n || n === "superadmin" || n === "super admin" || n === "client";
+}
+
+function pickSellerViewClientName(options: {
+  routeName?: string | null;
+  extraName?: string | null;
+  interlocutorName?: string | null;
+  conv?: Record<string, unknown> | null;
+}): string {
+  const conv = options.conv;
+  const convClient =
+    typeof conv?.clientName === "string" ? conv.clientName.trim() : "";
+  const candidates = [
+    options.routeName,
+    convClient,
+    options.extraName,
+    options.interlocutorName,
+    typeof conv?.userName === "string" ? conv.userName : null,
+    typeof conv?.customerName === "string" ? conv.customerName : null,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = String(candidate || "").trim();
+    if (trimmed && !isGenericAccountLabel(trimmed)) return trimmed;
+  }
+  return "Client";
+}
+
+function companyOwnerUidFromData(
+  data: Record<string, unknown> | null | undefined,
+): string | null {
+  if (!data) return null;
+  for (const key of ["uid", "ownerId", "ownerUid", "sellerUid"] as const) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 function sanitizeImageUri(raw: unknown): string | null {
@@ -338,9 +434,12 @@ export default function ConversationScreen() {
     price?: string;
     sellerName?: string;
     sellerLogo?: string;
+    clientUid?: string;
+    clientName?: string;
   }>();
 
   const { user } = useAuth();
+  const { requireAuth } = useRequireAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -420,7 +519,13 @@ useEffect(() => {
     user?.uid !== convData?.companyId &&
     user?.uid !== convData?.sellerUid;
 
-  const clientUid = (convData as any)?.clientUid || (convData as any)?.createdBy;
+  const clientUid = resolvePeerClientUid(convData, user?.uid, {
+    conversationId: String(params.id || "").trim(),
+    companyId:
+      (typeof convData?.companyId === "string" ? convData.companyId : null) ||
+      normalizeRouteParam(params.companyId),
+    routeClientUid: normalizeRouteParam(params.clientUid),
+  });
 
   if (isClient || !clientUid) {
     setClientExtra({});
@@ -442,7 +547,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [convData?.companyId, convData?.sellerUid, convData, user?.uid]);
+}, [convData?.companyId, convData?.sellerUid, convData, user?.uid, params.id, params.companyId, params.clientUid]);
 
 // 🟢 NOUVEAU : charger le profil à jour du client (nom + photo)
 useEffect(() => {
@@ -451,7 +556,13 @@ useEffect(() => {
     user?.uid !== convData?.companyId &&
     user?.uid !== convData?.sellerUid;
 
-  const clientUid = (convData as any)?.clientUid || (convData as any)?.createdBy;
+  const clientUid = resolvePeerClientUid(convData, user?.uid, {
+    conversationId: String(params.id || "").trim(),
+    companyId:
+      (typeof convData?.companyId === "string" ? convData.companyId : null) ||
+      normalizeRouteParam(params.companyId),
+    routeClientUid: normalizeRouteParam(params.clientUid),
+  });
 
   if (isClient || !clientUid) {
     setClientExtra({});
@@ -473,7 +584,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [convData?.companyId, convData?.sellerUid, convData, user?.uid]);
+}, [convData?.companyId, convData?.sellerUid, convData, user?.uid, params.id, params.companyId, params.clientUid]);
 
   const [creatingPaymentLink, setCreatingPaymentLink] = useState(false);
   const [composerProductPreview, setComposerProductPreview] = useState<{
@@ -499,6 +610,14 @@ useEffect(() => {
   const normalizedSellerId = useMemo(
     () => normalizeRouteParam(params.sellerId),
     [params.sellerId],
+  );
+  const normalizedRouteClientUid = useMemo(
+    () => normalizeRouteParam(params.clientUid),
+    [params.clientUid],
+  );
+  const normalizedRouteClientName = useMemo(
+    () => normalizeRouteParam(params.clientName),
+    [params.clientName],
   );
   const normalizedProductId = useMemo(
     () => normalizeRouteParam(params.productId),
@@ -585,14 +704,12 @@ const conversationProfile = useMemo(() => {
     // 🟢 Priorité au logo enrichi via Firestore, sinon shop.logo en repli
     avatarUrl = companyExtra.logo || shop.logo || null;
   } else {
-    name =
-      clientExtra.name ||  // 👈 AJOUTÉ : nom à jour depuis users/{uid}
-      (interlocutor.name && interlocutor.name !== "Super admin" ? interlocutor.name : null) ||
-      (typeof convData?.clientName === "string" ? convData.clientName : null) ||
-      (typeof convData?.userName === "string" ? convData.userName : null) ||
-      (typeof convData?.customerName === "string" ? convData.customerName : null) ||
-      (typeof convData?.senderName === "string" ? convData.senderName : null) ||
-      "Client";
+    name = pickSellerViewClientName({
+      routeName: normalizedRouteClientName,
+      extraName: clientExtra.name,
+      interlocutorName: interlocutor.name,
+      conv: convData as Record<string, unknown> | null,
+    });
     role = "Client acheteur";
     avatarUrl = clientExtra.photoURL || interlocutor.photo || null;  // 👈 MODIFIÉ : photo à jour en priorité
   }
@@ -620,10 +737,18 @@ const details: { label: string; value: string }[] = [];
   user?.uid,
   params.sellerName,
   companyExtra,
-  clientExtra, // 👈 AJOUTÉ
+  clientExtra,
+  normalizedRouteClientName,
 ]);
   const openProfileModal = useCallback(() => setProfileModalVisible(true), []);
   const closeProfileModal = useCallback(() => setProfileModalVisible(false), []);
+  const isClientViewer = useMemo(
+    () =>
+      Boolean(user?.uid) &&
+      user.uid !== convData?.companyId &&
+      user.uid !== convData?.sellerUid,
+    [user?.uid, convData?.companyId, convData?.sellerUid],
+  );
   const interlocutorOnline = useMemo(() => {
     if (!otherUid) return false;
     const safeOnlineUsers = Array.isArray(onlineUsers) ? onlineUsers : [];
@@ -807,21 +932,68 @@ useEffect(() => {
         const convRef = doc(db, "conversations", conversationId);
 
         // 1. Détermination du nom et avatar client
-        const currentUserName =
-          user.displayName ||
-          (user as any).name ||
-          (user as any).fullName ||
-          (user.email ? user.email.split("@")[0] : null) ||
-          "Client";
+        const currentUserName = getUserDisplayLabel(
+          {
+            displayName: user.displayName || (user as any).name || (user as any).fullName,
+            email: user.email,
+            phoneNumber: user.phoneNumber,
+          },
+          "Client",
+        );
 
         const currentUserAvatar = user.photoURL || (user as any).avatar || "";
-        const sellerUid = normalizedSellerId || normalizedCompanyId;
-        const initialParticipants = Array.from(
-          new Set([user.uid, sellerUid, normalizedCompanyId].filter(Boolean))
+        const parsedClientUid = clientUidFromCanonicalId(
+          conversationId,
+          normalizedCompanyId,
         );
+        const routeClientUid = normalizedRouteClientUid;
+        // Suffixe de l'ID canonique = acheteur. Un super-admin / boutiquier
+        // n'est le client que si ce suffixe est son propre UID.
+        const isOpeningAsClient = parsedClientUid === user.uid;
+        const clientUid =
+          (routeClientUid &&
+          routeClientUid !== user.uid &&
+          routeClientUid !== normalizedCompanyId
+            ? routeClientUid
+            : null) ||
+          parsedClientUid ||
+          (isOpeningAsClient ? user.uid : null);
 
         const fallbackCompanyName = normalizeRouteParam(params.sellerName) || "Boutique";
         const fallbackCompanyLogo = normalizeRouteParam(params.sellerLogo) || null;
+
+        let ownerUid: string | null = null;
+        let realName = fallbackCompanyName;
+        let realLogo = fallbackCompanyLogo;
+        try {
+          const companySnap = await getDoc(doc(db, "companies", normalizedCompanyId));
+          if (companySnap.exists()) {
+            const companyData = companySnap.data() as Record<string, unknown>;
+            ownerUid = companyOwnerUidFromData(companyData);
+            const fromName =
+              (typeof companyData.name === "string" && companyData.name.trim()) ||
+              (typeof companyData.companyName === "string" &&
+                String(companyData.companyName).trim()) ||
+              "";
+            if (fromName) realName = fromName;
+            const fromLogo =
+              (typeof companyData.logo === "string" && companyData.logo) ||
+              (typeof companyData.companyLogo === "string" &&
+                String(companyData.companyLogo)) ||
+              "";
+            if (fromLogo) realLogo = fromLogo;
+          }
+        } catch {
+          // Owner lu plus tard si la boutique n'est pas encore disponible.
+        }
+
+        const sellerUid = ownerUid;
+        const participantIds = [
+          user.uid,
+          sellerUid,
+          normalizedCompanyId,
+          clientUid,
+        ].filter((id): id is string => Boolean(id));
 
         // 2. ÉCRITURE INSTANTANÉE (Non-bloquante pour affichage immédiat)
         await setDoc(
@@ -829,30 +1001,38 @@ useEffect(() => {
           {
             id: conversationId,
             companyId: normalizedCompanyId,
-            companyName: fallbackCompanyName,
-            companyLogo: fallbackCompanyLogo,
-            title: fallbackCompanyName,
+            companyName: realName,
+            companyLogo: realLogo,
+            title: realName,
             type: "seller",
-            participants: initialParticipants,
-            participantNames: {
-              [user.uid]: currentUserName,
-              [normalizedCompanyId]: fallbackCompanyName,
-              ...(sellerUid ? { [sellerUid]: fallbackCompanyName } : {}),
-            },
-            participantAvatars: {
-              [user.uid]: currentUserAvatar,
-              [normalizedCompanyId]: fallbackCompanyLogo || "",
-              ...(sellerUid && fallbackCompanyLogo ? { [sellerUid]: fallbackCompanyLogo } : {}),
-            },
-            clientUid: user.uid,
-            clientName: currentUserName,
-            clientAvatar: currentUserAvatar,
-            userName: currentUserName,
-            userAvatar: currentUserAvatar,
-            customerName: currentUserName,
-            senderName: currentUserName,
-            createdBy: user.uid,
-            admins: [user.uid],
+            ...(sellerUid ? { sellerUid } : {}),
+            participants: arrayUnion(...participantIds),
+            [`participantNames.${user.uid}`]: currentUserName,
+            [`participantNames.${normalizedCompanyId}`]: realName,
+            ...(sellerUid
+              ? { [`participantNames.${sellerUid}`]: realName }
+              : {}),
+            ...(clientUid && isOpeningAsClient
+              ? { [`participantNames.${clientUid}`]: currentUserName }
+              : {}),
+            [`participantAvatars.${user.uid}`]: currentUserAvatar,
+            [`participantAvatars.${normalizedCompanyId}`]: realLogo || "",
+            ...(sellerUid && realLogo
+              ? { [`participantAvatars.${sellerUid}`]: realLogo }
+              : {}),
+            ...(clientUid ? { clientUid } : {}),
+            ...(clientUid && isOpeningAsClient
+              ? {
+                  clientName: currentUserName,
+                  clientAvatar: currentUserAvatar,
+                  userName: currentUserName,
+                  userAvatar: currentUserAvatar,
+                  customerName: currentUserName,
+                  senderName: currentUserName,
+                  createdBy: user.uid,
+                }
+              : {}),
+            admins: arrayUnion(user.uid),
             updatedAt: serverTimestamp(),
           },
           { merge: true }
@@ -876,11 +1056,13 @@ useEffect(() => {
               (typeof companyData?.companyLogo === "string" && companyData.companyLogo) ||
               fallbackCompanyLogo;
 
-            const ownerUid = companyData?.uid || companyData?.ownerId || sellerUid;
-
-            const updatedParticipants = Array.from(
-              new Set([user.uid, ownerUid, normalizedCompanyId].filter(Boolean))
-            );
+            const ownerUid = companyOwnerUidFromData(companyData);
+            const enrichmentParticipantIds = [
+              user.uid,
+              ownerUid,
+              normalizedCompanyId,
+              clientUid,
+            ].filter((id): id is string => Boolean(id));
 
             setDoc(
               convRef,
@@ -888,17 +1070,14 @@ useEffect(() => {
                 companyName: realName,
                 companyLogo: realLogo,
                 title: realName,
-                participants: updatedParticipants,
-                participantNames: {
-                  [user.uid]: currentUserName,
-                  [normalizedCompanyId]: realName,
-                  ...(ownerUid ? { [ownerUid]: realName } : {}),
-                },
-                participantAvatars: {
-                  [user.uid]: currentUserAvatar,
-                  [normalizedCompanyId]: realLogo || "",
-                  ...(ownerUid && realLogo ? { [ownerUid]: realLogo } : {}),
-                },
+                ...(ownerUid ? { sellerUid: ownerUid } : {}),
+                participants: arrayUnion(...enrichmentParticipantIds),
+                [`participantNames.${normalizedCompanyId}`]: realName,
+                ...(ownerUid ? { [`participantNames.${ownerUid}`]: realName } : {}),
+                [`participantAvatars.${normalizedCompanyId}`]: realLogo || "",
+                ...(ownerUid && realLogo
+                  ? { [`participantAvatars.${ownerUid}`]: realLogo }
+                  : {}),
               },
               { merge: true }
             ).catch(() => {});
@@ -923,6 +1102,7 @@ useEffect(() => {
   hasStrictProductContext,
   normalizedCompanyId,
   normalizedSellerId,
+  normalizedRouteClientUid,
 ]);
 
 // 🟢 Écouteur Firestore unique et sécurisé à conserver
@@ -1574,9 +1754,14 @@ const handleAttachImage = useCallback(
         <Text style={styles.muted}>Connectez-vous pour voir la conversation.</Text>
         <Pressable
           style={styles.primaryBtn}
-          onPress={() => router.replace("/(tabs)/account")}
+          onPress={() =>
+            requireAuth({
+              reason: "contact_seller",
+              href: conversationId ? `/conversation/${conversationId}` : undefined,
+            })
+          }
         >
-          <Text style={styles.primaryBtnText}>Mon compte</Text>
+          <Text style={styles.primaryBtnText}>Se connecter</Text>
         </Pressable>
       </View>
     );
@@ -1644,71 +1829,70 @@ const handleAttachImage = useCallback(
           );
         })()}
 
-{/* 🟢 1. Nom principal (Client ou Boutique) */}
-      <Pressable onPress={openProfileModal} hitSlop={6}>
-        <Text style={styles.shopName} numberOfLines={1}>
-          {(() => {
-            const isClient =
-              user?.uid &&
-              user.uid !== convData?.companyId &&
-              user.uid !== convData?.sellerUid;
+        <View style={styles.shopTextCol}>
+          {/* Nom principal (client ou boutique) */}
+          <Pressable onPress={openProfileModal} hitSlop={6}>
+            <Text style={styles.shopName} numberOfLines={1}>
+              {(() => {
+                const isClient =
+                  user?.uid &&
+                  user.uid !== convData?.companyId &&
+                  user.uid !== convData?.sellerUid;
 
-            if (isClient) {
-              return (
-                (shop.name && shop.name !== "Super admin" ? shop.name : null) ||
-                (convData?.companyName && convData.companyName !== "Super admin"
-                  ? convData.companyName
-                  : null) ||
-                params.sellerName ||
-                params.companyName ||
-                "Boutique"
-              );
-            } else {
-              return (
-                clientExtra?.name ||
-                (interlocutor?.name && interlocutor.name !== "Super admin"
-                  ? interlocutor.name
-                  : null) ||
-                convData?.clientName ||
-                convData?.userName ||
-                convData?.customerName ||
-                convData?.senderName ||
-                "Client"
-              );
-            }
-          })()}
-        </Text>
-      </Pressable>
+                if (isClient) {
+                  return (
+                    (shop.name && shop.name !== "Super admin" ? shop.name : null) ||
+                    (convData?.companyName && convData.companyName !== "Super admin"
+                      ? convData.companyName
+                      : null) ||
+                    params.sellerName ||
+                    params.companyName ||
+                    "Boutique"
+                  );
+                } else {
+                  return pickSellerViewClientName({
+                    routeName: normalizedRouteClientName,
+                    extraName: clientExtra?.name,
+                    interlocutorName: interlocutor?.name,
+                    conv: convData as Record<string, unknown> | null,
+                  });
+                }
+              })()}
+            </Text>
+          </Pressable>
 
-      {/* 🟢 2. Sous-titre / Statut */}
-      <Pressable onPress={openProfileModal} hitSlop={6}>
-        <Text style={styles.shopHint} numberOfLines={1}>
-          {interlocutorOnline
-            ? "En ligne"
-            : user?.uid &&
-              user.uid !== convData?.companyId &&
-              user.uid !== convData?.sellerUid
-            ? "Boutique / Vendeur"
-            : "Client"}
-        </Text>
-      </Pressable>
+          {/* Sous-titre sous le nom */}
+          <Pressable onPress={openProfileModal} hitSlop={6}>
+            <Text style={styles.shopHint} numberOfLines={1}>
+              {interlocutorOnline
+                ? "En ligne"
+                : user?.uid &&
+                  user.uid !== convData?.companyId &&
+                  user.uid !== convData?.sellerUid
+                ? "Boutique / Vendeur"
+                : "Client"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
-  </View>
 
   <View style={styles.headerRight}>
-    <Pressable
-      style={styles.headerIcon}
-      onPress={() => {
-        const cid =
-          typeof convData?.companyId === "string"
-            ? convData.companyId
-            : "";
-        if (cid) router.push(`/company/${cid}`);
-        else Alert.alert("Conversation", shop.name, [{ text: "OK" }]);
-      }}
-    >
-      <Ionicons name="storefront-outline" size={24} color="#111827" />
-    </Pressable>
+    {!isClientViewer ? (
+      <Pressable
+        style={styles.headerIcon}
+        onPress={() => {
+          const cid =
+            typeof convData?.companyId === "string"
+              ? convData.companyId
+              : "";
+          if (cid) router.push(`/company/${cid}`);
+          else Alert.alert("Conversation", shop.name, [{ text: "OK" }]);
+        }}
+      >
+        <Ionicons name="storefront-outline" size={24} color="#111827" />
+      </Pressable>
+    ) : null}
     <Pressable
       style={styles.headerIcon}
       onPress={openActionsMenu}
@@ -1970,7 +2154,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 10,
   },
   shopLogo: {
     width: 44,

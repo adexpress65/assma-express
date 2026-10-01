@@ -15,7 +15,6 @@ export default function LoginSection({ onLogin }: LoginSectionProps) {
   const loginMethods = [
     { icon: 'mail-outline', label: 'Email', color: '#4285F4' },
     { icon: 'logo-google', label: 'Google', color: '#DB4437' },
-    { icon: 'logo-facebook', label: 'Facebook', color: '#4267B2' },
     { icon: 'logo-apple', label: 'Apple', color: '#000000' },
   ];
 

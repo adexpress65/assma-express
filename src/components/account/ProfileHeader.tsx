@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { getUserContactLabel, getUserDisplayLabel } from '../../utils/userIdentity';
 
 export default function ProfileHeader() {
-  const { user, isLoading, logout } = useAuth();
+  const { user, userProfile, isLoading, logout } = useAuth();
 
   if (isLoading) {
     return (
@@ -39,9 +40,18 @@ export default function ProfileHeader() {
             <View style={styles.userInfo}>
               {/* 👇 TOUS LES TEXTES DOIVENT ÊTRE DANS <Text> */}
               <Text style={styles.userName}>
-                {user.displayName || 'Utilisateur'}
+                {getUserDisplayLabel({
+                  displayName: user.displayName || userProfile?.displayName,
+                  email: user.email || userProfile?.email,
+                  phoneNumber: user.phoneNumber || userProfile?.phoneNumber,
+                })}
               </Text>
-              <Text style={styles.userEmail}>{user.email}</Text>
+              <Text style={styles.userEmail}>
+                {getUserContactLabel({
+                  email: user.email || userProfile?.email,
+                  phoneNumber: user.phoneNumber || userProfile?.phoneNumber,
+                })}
+              </Text>
             </View>
             <TouchableOpacity 
               style={styles.logoutButton}

@@ -37,8 +37,21 @@ export class OrderService {
         taxFCFA: orderData.tax || 0,
         totalFCFA: orderData.total || 0,
         totalUSD: PaymentService.convertToUSD(orderData.total || 0),
-        shippingMethod: orderData.shippingMethod || 'vol_express',
-        shippingDetails: orderData.shippingDetails || {},
+        shippingMethod: orderData.shippingMethod || orderData.shipping?.method || 'vol_express',
+        shippingMethodName:
+          orderData.shippingMethodName || orderData.shipping?.option?.name || '',
+        shippingMethodDelay:
+          orderData.shippingMethodDelay ||
+          orderData.shippingEstimatedDays ||
+          orderData.shipping?.option?.deliveryTime ||
+          '',
+        shippingEstimatedDays:
+          orderData.shippingEstimatedDays ||
+          orderData.shippingMethodDelay ||
+          orderData.shipping?.option?.deliveryTime ||
+          '',
+        shippingMethodType: orderData.shippingMethodType || orderData.shipping?.option?.type || '',
+        shippingDetails: orderData.shippingDetails || orderData.shipping || {},
         billingAddress: orderData.billingAddress || {},
         shippingAddress: orderData.shippingAddress || {},
         customerNotes: orderData.customerNotes || '',

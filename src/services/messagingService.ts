@@ -23,6 +23,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, storage } from '../config/firebase';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { getUserDisplayLabel } from '../utils/userIdentity';
 
 export class MessagingService {
   // Créer une nouvelle conversation
@@ -113,7 +114,14 @@ export class MessagingService {
         conversationId,
         text: data.text,
         senderId: currentUser.uid,
-        senderName: currentUser.displayName || currentUser.email || 'Client',
+        senderName: getUserDisplayLabel(
+          {
+            displayName: currentUser.displayName,
+            email: currentUser.email,
+            phoneNumber: currentUser.phoneNumber,
+          },
+          'Client',
+        ),
         senderAvatar: currentUser.photoURL || '👤',
         type: data.type,
         metadata: data.metadata || {},

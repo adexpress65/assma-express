@@ -16,6 +16,19 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 import { useCheckout } from '@/contexts/CheckoutContext';
 import type { CheckoutPaymentMethod, PaymentPayload, PaymentResult } from '@/types/payment';
 import { PAYMENT_ENDPOINTS } from '@/config/api';
+import { rememberInFlightPayment } from '@/services/ngeniusVerify';
+import { useWarehouseFees } from '@/hooks/useWarehouseFees';
+import {
+  anyZeroFcfaMissingWarehouse,
+  computeWarehouseFeeBreakdown,
+  formatWarehouseFeeUsd,
+  ZERO_FCFA_UNAVAILABLE_MESSAGE,
+} from '@/utils/warehouseFee';
+import {
+  buildShippingMethodFields,
+  getShippingMethodLabel,
+  resolveShippingMethodType,
+} from '@/utils/orderShipping';
 
 type IoniconsName = ComponentProps<typeof Ionicons>['name'];
 
@@ -74,13 +87,19 @@ export default function PaymentScreen() {
     shippingFee?: string | string[];
     shippingMethod?: string | string[];
     shippingOptionName?: string | string[];
+    shippingMethodName?: string | string[];
+    shippingMethodDelay?: string | string[];
+    shippingMethodType?: string | string[];
     shippingDetails?: string | string[];
+    deliveryMode?: string | string[];
     subtotal?: string | string[];
+    warehouseFeeTotal?: string | string[];
     total?: string | string[];
   }>();
   const { user } = useAuth();
   const { formatPrice } = useCurrency();
   const { orderData, setSummary } = useCheckout();
+  const { config: warehouseFeesConfig } = useWarehouseFees();
 
   // ✅ Méthode sélectionnée changée par défaut vers NGenius
   const [selectedMethod, setSelectedMethod] = useState<CheckoutPaymentMethod>('ngenius_card');
@@ -93,24 +112,31 @@ export default function PaymentScreen() {
     items.reduce((sum, item) => sum + Number(item.price) * Number(item.quantity), 0);
   const hasOrderData = Boolean(orderData);
   const subtotalParam = parseMoneyParam(params.subtotal);
-  const shippingFeeParam = parseMoneyParam(params.shippingFee);
   const orderItems = orderData?.items ?? [];
   const itemsSignature = orderItems
-    .map((item) => `${String(item.id)}:${Number(item.price)}:${Number(item.quantity)}`)
+    .map(
+      (item) =>
+        `${String(item.id)}:${Number(item.price)}:${Number(item.quantity)}:${String(item.originWarehouseId || '')}`,
+    )
     .join('|');
   const summarySubtotal = Number(orderData?.summary?.subtotal) || 0;
   const summaryShipping = Number(orderData?.summary?.shipping) || 0;
   const summaryDiscount = Number(orderData?.summary?.discount) || 0;
   const summaryTotal = Number(orderData?.summary?.total) || 0;
-  const contextShipping =
-    Number(orderData?.shipping?.cost ?? orderData?.summary?.shipping) || 0;
+  const summaryWarehouseFeeTotal = Number(orderData?.summary?.warehouseFeeTotal) || 0;
   const normalizedSubtotal = subtotalParam ?? computeItemsSubtotal(orderItems);
-  const normalizedShipping = shippingFeeParam ?? contextShipping;
+  /** Livraison hors app après pesage : jamais incluse dans le paiement NGenius. */
+  const normalizedShipping = 0;
+  const feeBreakdown = computeWarehouseFeeBreakdown(orderItems, warehouseFeesConfig);
+  const warehouseFeeTotal =
+    parseMoneyParam(params.warehouseFeeTotal) ?? feeBreakdown.warehouseFeeTotal;
   const normalizedSummary = {
     subtotal: normalizedSubtotal,
     shipping: normalizedShipping,
     discount: 0,
-    total: normalizedSubtotal + normalizedShipping,
+    warehouseFees: feeBreakdown.lines,
+    warehouseFeeTotal,
+    total: normalizedSubtotal + normalizedShipping + warehouseFeeTotal,
   };
   const isNgeniusSelected = selectedMethod === 'ngenius_card';
 
@@ -122,13 +148,14 @@ export default function PaymentScreen() {
 
   useEffect(() => {
     if (!hasOrderData) return;
-    const syncKey = `${normalizedSummary.subtotal}|${normalizedSummary.shipping}|${normalizedSummary.total}`;
+    const syncKey = `${normalizedSummary.subtotal}|${normalizedSummary.shipping}|${normalizedSummary.warehouseFeeTotal}|${normalizedSummary.total}`;
     if (summarySyncRef.current === syncKey) {
       return;
     }
     const gap =
       Math.abs(summarySubtotal - normalizedSummary.subtotal) > 1 ||
       Math.abs(summaryShipping - normalizedSummary.shipping) > 1 ||
+      Math.abs(summaryWarehouseFeeTotal - (normalizedSummary.warehouseFeeTotal || 0)) > 1 ||
       Math.abs(summaryTotal - normalizedSummary.total) > 1 ||
       summaryDiscount !== 0;
     if (!gap) {
@@ -142,12 +169,14 @@ export default function PaymentScreen() {
     itemsSignature,
     normalizedSummary.subtotal,
     normalizedSummary.shipping,
+    normalizedSummary.warehouseFeeTotal,
     normalizedSummary.total,
     setSummary,
     summaryDiscount,
     summaryShipping,
     summarySubtotal,
     summaryTotal,
+    summaryWarehouseFeeTotal,
   ]);
 
   if (!orderData) {
@@ -170,10 +199,39 @@ export default function PaymentScreen() {
       return;
     }
 
-    isSubmittingRef.current = true;
-    hasSubmittedRef.current = true;
+    const paramMode = firstParam(params.deliveryMode);
+    const deliveryMode =
+      orderData.deliveryMode === 'pickup' || orderData.deliveryMode === 'home'
+        ? orderData.deliveryMode
+        : paramMode === 'pickup' || paramMode === 'home'
+          ? paramMode
+          : undefined;
+
+    if (!deliveryMode) {
+      Alert.alert(
+        'Choix requis',
+        'Indiquez d’abord si vous retirez à l’entrepôt ou si vous souhaitez une livraison à domicile.',
+      );
+      router.replace('/checkout/shipping');
+      return;
+    }
+
+    if (anyZeroFcfaMissingWarehouse(orderData.items, warehouseFeesConfig)) {
+      Alert.alert('Indisponible', ZERO_FCFA_UNAVAILABLE_MESSAGE);
+      return;
+    }
 
     const finalAmount = Math.round(Number(normalizedSummary.total));
+    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+      Alert.alert(
+        'Paiement impossible',
+        'Le montant à payer est invalide. Vérifiez les frais d\'entrepôt de vos articles 0 FCFA.',
+      );
+      return;
+    }
+
+    isSubmittingRef.current = true;
+    hasSubmittedRef.current = true;
 
     const itemsWithSpecs = orderData.items.map((item) => ({
       ...item,
@@ -182,6 +240,87 @@ export default function PaymentScreen() {
         volume: item.specifications?.volume ?? 0,
       },
     }));
+
+    const shippingFromCtx = orderData.shipping;
+    const shippingMethodId = String(
+      orderData.shippingMethod ||
+        firstParam(params.shippingMethod) ||
+        shippingFromCtx?.method ||
+        '',
+    ).trim();
+
+    const rawName =
+      orderData.shippingMethodName ||
+      firstParam(params.shippingMethodName) ||
+      firstParam(params.shippingOptionName) ||
+      shippingFromCtx?.option?.name ||
+      '';
+
+    const shippingMethodName = getShippingMethodLabel(shippingMethodId, rawName);
+    const shippingMethodDelay =
+      orderData.shippingMethodDelay ||
+      orderData.shippingEstimatedDays ||
+      firstParam(params.shippingMethodDelay) ||
+      shippingFromCtx?.option?.deliveryTime ||
+      undefined;
+    const shippingMethodType =
+      resolveShippingMethodType(
+        shippingMethodId,
+        orderData.shippingMethodType ||
+          firstParam(params.shippingMethodType) ||
+          shippingFromCtx?.option?.type ||
+          '',
+      ) || undefined;
+
+    if (!shippingMethodId || !shippingMethodName) {
+      Alert.alert(
+        'Mode de transport manquant',
+        'Veuillez resélectionner Vol Express, Vol Cargo ou Voie Maritime avant de payer.',
+      );
+      router.replace('/checkout/shipping');
+      return;
+    }
+
+    const methodFields = buildShippingMethodFields({
+      method: shippingMethodId,
+      option: {
+        id: shippingMethodId,
+        name: shippingMethodName,
+        deliveryTime: String(shippingMethodDelay || ''),
+        type: (shippingMethodType as 'free' | 'air' | 'sea') || 'air',
+      },
+    });
+
+    const shippingPayload = shippingFromCtx
+      ? {
+          method: shippingMethodId,
+          option: {
+            ...shippingFromCtx.option,
+            id: shippingMethodId,
+            name: shippingMethodName,
+            deliveryTime:
+              shippingMethodDelay || shippingFromCtx.option?.deliveryTime || '',
+            type: shippingFromCtx.option?.type || shippingMethodType,
+          },
+          cost: shippingFromCtx.cost ?? 0,
+          details:
+            shippingFromCtx.details ||
+            `${shippingMethodName}${shippingMethodDelay ? ` - ${shippingMethodDelay}` : ''}`,
+        }
+      : {
+          method: shippingMethodId,
+          option: {
+            id: shippingMethodId,
+            name: shippingMethodName,
+            deliveryTime: String(shippingMethodDelay || ''),
+            type: shippingMethodType || 'air',
+            price: 0,
+            description: '',
+            details: '',
+          },
+          cost: 0,
+          details: `${shippingMethodName}${shippingMethodDelay ? ` - ${shippingMethodDelay}` : ''}`,
+        };
 
     const payload: PaymentPayload = {
       orderId: `ORD-${Date.now()}`,
@@ -195,6 +334,19 @@ export default function PaymentScreen() {
       items: itemsWithSpecs,
       summary: { ...normalizedSummary, total: finalAmount },
       shippingAddress: orderData.shippingAddress,
+      ...(deliveryMode ? { deliveryMode } : {}),
+      shippingMethod: methodFields.shippingMethod,
+      shippingMethodName: methodFields.shippingMethodName,
+      ...(methodFields.shippingMethodDelay
+        ? {
+            shippingMethodDelay: methodFields.shippingMethodDelay,
+            shippingEstimatedDays: methodFields.shippingEstimatedDays,
+          }
+        : {}),
+      ...(methodFields.shippingMethodType
+        ? { shippingMethodType: methodFields.shippingMethodType }
+        : {}),
+      shipping: shippingPayload,
     };
 
     try {
@@ -230,6 +382,7 @@ export default function PaymentScreen() {
       }
 
       if (result.url) {
+        await rememberInFlightPayment(payload.orderId).catch(() => undefined);
         router.push({
           pathname: '/checkout/payment-webview' as never,
           params: {
@@ -301,10 +454,21 @@ export default function PaymentScreen() {
             <Text style={styles.summaryLabel}>Sous-total</Text>
             <Text style={styles.summaryValue}>{formatPrice(normalizedSummary.subtotal)}</Text>
           </View>
+          {(normalizedSummary.warehouseFees ?? []).map((fee) => (
+            <View key={fee.warehouseId} style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Entrepôt de {fee.label}</Text>
+              <Text style={styles.summaryValue}>{formatWarehouseFeeUsd(fee.feeUsd)}</Text>
+            </View>
+          ))}
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Frais de livraison</Text>
-            <Text style={styles.summaryValue}>{formatPrice(normalizedSummary.shipping)}</Text>
+            <Text style={styles.summaryLabel}>Livraison</Text>
+            <Text style={styles.summaryShippingValue}>
+              Après pesage
+            </Text>
           </View>
+          <Text style={styles.shippingNote}>
+            Frais de livraison calculés après pesage réel de votre colis. Vous serez contacté(e) avant expédition pour le règlement.
+          </Text>
           
           <View style={styles.divider} />
           
@@ -401,6 +565,8 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   summaryLabel: { fontSize: 14, color: COLORS.textLight },
   summaryValue: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  summaryShippingValue: { fontSize: 14, fontWeight: '600', color: COLORS.text, flex: 1, textAlign: 'right', marginLeft: 12 },
+  shippingNote: { fontSize: 12, color: COLORS.textLight, lineHeight: 18, marginBottom: 4 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 15 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontSize: 18, fontWeight: '800', color: COLORS.text },

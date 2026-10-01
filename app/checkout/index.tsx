@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   View, Text, TouchableOpacity, StyleSheet, ScrollView, 
   TextInput, Alert, StatusBar 
@@ -8,8 +8,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCheckout } from '../../src/contexts/CheckoutContext';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { useRequireAuth } from '../../src/contexts/AuthGuardContext';
 import type { OrderData, ShippingAddress } from '../../src/types/order';
 import type { CartItem } from '../../src/types/cart';
+import { useWarehouseFees } from '../../src/hooks/useWarehouseFees';
+import {
+  anyZeroFcfaMissingWarehouse,
+  computeWarehouseFeeBreakdown,
+  formatWarehouseFeeUsd,
+  ZERO_FCFA_UNAVAILABLE_MESSAGE,
+} from '../../src/utils/warehouseFee';
 
 const COLORS = {
   primary: '#FF6A00',
@@ -29,6 +38,19 @@ export default function CheckoutAddress() {
   const { formatPrice } = useCurrency();
   const insets = useSafeAreaInsets();
   const { orderData: ctxOrder, initOrder, setShippingAddress: ctxSetAddress, setSummary } = useCheckout();
+  const { user, isLoading: authLoading } = useAuth();
+  const { requireAuth } = useRequireAuth();
+  const { config: warehouseFeesConfig } = useWarehouseFees();
+  const guestRedirected = useRef(false);
+
+  useEffect(() => {
+    if (authLoading || guestRedirected.current) return;
+    if (!user) {
+      guestRedirected.current = true;
+      requireAuth({ reason: 'checkout', href: '/(tabs)/cart' });
+      router.replace('/(tabs)/cart');
+    }
+  }, [authLoading, requireAuth, router, user]);
 
   /** Parse pur (sans setState) — évite initOrder() pendant le rendu. */
   const orderFromParams = useMemo((): OrderData | null => {
@@ -105,6 +127,13 @@ export default function CheckoutAddress() {
     [selectedItems],
   );
 
+  const warehouseBreakdown = useMemo(
+    () => computeWarehouseFeeBreakdown(selectedItems, warehouseFeesConfig),
+    [selectedItems, warehouseFeesConfig],
+  );
+
+  const payableTotal = subtotal + warehouseBreakdown.warehouseFeeTotal;
+
   // VÉRIFICATION DES CHAMPS (SÉCURITÉ)
   const isFormValid = useMemo(() => {
     return (
@@ -127,9 +156,21 @@ export default function CheckoutAddress() {
       return;
     }
 
+    if (anyZeroFcfaMissingWarehouse(selectedItems, warehouseFeesConfig)) {
+      Alert.alert("Indisponible", ZERO_FCFA_UNAVAILABLE_MESSAGE);
+      return;
+    }
+
     const updatedItems = selectedItems.map((item) => ({ ...item }));
 
-    const newSummary = { subtotal, shipping: 0, discount: 0, total: subtotal };
+    const newSummary = {
+      subtotal,
+      shipping: 0,
+      discount: 0,
+      warehouseFees: warehouseBreakdown.lines,
+      warehouseFeeTotal: warehouseBreakdown.warehouseFeeTotal,
+      total: payableTotal,
+    };
 
     const addressPayload: ShippingAddress = {
       ...address,
@@ -203,6 +244,16 @@ export default function CheckoutAddress() {
                  {formatPrice(Number(item.price) * Number(item.quantity))}
                </Text>
              </View>
+          ))}
+          {warehouseBreakdown.lines.map((fee) => (
+            <View key={fee.warehouseId} style={styles.miniItem}>
+              <Text style={styles.productName} numberOfLines={1}>
+                Entrepôt de {fee.label}
+              </Text>
+              <Text style={styles.wholesalePrice}>
+                {formatWarehouseFeeUsd(fee.feeUsd)}
+              </Text>
+            </View>
           ))}
         </View>
 

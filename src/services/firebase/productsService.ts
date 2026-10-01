@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { withTimeout } from '../../utils/promise';
+import { getClientPriceXOF } from '../../utils/productPrice';
 
 /** Limite le temps d’attente Firestore sur les écrans liste (évite blocages > 1 min). */
 const PRODUCTS_LIST_READ_TIMEOUT_MS = 12_000;
@@ -52,6 +53,9 @@ export interface Product {
   sellerName?: string;
   isActive?: boolean;
   stockQuantity?: number;
+  supplier?: string;
+  originWarehouseId?: string | null;
+  originWarehouseLabel?: string | null;
 }
 
 const DEFAULT_SHOP_PAGE = 28;
@@ -88,7 +92,7 @@ function mapProductDoc(docSnap: QueryDocumentSnapshot | DocumentSnapshot): Produ
     i18n: data.i18n,
     localized: data.localized,
     locale: data.locale,
-    price: data.price || 0,
+    price: getClientPriceXOF(data),
     image: data.image || '',
     imageUrl: data.imageUrl || data.image || '',
     mainImage: data.mainImage,
@@ -101,6 +105,9 @@ function mapProductDoc(docSnap: QueryDocumentSnapshot | DocumentSnapshot): Produ
     sellerName: data.sellerName,
     isActive: data.isActive !== false,
     stockQuantity: data.stockQuantity || data.stock || 0,
+    supplier: data.supplier,
+    originWarehouseId: data.originWarehouseId ?? null,
+    originWarehouseLabel: data.originWarehouseLabel ?? null,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
   };
@@ -124,24 +131,37 @@ export async function getProductsByCompanyPage(
   try {
     const coll = collection(db, 'products');
     const field = source === 'companyId' ? 'companyId' : 'sellerId';
-    const base = query(
-      coll,
-      where(field, '==', companyId),
-      orderBy('createdAt', 'desc'),
-      limit(pageSize),
-    );
-    const q = lastDoc
-      ? query(
-          coll,
-          where(field, '==', companyId),
-          orderBy('createdAt', 'desc'),
-          startAfter(lastDoc),
-          limit(pageSize),
-        )
-      : base;
+    const buildQuery = (includeActive: boolean) => {
+      const parts = includeActive
+        ? [
+            where(field, '==', companyId),
+            where('isActive', '==', true),
+            orderBy('createdAt', 'desc'),
+          ]
+        : [where(field, '==', companyId), orderBy('createdAt', 'desc')];
+      return lastDoc
+        ? query(coll, ...parts, startAfter(lastDoc), limit(pageSize))
+        : query(coll, ...parts, limit(pageSize));
+    };
 
-    const snapshot = await getDocs(q);
-    const products = snapshot.docs.map(mapProductDoc);
+    let snapshot: QuerySnapshot;
+    try {
+      snapshot = await withTimeout(
+        getDocs(buildQuery(true)),
+        PRODUCTS_LIST_READ_TIMEOUT_MS,
+        { docs: [] } as QuerySnapshot,
+      );
+    } catch (activeErr) {
+      console.warn('[getProductsByCompanyPage] isActive index fallback', activeErr);
+      snapshot = await withTimeout(
+        getDocs(buildQuery(false)),
+        PRODUCTS_LIST_READ_TIMEOUT_MS,
+        { docs: [] } as QuerySnapshot,
+      );
+    }
+
+    const visibleDocs = snapshot.docs.filter((d) => d.data()?.isActive === true);
+    const products = visibleDocs.map(mapProductDoc);
     const newLast =
       snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
 
@@ -192,15 +212,34 @@ export const getProductsByCompany = async (companyId: string): Promise<Product[]
     // Essayer d'abord par companyId
     /** Sans limite, un grossiste avec des milliers de SKU bloquait l’ouverture de la boutique plusieurs minutes. */
     const COMPANY_PRODUCTS_CAP = 300;
-    const q = query(
-      collection(db, 'products'),
-      where('companyId', '==', companyId),
-      orderBy('createdAt', 'desc'),
-      limit(COMPANY_PRODUCTS_CAP),
-    );
-    
-    const querySnapshot = await getDocs(q);
-    const products: Product[] = querySnapshot.docs.map((d) => {
+    const loadCompanyDocs = async (field: 'companyId' | 'sellerId') => {
+      try {
+        return await getDocs(
+          query(
+            collection(db, 'products'),
+            where(field, '==', companyId),
+            where('isActive', '==', true),
+            orderBy('createdAt', 'desc'),
+            limit(COMPANY_PRODUCTS_CAP),
+          ),
+        );
+      } catch (indexErr) {
+        console.warn('[getProductsByCompany] isActive index fallback', field, indexErr);
+        return getDocs(
+          query(
+            collection(db, 'products'),
+            where(field, '==', companyId),
+            orderBy('createdAt', 'desc'),
+            limit(COMPANY_PRODUCTS_CAP),
+          ),
+        );
+      }
+    };
+
+    const querySnapshot = await loadCompanyDocs('companyId');
+    const products: Product[] = querySnapshot.docs
+      .filter((d) => d.data()?.isActive === true)
+      .map((d) => {
       const p = mapProductDoc(d);
       return { ...p, companyId: p.companyId || companyId };
     });
@@ -210,16 +249,11 @@ export const getProductsByCompany = async (companyId: string): Promise<Product[]
     // Si aucun produit trouvé, essayer par sellerId
     if (products.length === 0) {
       console.log('🔄 Aucun produit par companyId, essai par sellerId...');
-      const sellerQ = query(
-        collection(db, 'products'),
-        where('sellerId', '==', companyId),
-        orderBy('createdAt', 'desc'),
-        limit(COMPANY_PRODUCTS_CAP),
-      );
-      
-      const sellerSnapshot = await getDocs(sellerQ);
+      const sellerSnapshot = await loadCompanyDocs('sellerId');
       products.push(
-        ...sellerSnapshot.docs.map((d) => {
+        ...sellerSnapshot.docs
+          .filter((d) => d.data()?.isActive === true)
+          .map((d) => {
           const p = mapProductDoc(d);
           return { ...p, companyId: p.companyId || companyId };
         }),
@@ -278,6 +312,9 @@ export const getProductById = async (productId: string): Promise<Product | null>
     const productDoc = await getDoc(doc(db, 'products', productId));
     
     if (productDoc.exists()) {
+      if (productDoc.data()?.isActive !== true) {
+        return null;
+      }
       return mapProductDoc(productDoc);
     }
     
@@ -338,7 +375,7 @@ export const getLatestProducts = async (count: number): Promise<Product[]> => {
         id: docSnap.id,
         name: data.name,
         description: data.description || '',
-        price: data.price,
+        price: getClientPriceXOF(data),
         image: data.image || '',
         imageUrl: data.imageUrl || data.image || '',
         categoryId: data.categoryId || '',
@@ -410,7 +447,7 @@ export const getProductsByCategoryPaginated = async (
         id: docSnap.id,
         name: data.name,
         description: data.description || '',
-        price: data.price,
+        price: getClientPriceXOF(data),
         image: data.image || '',
         imageUrl: data.imageUrl || data.image || '',
         categoryId: data.categoryId,

@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../src/contexts/AuthContext";
+import { useRequireAuth } from "../../src/contexts/AuthGuardContext";
 import ConversationProfileModal from "../../src/components/ConversationProfileModal";
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../src/config/firebase';
@@ -135,12 +136,7 @@ function isCurrentUserSeller(conv: Conversation, uid: string | undefined): boole
   if (!conv || !uid) return false;
 
   const isCompanyOwner = conv.companyId === uid || conv.sellerUid === uid;
-  const isAdmin = Array.isArray(conv.admins) && conv.admins.includes(uid);
 
-  // 🛑 Garde-fou : si c'est VOUS qui avez initié la conversation en tant que
-  // client (createdBy ou clientUid = votre uid), vous ne pouvez PAS être en
-  // même temps le vendeur — même si votre uid traîne dans "admins" (souvent
-  // une liste globale de modération, pas spécifique à cette boutique).
   const isConversationCreator =
     (conv as any).createdBy === uid || (conv as any).clientUid === uid;
 
@@ -148,7 +144,7 @@ function isCurrentUserSeller(conv: Conversation, uid: string | undefined): boole
     return false;
   }
 
-  return Boolean(isCompanyOwner || isAdmin);
+  return Boolean(isCompanyOwner);
 }
 
 // 🟢 2. Trouver l'UID de l'interlocuteur
@@ -254,6 +250,7 @@ export default function MessagesTabScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
+  const { requireAuth } = useRequireAuth();
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [profileToShow, setProfileToShow] = useState<{
     id: string;
@@ -858,7 +855,7 @@ const renderItem = useCallback(
           <Text style={styles.guestText}>{t("app.messages.guestBody")}</Text>
           <Pressable
             style={styles.primaryBtn}
-            onPress={() => router.push("/(tabs)/account")}
+            onPress={() => requireAuth({ reason: "messages" })}
           >
             <Text style={styles.primaryBtnText}>{t("app.messages.signIn")}</Text>
           </Pressable>

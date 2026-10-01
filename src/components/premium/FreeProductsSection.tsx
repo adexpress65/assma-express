@@ -69,7 +69,7 @@ function layoutSlots(heroIndex: number, pool: Normalized[]) {
   return { hero, side, bottom };
 }
 
-export default function FreeProductsSection({ products = [] }: FreeProductsSectionProps) {
+function FreeProductsSection({ products = [] }: FreeProductsSectionProps) {
   const { t, i18n } = useTranslation();
   const { formatPrice } = useCurrency();
   const router = useRouter();
@@ -268,6 +268,8 @@ export default function FreeProductsSection({ products = [] }: FreeProductsSecti
     </View>
   );
 }
+
+export default React.memo(FreeProductsSection);
 
 const styles = StyleSheet.create({
   container: {

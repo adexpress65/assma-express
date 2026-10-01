@@ -15,13 +15,31 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { doc, getDoc, updateDoc, setDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, getDocs, updateDoc, setDoc, collection, addDoc, query, where, limit, serverTimestamp, arrayUnion, increment } from 'firebase/firestore';
 import { db, auth, storage } from '@/config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale/fr';
+import {
+  deliveryModeLabel,
+  fulfillmentAdvanceLabel,
+  getFulfillmentUi,
+  isDeliveryModeUnconfirmed,
+  shouldConfirmDeliveryMode,
+  nextFulfillmentStatus,
+  resolveFulfillmentStatus,
+  DELIVERY_MODE_UNCONFIRMED_MESSAGE,
+  type FulfillmentStatus,
+} from '@/constants/Config';
+import { resolveOrderShippingMethod, shippingMethodIcon } from '@/utils/orderShipping';
+import {
+  formatVariantQuantityLine,
+  getOrderItemVariantLines,
+  getOrderLineStableKey,
+} from '@/utils/orderItemVariants';
+import { pickOrderItemsArray } from '@/utils/orderLineItemsDedupe';
 
-type OrderStatus = 'pending' | 'paid' | 'processing' | 'shipped' | 'delivered';
+type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled';
 
 interface VariantAttribute {
   name: string;
@@ -41,12 +59,20 @@ interface OrderItem {
   specifications?: string | string[] | Record<string, unknown> | null;
   selectedColor?: string;
   selectedSize?: string;
+  color?: string;
+  size?: string;
+  variantLines?: Array<{ color?: string | null; size?: string | null; quantity: number }>;
+  companyId?: string;
+  companyName?: string;
+  sellerId?: string;
+  seller?: string;
 }
 
 // Modifie l'interface pour inclure le champ fullName de l'adresse
 interface Order {
   id: string;
   userId?: string;
+  buyerUid?: string;
   clientId?: string;
   customerId?: string;
   userName?: string; // Optionnel au cas où
@@ -57,7 +83,9 @@ interface Order {
   total: number;      // Changé de totalAmount à total
   baseAmount?: number;
   priceAdjustment?: number;
-  status: OrderStatus;
+  status: PaymentStatus | string;
+  fulfillmentStatus?: FulfillmentStatus;
+  deliveryMode?: 'pickup' | 'home' | 'unknown';
   createdAt: Date;
   updatedAt?: Date;
   items: OrderItem[];
@@ -68,48 +96,32 @@ interface Order {
     country: string;
     fullName?: string;
     phone?: string;
+    apartment?: string;
+    building?: string;
+    floor?: string;
+    deliveryNote?: string;
+  };
+  shippingMethod?: string;
+  shippingMethodName?: string;
+  shippingMethodDelay?: string;
+  shippingEstimatedDays?: string;
+  shippingMethodType?: string;
+  shipping?: {
+    method?: string;
+    details?: string;
+    option?: { name?: string; deliveryTime?: string; type?: string; id?: string };
   };
   notes?: string;
   sellerId: string;
+  companyId?: string;
+  companyName?: string;
 }
 
-const statusConfig: Record<OrderStatus, { color: string; bgColor: string; label: string; icon: string; nextAction?: string; nextStatus?: OrderStatus }> = {
-  pending: {
-    color: '#F59E0B',
-    bgColor: '#FEF3C7',
-    label: 'En attente de confirmation',
-    icon: 'time-outline',
-    nextAction: 'Confirmer la commande et préparer',
-    nextStatus: 'processing',
-  },
-  paid: {
-    color: '#2563EB',
-    bgColor: '#DBEAFE',
-    label: 'Payé / En attente de traitement',
-    icon: 'card-outline',
-    nextAction: 'Passer en préparation',
-    nextStatus: 'processing',
-  },
-  processing: {
-    color: '#3B82F6',
-    bgColor: '#DBEAFE',
-    label: 'En cours de préparation',
-    icon: 'cog-outline',
-    nextAction: 'Colis prêt et expédié',
-    nextStatus: 'shipped',
-  },
-  shipped: {
-    color: '#8B5CF6',
-    bgColor: '#EDE9FE',
-    label: 'Expédié',
-    icon: 'cube-outline',
-  },
-  delivered: {
-    color: '#10B981',
-    bgColor: '#D1FAE5',
-    label: 'Livré',
-    icon: 'checkmark-circle-outline',
-  },
+const pendingPaymentUi = {
+  color: '#F59E0B',
+  bgColor: '#FEF3C7',
+  label: 'En attente de paiement',
+  icon: 'time-outline',
 };
 
 export default function OrderDetailScreen() {
@@ -133,7 +145,8 @@ const fetchOrder = async () => {
 
     if (orderDoc.exists()) {
       const data = orderDoc.data();
-      const customerId = data.userId || data.clientId || data.customerId || null;
+      const customerId =
+        data.buyerUid || data.clientId || data.customerId || data.userId || null;
 
       // 1. Récupération brute de l'adresse (shippingAddress, address ou deliveryAddress)
       const rawAddress = data.shippingAddress || data.address || data.deliveryAddress || null;
@@ -247,7 +260,8 @@ const fetchOrder = async () => {
         orderId: data.orderId || orderDoc.id,
         ...data,
         userId: data.userId || data.clientId || data.customerId,
-        clientId: data.clientId || data.userId || data.customerId,
+        buyerUid: data.buyerUid || undefined,
+        clientId: data.buyerUid || data.clientId || data.userId || data.customerId,
         customerId: data.customerId || data.userId || data.clientId,
         userName: resolvedName || 'Client inconnu',
         userPhone: resolvedPhone,
@@ -262,12 +276,14 @@ const fetchOrder = async () => {
         createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : new Date()),
         updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : (data.updatedAt ? new Date(data.updatedAt) : undefined),
         shippingAddress,
-        items: (data.items || []).map((item: any) => ({
+        items: pickOrderItemsArray(data as Record<string, unknown>).map((item: any) => ({
           ...item,
           imageUrl: item.image || item.imageUrl || item.photoURL,
           specifications: item.specifications || item.details || null,
           selectedColor: item.selectedColor || item.color || '',
           selectedSize: item.selectedSize || item.size || '',
+          color: item.color || item.selectedColor || '',
+          size: item.size || item.selectedSize || '',
         })),
       } as Order;
 
@@ -283,23 +299,22 @@ const fetchOrder = async () => {
     setLoading(false);
   }
 };
-  const updateOrderStatus = async (newStatus: OrderStatus) => {
+  const updateFulfillment = async (newStatus: FulfillmentStatus) => {
     if (!order || updating) return;
 
     setUpdating(true);
     try {
       await updateDoc(doc(db, 'orders', order.id), {
-        status: newStatus,
+        fulfillmentStatus: newStatus,
         updatedAt: new Date(),
       });
 
-      // Mettre à jour l'état local
-      setOrder({ ...order, status: newStatus, updatedAt: new Date() });
+      setOrder({ ...order, fulfillmentStatus: newStatus, updatedAt: new Date() });
 
-      Alert.alert('Succès', 'Statut de la commande mis à jour');
+      Alert.alert('Succès', 'Suivi logistique mis à jour');
     } catch (error) {
       console.error('Erreur lors de la mise à jour:', error);
-      Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
+      Alert.alert('Erreur', 'Impossible de mettre à jour le suivi');
     } finally {
       setUpdating(false);
     }
@@ -328,14 +343,243 @@ const fetchOrder = async () => {
     });
   };
 
+const normalizePersonName = (value: unknown): string =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const namesLikelyMatch = (a: string, b: string): boolean => {
+  if (!b) return true;
+  if (!a) return false;
+  return a === b || a.includes(b) || b.includes(a);
+};
+
+const nameLookupValues = (name: string): string[] => {
+  const trimmed = name.trim();
+  if (!trimmed) return [];
+  const lower = trimmed.toLowerCase();
+  const titled = lower.replace(/\b\w/g, (c) => c.toUpperCase());
+  return [...new Set([trimmed, lower, titled])];
+};
+
+const phoneLookupValues = (phone: string): string[] => {
+  const raw = String(phone || '').trim();
+  const digits = raw.replace(/\D/g, '').replace(/^00/, '');
+  const values = new Set<string>();
+  if (raw) values.add(raw);
+  if (!digits) return [...values];
+
+  values.add(digits);
+  values.add(`+${digits}`);
+
+  let national = digits;
+  if (digits.startsWith('223') && digits.length >= 11) {
+    national = digits.slice(3);
+  }
+  if (national.length === 8) {
+    values.add(national);
+    values.add(`223${national}`);
+    values.add(`+223${national}`);
+  }
+  return [...values];
+};
+
+const firstMatchingUserId = (
+  snaps: { docs: { id: string; data: () => Record<string, unknown> }[] }[],
+  excluded: Set<string>,
+): string | null => {
+  for (const snap of snaps) {
+    const match = snap.docs.find(
+      (d) => !excluded.has(d.id) && d.data()?.mergedIntoUid == null,
+    );
+    if (match) return match.id;
+  }
+  for (const snap of snaps) {
+    const match = snap.docs.find((d) => !excluded.has(d.id));
+    if (match) return match.id;
+  }
+  return null;
+};
+
+const findUserUidByPhone = async (
+  phone: string,
+  excludeUids: string[],
+): Promise<string | null> => {
+  if (!phone.trim()) return null;
+  const excluded = new Set(excludeUids.filter(Boolean));
+  try {
+    const snaps = await Promise.all(
+      phoneLookupValues(phone).flatMap((value) => [
+        getDocs(query(collection(db, 'users'), where('phoneNumber', '==', value), limit(5))),
+        getDocs(query(collection(db, 'users'), where('phone', '==', value), limit(5))),
+        getDocs(query(collection(db, 'users'), where('mobile', '==', value), limit(5))),
+      ]),
+    );
+    return firstMatchingUserId(snaps, excluded);
+  } catch (error) {
+    console.warn('Recherche client par téléphone impossible:', error);
+  }
+  return null;
+};
+
+const findUserUidByName = async (
+  name: string,
+  excludeUids: string[],
+): Promise<string | null> => {
+  const variants = nameLookupValues(name);
+  if (variants.length === 0) return null;
+  const excluded = new Set(excludeUids.filter(Boolean));
+  try {
+    const snaps = await Promise.all(
+      variants.flatMap((value) => [
+        getDocs(query(collection(db, 'users'), where('displayName', '==', value), limit(5))),
+        getDocs(query(collection(db, 'users'), where('name', '==', value), limit(5))),
+        getDocs(query(collection(db, 'users'), where('fullName', '==', value), limit(5))),
+      ]),
+    );
+    return firstMatchingUserId(snaps, excluded);
+  } catch (error) {
+    console.warn('Recherche client par nom impossible:', error);
+  }
+  return null;
+};
+
+const findBuyerUidFromConversations = async (
+  sellerUid: string,
+  companyId: string,
+  clientName: string,
+  excludeUids: string[],
+): Promise<string | null> => {
+  const orderName = normalizePersonName(clientName);
+  if (!orderName) return null;
+  const forbidden = new Set(excludeUids.filter(Boolean));
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, 'conversations'),
+        where('participants', 'array-contains', sellerUid),
+        limit(80),
+      ),
+    );
+    const ranked: { uid: string; score: number }[] = [];
+    for (const d of snap.docs) {
+      if (
+        d.id === `${companyId}_${companyId}` ||
+        d.id === `${sellerUid}_${sellerUid}`
+      ) {
+        continue;
+      }
+      const data = d.data() as Record<string, unknown>;
+      const participants = Array.isArray(data.participants)
+        ? (data.participants as string[])
+        : [];
+      const namesMap =
+        data.participantNames && typeof data.participantNames === 'object'
+          ? (data.participantNames as Record<string, string>)
+          : {};
+
+      let buyerUid = '';
+      if (companyId && d.id.startsWith(`${companyId}_`)) {
+        const suffix = d.id.slice(companyId.length + 1);
+        if (suffix && !forbidden.has(suffix)) buyerUid = suffix;
+      }
+      if (
+        !buyerUid &&
+        typeof data.clientUid === 'string' &&
+        !forbidden.has(data.clientUid)
+      ) {
+        buyerUid = data.clientUid;
+      }
+      if (!buyerUid) {
+        buyerUid = participants.find((p) => !forbidden.has(p)) || '';
+      }
+      if (!buyerUid || forbidden.has(buyerUid)) continue;
+
+      const labels = [
+        namesMap[buyerUid],
+        data.clientName,
+        data.customerName,
+        data.userName,
+      ]
+        .map(normalizePersonName)
+        .filter(Boolean);
+      const exact = labels.some((n) => n === orderName);
+      const fuzzy = labels.some((n) => namesLikelyMatch(n, orderName));
+      if (exact) ranked.push({ uid: buyerUid, score: 2 });
+      else if (fuzzy) ranked.push({ uid: buyerUid, score: 1 });
+    }
+    ranked.sort((a, b) => b.score - a.score);
+    return ranked[0]?.uid || null;
+  } catch (error) {
+    console.warn('Recherche client dans les conversations impossible:', error);
+  }
+  return null;
+};
+
+const resolveOrderBuyerUid = async (
+  order: Order,
+  sellerUid: string,
+  companyId: string,
+): Promise<{ clientId: string; clientName: string; selfPurchase: boolean }> => {
+  const clientName = (
+    order.shippingAddress?.fullName ||
+    order.userName ||
+    order.clientName ||
+    order.customerName ||
+    'Client'
+  ).trim();
+  const forbidden = new Set(
+    [sellerUid, companyId].filter((id) => typeof id === 'string' && id.length > 0),
+  );
+  const pickRaw = (uid: unknown): string =>
+    typeof uid === 'string' && uid.trim() ? uid.trim() : '';
+  const pickIfBuyer = (uid: unknown): string => {
+    const value = pickRaw(uid);
+    return value && !forbidden.has(value) ? value : '';
+  };
+
+  const placedBy =
+    pickRaw(order.userId) ||
+    pickRaw(order.clientId) ||
+    pickRaw(order.customerId) ||
+    pickRaw(order.buyerUid);
+  const orderPhone = order.userPhone || order.shippingAddress?.phone || '';
+  const exclude = [...forbidden];
+
+  // Compte client distinct (ex. sayon en test) : téléphone d'abord, jamais le super-admin.
+  const lookedUpClient =
+    (await findUserUidByPhone(orderPhone, exclude)) ||
+    (await findUserUidByName(clientName, exclude)) ||
+    (await findBuyerUidFromConversations(sellerUid, companyId, clientName, exclude)) ||
+    '';
+
+  if (lookedUpClient) {
+    return { clientId: lookedUpClient, clientName, selfPurchase: false };
+  }
+
+  let clientId =
+    pickIfBuyer(order.buyerUid) ||
+    pickIfBuyer(order.clientId) ||
+    pickIfBuyer(order.customerId) ||
+    pickIfBuyer(order.userId);
+
+  if (clientId) {
+    return { clientId, clientName, selfPurchase: false };
+  }
+
+  // Dernier recours : commande vraiment passée avec le compte boutique, sans autre profil.
+  if (placedBy && forbidden.has(placedBy)) {
+    return { clientId: placedBy, clientName, selfPurchase: true };
+  }
+
+  return { clientId: '', clientName, selfPurchase: false };
+};
+
 const handleSendPackedPhoto = async () => {
     if (!order) return;
-
-    const clientId = order.userId || order.clientId || order.customerId;
-    if (!clientId) {
-      Alert.alert('Info', 'ID du client introuvable pour ouvrir la conversation');
-      return;
-    }
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -343,35 +587,162 @@ const handleSendPackedPhoto = async () => {
       return;
     }
 
+    const firstItem = order.items?.[0];
+    const companyId =
+      (typeof order.companyId === 'string' && order.companyId.trim()) ||
+      (typeof firstItem?.companyId === 'string' && firstItem.companyId.trim()) ||
+      (typeof order.sellerId === 'string' && order.sellerId.trim()) ||
+      (typeof firstItem?.sellerId === 'string' && firstItem.sellerId.trim()) ||
+      '';
+    if (!companyId) {
+      Alert.alert('Info', 'Boutique introuvable pour ouvrir la conversation');
+      return;
+    }
+
+    const {
+      clientId,
+      clientName: orderClientName,
+      selfPurchase,
+    } = await resolveOrderBuyerUid(order, currentUser.uid, companyId);
+    if (!clientId) {
+      Alert.alert(
+        'Client introuvable',
+        `La commande de « ${orderClientName} » n’a pas d’identifiant acheteur. Le chat n’a pas été ouvert pour éviter d’écrire dans le mauvais fil.`,
+      );
+      return;
+    }
+
     try {
       setSendingPackedPhoto(true);
-      const chatId = [currentUser.uid, clientId].sort().join('_');
-      console.log('Tentative d\'ouverture du chat ID:', chatId);
-      
-      // Remplacez 'chats' par le nom exact de votre collection de discussions si besoin
+      if (!selfPurchase) {
+        void updateDoc(doc(db, 'orders', order.id), {
+          buyerUid: clientId,
+          clientId,
+          clientName: orderClientName,
+        }).catch(() => {});
+        setOrder((prev) =>
+          prev ? { ...prev, buyerUid: clientId, clientId, clientName: orderClientName } : prev,
+        );
+      }
+      // Même schéma que la fiche produit : un fil par boutique ET par client.
+      const chatId = `${companyId}_${clientId}`;
       const chatRef = doc(db, 'conversations', chatId);
       const chatSnap = await getDoc(chatRef);
+      const existing = chatSnap.exists()
+        ? (chatSnap.data() as Record<string, unknown>)
+        : null;
 
-      if (!chatSnap.exists()) {
-        console.log('Le chat n\'existe pas, création en cours...');
-        await setDoc(chatRef, {
-          participants: [currentUser.uid, clientId],
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          lastMessage: `Photo du colis emballé pour la commande #${order.id}`,
-        });
-      } else {
-        console.log('Le chat existe déjà.');
+      let companyName =
+        (typeof existing?.companyName === 'string' && existing.companyName.trim()) ||
+        (typeof firstItem?.companyName === 'string' && firstItem.companyName.trim()) ||
+        (typeof firstItem?.seller === 'string' && firstItem.seller.trim()) ||
+        (typeof order.companyName === 'string' && order.companyName.trim()) ||
+        '';
+      let companyLogo =
+        typeof existing?.companyLogo === 'string' && existing.companyLogo
+          ? existing.companyLogo
+          : null;
+
+      if (!companyName || !companyLogo) {
+        try {
+          const companySnap = await getDoc(doc(db, 'companies', companyId));
+          if (companySnap.exists()) {
+            const companyData = companySnap.data() as Record<string, unknown>;
+            if (!companyName) {
+              companyName =
+                (typeof companyData.name === 'string' && companyData.name.trim()) ||
+                (typeof companyData.companyName === 'string' &&
+                  companyData.companyName.trim()) ||
+                '';
+            }
+            if (!companyLogo) {
+              companyLogo =
+                (typeof companyData.logo === 'string' && companyData.logo) ||
+                (typeof companyData.companyLogo === 'string' && companyData.companyLogo) ||
+                null;
+            }
+          }
+        } catch {
+          // Nom / logo optionnels : on continue avec les fallbacks commande.
+        }
       }
+      if (!companyName) companyName = 'Boutique';
+
+      const clientName = orderClientName || 'Client';
+      const sellerUid = currentUser.uid;
+      const existingParticipants = Array.isArray(existing?.participants)
+        ? (existing.participants as string[])
+        : [];
+      // Achat avec le compte boutique : ne pas garder un autre participant
+      // collé par erreur (ex. Tidjo) sur le fil uid_uid.
+      const participants = Array.from(
+        new Set(
+          (selfPurchase
+            ? [clientId, sellerUid, companyId]
+            : [...existingParticipants, clientId, sellerUid, companyId]
+          ).filter(Boolean),
+        ),
+      );
+      const existingNames =
+        existing?.participantNames && typeof existing.participantNames === 'object'
+          ? (existing.participantNames as Record<string, string>)
+          : {};
+      const existingAvatars =
+        existing?.participantAvatars && typeof existing.participantAvatars === 'object'
+          ? (existing.participantAvatars as Record<string, string>)
+          : {};
+
+      const packedPayload: Record<string, unknown> = {
+        id: chatId,
+        companyId,
+        companyName,
+        companyLogo: companyLogo || '',
+        title: (typeof existing?.title === 'string' && existing.title) || companyName,
+        type: (typeof existing?.type === 'string' && existing.type) || 'seller',
+        sellerUid,
+        clientUid: clientId,
+        clientName,
+        // arrayUnion : sans l'UID client dans participants, sa messagerie reste vide.
+        participants: arrayUnion(...participants),
+        participantNames: {
+          ...existingNames,
+          [clientId]: clientName,
+          [companyId]: companyName,
+          [sellerUid]: companyName,
+        },
+        participantAvatars: {
+          ...existingAvatars,
+          [companyId]: companyLogo || existingAvatars[companyId] || '',
+          [sellerUid]: companyLogo || existingAvatars[sellerUid] || '',
+        },
+        updatedAt: serverTimestamp(),
+        lastMessageTime: serverTimestamp(),
+        [`unreadCount.${clientId}`]: increment(1),
+        [`unreadCount.${sellerUid}`]: 0,
+      };
+      if (!chatSnap.exists()) {
+        packedPayload.createdAt = serverTimestamp();
+        packedPayload.createdBy = clientId;
+        packedPayload.lastMessage = `Photo du colis emballé pour la commande #${order.id}`;
+      }
+
+      await setDoc(chatRef, packedPayload, { merge: true });
 
       const priceText = `${Number(order.total || 0).toLocaleString('fr-FR')} FCFA`;
       const initialMessage = `Photo du colis emballé pour la commande #${order.id} - Montant : ${priceText}`;
       const encodedMessage = encodeURIComponent(initialMessage);
-      const sellerId = order.sellerId ? encodeURIComponent(order.sellerId) : '';
       const priceParam = encodeURIComponent(String(Number(order.total || 0)));
-      const query = `orderId=${encodeURIComponent(order.id)}&sellerId=${sellerId}&message=${encodedMessage}&price=${priceParam}`;
-      
-      router.push(`/conversation/${chatId}?${query}`);
+      const search =
+        `orderId=${encodeURIComponent(order.id)}` +
+        `&companyId=${encodeURIComponent(companyId)}` +
+        `&sellerId=${encodeURIComponent(sellerUid)}` +
+        `&sellerName=${encodeURIComponent(companyName)}` +
+        `&clientUid=${encodeURIComponent(clientId)}` +
+        `&clientName=${encodeURIComponent(clientName)}` +
+        `&message=${encodedMessage}` +
+        `&price=${priceParam}`;
+
+      router.push(`/conversation/${chatId}?${search}`);
     } catch (error) {
       console.error('Erreur détaillée lors de l\'ouverture du chat:', error);
       Alert.alert('Erreur', 'Impossible d\'ouvrir la conversation : ' + (error as Error).message);
@@ -442,8 +813,17 @@ const formatPrice = (price: number) => {
     }
   };
 
-  const statusInfo: { color: string; bgColor: string; label: string; icon: string; nextAction?: string; nextStatus?: OrderStatus } = statusConfig[order.status] || statusConfig.pending;
-  const showNextAction = order.status === 'paid' || order.status === 'pending' || order.status === 'processing';
+  const fulfillment = resolveFulfillmentStatus(order);
+  const nextFulfillment = nextFulfillmentStatus(fulfillment, order.deliveryMode);
+  const fulfillmentUi = fulfillment ? getFulfillmentUi(fulfillment) : pendingPaymentUi;
+  const statusInfo = {
+    color: fulfillmentUi.color,
+    bgColor: fulfillmentUi.bgColor,
+    label: fulfillmentUi.label,
+    icon: fulfillmentUi.icon,
+    nextAction: 'nextAction' in fulfillmentUi ? fulfillmentUi.nextAction : undefined,
+  };
+  const showNextAction = Boolean(nextFulfillment) && order.status !== 'cancelled' && order.status !== 'failed';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -471,8 +851,23 @@ const formatPrice = (price: number) => {
             <Text style={[styles.statusValue, { color: statusInfo.color }]}>
               {statusInfo.label}
             </Text>
+            {!!deliveryModeLabel(order.deliveryMode) &&
+              !isDeliveryModeUnconfirmed(order.deliveryMode) && (
+              <Text style={styles.statusLabel}>
+                {deliveryModeLabel(order.deliveryMode)}
+              </Text>
+            )}
           </View>
         </View>
+
+        {shouldConfirmDeliveryMode(order) && (
+          <View style={styles.deliveryModeWarn}>
+            <Ionicons name="alert-circle-outline" size={20} color="#B45309" />
+            <Text style={styles.deliveryModeWarnText}>
+              {DELIVERY_MODE_UNCONFIRMED_MESSAGE}
+            </Text>
+          </View>
+        )}
 
         {/* Informations client */}
         <View style={styles.section}>
@@ -511,6 +906,36 @@ const formatPrice = (price: number) => {
                 </Text>
               </View>
             )}
+            {(!!order.shippingAddress?.building ||
+              !!order.shippingAddress?.floor ||
+              !!order.shippingAddress?.apartment) && (
+              <View style={styles.clientDetail}>
+                <Ionicons name="home-outline" size={16} color="#9CA3AF" />
+                <Text style={styles.clientDetailText}>
+                  {[
+                    order.shippingAddress?.building
+                      ? `Bâtiment : ${order.shippingAddress.building}`
+                      : null,
+                    order.shippingAddress?.floor
+                      ? `Étage : ${order.shippingAddress.floor}`
+                      : null,
+                    order.shippingAddress?.apartment
+                      ? `Appt : ${order.shippingAddress.apartment}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' • ')}
+                </Text>
+              </View>
+            )}
+            {!!order.shippingAddress?.deliveryNote && (
+              <View style={styles.clientDetail}>
+                <Ionicons name="document-text-outline" size={16} color="#9CA3AF" />
+                <Text style={styles.clientDetailText}>
+                  Note livreur : {order.shippingAddress.deliveryNote}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -523,7 +948,7 @@ const formatPrice = (price: number) => {
     
     return (
       <TouchableOpacity
-        key={item.id || index.toString()}
+        key={getOrderLineStableKey(item as unknown as Record<string, unknown>, index)}
         style={styles.productCard}
         activeOpacity={0.8}
         onPress={() => openProductDetails(item)}
@@ -544,6 +969,37 @@ const formatPrice = (price: number) => {
         
         <View style={styles.productInfo}>
           <Text style={styles.productName}>{item.name}</Text>
+          {(() => {
+            const variantLines = getOrderItemVariantLines(
+              item as unknown as Record<string, unknown>,
+            );
+            const grouped = variantLines.length > 1;
+            return variantLines.map((line, lineIndex) => (
+              <View
+                key={`${line.color}-${line.size}-${lineIndex}`}
+                style={styles.variantsContainer}
+              >
+                {grouped ? (
+                  <View style={styles.variantBadge}>
+                    <Text style={styles.variantLabel}>Qté</Text>
+                    <Text style={styles.variantValue}>{line.quantity}</Text>
+                  </View>
+                ) : null}
+                {!!line.color && (
+                  <View style={styles.variantBadge}>
+                    <Text style={styles.variantLabel}>Couleur</Text>
+                    <Text style={styles.variantValue}>{line.color}</Text>
+                  </View>
+                )}
+                {!!line.size && (
+                  <View style={styles.variantBadge}>
+                    <Text style={styles.variantLabel}>Taille</Text>
+                    <Text style={styles.variantValue}>{line.size}</Text>
+                  </View>
+                )}
+              </View>
+            ));
+          })()}
           <View style={styles.productPricing}>
             <Text style={styles.productQuantity}>x{item.quantity}</Text>
             <Text style={styles.productPrice}>{formatPrice(item.price)}</Text>
@@ -588,6 +1044,24 @@ const formatPrice = (price: number) => {
           </View>
         </View>
 
+        {/* Mode de transport */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Mode de transport</Text>
+          <View style={styles.card}>
+            {(() => {
+              const transport = resolveOrderShippingMethod(order as unknown as Record<string, unknown>);
+              return (
+                <View style={styles.addressRow}>
+                  <Ionicons name="airplane-outline" size={20} color="#6B7280" />
+                  <Text style={styles.addressText}>
+                    {shippingMethodIcon(transport.type)} {transport.name}
+                  </Text>
+                </View>
+              );
+            })()}
+          </View>
+        </View>
+
         {/* Adresse de livraison */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Adresse de livraison</Text>
@@ -605,6 +1079,36 @@ const formatPrice = (price: number) => {
                   .join(', ') || 'Aucune adresse de livraison fournie'}
               </Text>
             </View>
+            {(!!order.shippingAddress?.building ||
+              !!order.shippingAddress?.floor ||
+              !!order.shippingAddress?.apartment) && (
+              <View style={[styles.addressRow, { marginTop: 8 }]}>
+                <Ionicons name="home-outline" size={20} color="#6B7280" />
+                <Text style={styles.addressText}>
+                  {[
+                    order.shippingAddress?.building
+                      ? `Bâtiment : ${order.shippingAddress.building}`
+                      : null,
+                    order.shippingAddress?.floor
+                      ? `Étage : ${order.shippingAddress.floor}`
+                      : null,
+                    order.shippingAddress?.apartment
+                      ? `Appt : ${order.shippingAddress.apartment}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' • ')}
+                </Text>
+              </View>
+            )}
+            {!!order.shippingAddress?.deliveryNote && (
+              <View style={[styles.addressRow, { marginTop: 8 }]}>
+                <Ionicons name="document-text-outline" size={20} color="#6B7280" />
+                <Text style={styles.addressText}>
+                  Note livreur : {order.shippingAddress.deliveryNote}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -663,19 +1167,26 @@ const formatPrice = (price: number) => {
                   <Text style={styles.modalValue}>x{selectedProduct.quantity}</Text>
                 </View>
 
-                {selectedProduct.selectedColor ? (
-                  <View style={styles.modalDetailRow}>
-                    <Text style={styles.modalLabel}>Couleur</Text>
-                    <Text style={styles.modalValue}>{selectedProduct.selectedColor}</Text>
-                  </View>
-                ) : null}
-
-                {selectedProduct.selectedSize ? (
-                  <View style={styles.modalDetailRow}>
-                    <Text style={styles.modalLabel}>Taille</Text>
-                    <Text style={styles.modalValue}>{selectedProduct.selectedSize}</Text>
-                  </View>
-                ) : null}
+                {(() => {
+                  const variantLines = getOrderItemVariantLines(
+                    selectedProduct as unknown as Record<string, unknown>,
+                  );
+                  return variantLines.map((line, lineIndex) => (
+                    <View
+                      key={`${line.color}-${line.size}-${lineIndex}`}
+                      style={styles.modalDetailRow}
+                    >
+                      <Text style={styles.modalLabel}>
+                        {variantLines.length > 1
+                          ? `Déclinaison ${lineIndex + 1}`
+                          : 'Variante'}
+                      </Text>
+                      <Text style={styles.modalValue}>
+                        {formatVariantQuantityLine(selectedProduct.name, line)}
+                      </Text>
+                    </View>
+                  ));
+                })()}
 
                 <View style={styles.modalDetailRow}>
                   <Text style={styles.modalLabel}>Référence</Text>
@@ -744,13 +1255,13 @@ const formatPrice = (price: number) => {
           )}
         </TouchableOpacity>
 
-        {showNextAction && statusInfo.nextStatus && (
+        {showNextAction && nextFulfillment && (
           <TouchableOpacity
             style={[
               styles.actionButton,
               { backgroundColor: statusInfo.color },
             ]}
-            onPress={() => updateOrderStatus(statusInfo.nextStatus as OrderStatus)}
+            onPress={() => updateFulfillment(nextFulfillment)}
             disabled={updating}
           >
             {updating ? (
@@ -759,7 +1270,7 @@ const formatPrice = (price: number) => {
               <>
                 <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
                 <Text style={styles.actionButtonText}>
-                  {statusInfo.nextAction}
+                  {fulfillmentAdvanceLabel(fulfillment, nextFulfillment)}
                 </Text>
               </>
             )}
@@ -848,6 +1359,23 @@ const styles = StyleSheet.create({
     margin: 16,
     padding: 16,
     borderRadius: 12,
+  },
+  deliveryModeWarn: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#FEF3C7',
+  },
+  deliveryModeWarnText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#92400E',
+    fontWeight: '600',
   },
   statusTextContainer: {
     marginLeft: 12,

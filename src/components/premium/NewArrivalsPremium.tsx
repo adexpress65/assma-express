@@ -40,20 +40,17 @@ interface NewArrivalsPremiumProps {
   products: Product[];
 }
 
-export default function NewArrivalsPremium({ products }: NewArrivalsPremiumProps) {
+function NewArrivalsPremium({ products }: NewArrivalsPremiumProps) {
   const { t } = useTranslation();
   const { navigateTo } = useAppNavigation();
   const scrollListRef = useRef<FlatList>(null);
   const scrollIndex = useRef(0);
 
-  // 1. Mélange et Groupement des produits (Diversité)
+  // Groupement par 2 en conservant l’ordre chronologique fourni par le parent.
   const groupedProducts = useMemo(() => {
-    // On mélange un peu pour ne pas toujours voir les mêmes en premier
-    const shuffled = [...products].sort(() => 0.5 - Math.random());
-    
     const groups: Product[][] = [];
-    for (let i = 0; i < shuffled.length; i += 2) {
-      groups.push(shuffled.slice(i, i + 2));
+    for (let i = 0; i < products.length; i += 2) {
+      groups.push(products.slice(i, i + 2));
     }
     return groups;
   }, [products]);
@@ -157,6 +154,9 @@ export default function NewArrivalsPremium({ products }: NewArrivalsPremiumProps
           offset: GROUP_WIDTH * index,
           index,
         })}
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        windowSize={5}
       />
 
       {/* Compte à rebours */}
@@ -182,6 +182,8 @@ export default function NewArrivalsPremium({ products }: NewArrivalsPremiumProps
     </View>
   );
 }
+
+export default React.memo(NewArrivalsPremium);
 
 const styles = StyleSheet.create({
   container: {

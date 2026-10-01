@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, getDocs, query, limit } from 'firebase/firestore';
-import { db } from '../src/config/firebase'; // Ajuste le chemin selon ton projet
+import { db } from '@/config/firebase';
 
 export default function AISearchScreen() {
   const router = useRouter();

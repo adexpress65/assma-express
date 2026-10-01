@@ -821,6 +821,15 @@ export default function SellerDashboard() {
 
         {/* Actions supplémentaires */}
         <View style={styles.extraActions}>
+          <TouchableOpacity
+            style={styles.extraActionItem}
+            onPress={() => router.push('/seller/stock')}
+          >
+            <Ionicons name="layers" size={20} color="#00897B" />
+            <Text style={styles.extraActionText}>Stock par produit</Text>
+            <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+
           <TouchableOpacity 
             style={styles.extraActionItem}
             onPress={() => router.push('/seller/analytics')}

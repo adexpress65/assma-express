@@ -36,7 +36,8 @@ function formatChange(pct: number | null): { text: string; positive: boolean } {
 
 export default function SuperAdminAnalyticsScreen() {
   const router = useRouter();
-  const { user, isSuperAdmin } = useAuth();
+  const { user, isSuperAdmin, isAdmin } = useAuth();
+  const isOperationalStaff = isSuperAdmin || isAdmin;
   const [timeRange, setTimeRange] = useState<AdminTimeRange>("week");
   const [activeMetric, setActiveMetric] = useState<"revenue" | "orders">("revenue");
   const [loading, setLoading] = useState(true);
@@ -46,7 +47,7 @@ export default function SuperAdminAnalyticsScreen() {
 
   const load = useCallback(
     async (isRefresh = false) => {
-      if (!user || !isSuperAdmin) return;
+      if (!user || !isOperationalStaff) return;
       try {
         if (isRefresh) setRefreshing(true);
         else setLoading(true);
@@ -62,7 +63,7 @@ export default function SuperAdminAnalyticsScreen() {
         setRefreshing(false);
       }
     },
-    [user, isSuperAdmin, timeRange],
+    [user, isOperationalStaff, timeRange],
   );
 
   useEffect(() => {
@@ -70,13 +71,13 @@ export default function SuperAdminAnalyticsScreen() {
       router.replace("/");
       return;
     }
-    if (!isSuperAdmin) {
-      Alert.alert("Accès refusé", "Réservé aux super-administrateurs.");
+    if (!isOperationalStaff) {
+      Alert.alert("Accès refusé", "Réservé aux administrateurs.");
       router.back();
       return;
     }
     void load(false);
-  }, [user, isSuperAdmin, timeRange, load, router]);
+  }, [user, isOperationalStaff, timeRange, load, router]);
 
   const chartConfig = {
     backgroundColor: "#FFFFFF",

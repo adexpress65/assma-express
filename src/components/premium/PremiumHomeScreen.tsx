@@ -169,7 +169,7 @@ export default function PremiumHomeScreen() {
         ListHeaderComponent={
           <View style={styles.headerContent}>
             <AnimatedQuickActions />
-            <HeroBanner />
+            <HeroBanner trendingProducts={homeData.trendingProducts} />
             
             {homeData.featuredProducts.length > 0 && (
               <PremiumSpecialOffers products={homeData.featuredProducts} title={t('homeScreen.featuredProductsTitle')} />
@@ -179,7 +179,7 @@ export default function PremiumHomeScreen() {
               <TrendingProductsPremium products={homeData.trendingProducts} />
             )}
             
-            <CategoryGridPremium categories={homeData.categories} />
+            <CategoryGridPremium />
             
             <PremiumAdBanner />
             

@@ -23,6 +23,17 @@ import {
   type AdminOrderStatus,
 } from '@/features/super-admin/orders/adminOrderStatus';
 import {
+  deliveryModeLabel,
+  fulfillmentAdvanceLabel,
+  getFulfillmentUi,
+  isDeliveryModeUnconfirmed,
+  shouldConfirmDeliveryMode,
+  nextFulfillmentStatus,
+  resolveFulfillmentStatus,
+  DELIVERY_MODE_UNCONFIRMED_MESSAGE,
+  type FulfillmentStatus,
+} from '@/constants/Config';
+import {
   extractOrderItemsArray,
   formatAdminCurrency,
   formatAdminOrderDate,
@@ -30,11 +41,17 @@ import {
   normalizeShippingFromOrder,
 } from '@/features/super-admin/orders/orderUtils';
 import {
-  canAdvanceOrderStatus,
   isOrderPaymentConfirmed,
   orderStatusImpliesPaymentMismatch,
 } from '@/features/super-admin/orders/orderPayment';
 import { openPhoneDialer, openSmsComposer } from '@/features/super-admin/orders/contactChannels';
+import { resolveOrderShippingMethod, shippingMethodIcon } from '@/utils/orderShipping';
+import {
+  formatVariantQuantityLine,
+  getOrderItemVariantLines,
+  getOrderLineStableKey,
+  hasVisibleVariantAttrs,
+} from '@/utils/orderItemVariants';
 
 function pickStr(v: unknown): string | undefined {
   if (v == null) return undefined;
@@ -42,10 +59,24 @@ function pickStr(v: unknown): string | undefined {
   return s || undefined;
 }
 
+function formatSupplierItemsList(items: Array<Record<string, unknown> | { name?: string }>): string {
+  return items
+    .flatMap((item) => {
+      const rec = item as Record<string, unknown>;
+      const name = String(rec.name || "Produit");
+      return getOrderItemVariantLines(rec).map((line) =>
+        `• ${formatVariantQuantityLine(name, line)}`,
+      );
+    })
+    .join("\n");
+}
+
 interface Order {
   id: string;
   orderId: string;
   status: AdminOrderStatus;
+  fulfillmentStatus?: FulfillmentStatus;
+  deliveryMode?: string;
   currency: string;
   total: number;
   createdAt: Timestamp;
@@ -77,6 +108,9 @@ interface Order {
     };
     color?: string;
     size?: string;
+    selectedColor?: string;
+    selectedSize?: string;
+    variantLines?: Array<{ color?: string | null; size?: string | null; quantity: number }>;
   }>;
   shippingAddress: {
     fullName: string;
@@ -85,6 +119,20 @@ interface Order {
     city: string;
     postalCode?: string;
     country: string;
+    apartment?: string;
+    building?: string;
+    floor?: string;
+    deliveryNote?: string;
+  };
+  shippingMethod?: string;
+  shippingMethodName?: string;
+  shippingMethodDelay?: string;
+  shippingEstimatedDays?: string;
+  shippingMethodType?: string;
+  shipping?: {
+    method?: string;
+    details?: string;
+    option?: { name?: string; deliveryTime?: string; type?: string; id?: string };
   };
   summary?: {
     subtotal: number;
@@ -96,7 +144,8 @@ interface Order {
 
 export default function OrderDetailsAdmin() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user, isSuperAdmin } = useAuth();
+  const { user, isSuperAdmin, isAdmin } = useAuth();
+  const isOperationalStaff = isSuperAdmin || isAdmin;
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -111,24 +160,24 @@ export default function OrderDetailsAdmin() {
   const [productInfoLoading, setProductInfoLoading] = useState(false);
 
   useEffect(() => {
-    if (!user || !isSuperAdmin) {
+    if (!user || !isOperationalStaff) {
       setLoading(false);
       return;
     }
     setLoading(true);
     void fetchOrder();
-  }, [id, user, isSuperAdmin]);
+  }, [id, user, isOperationalStaff]);
 
   useEffect(() => {
     if (!user) {
       router.replace('/(tabs)/account');
       return;
     }
-    if (!isSuperAdmin) {
-      Alert.alert('Accès refusé', 'Réservé aux super-administrateurs.');
+    if (!isOperationalStaff) {
+      Alert.alert('Accès refusé', 'Réservé aux administrateurs.');
       router.back();
     }
-  }, [user, isSuperAdmin]);
+  }, [user, isOperationalStaff]);
 
   const fetchOrder = async () => {
     if (!id) {
@@ -163,6 +212,7 @@ export default function OrderDetailsAdmin() {
                 ? raw.userEmail
                 : undefined,
           status: normalizeAdminOrderStatus(raw.status),
+          fulfillmentStatus: resolveFulfillmentStatus(raw),
           items:
             (mergedItems.length
               ? mergedItems
@@ -178,6 +228,14 @@ export default function OrderDetailsAdmin() {
             city: String(ship.city ?? prevShip.city ?? ""),
             postalCode: String(ship.postalCode ?? prevShip.postalCode ?? ""),
             country: String(ship.country ?? prevShip.country ?? ""),
+            apartment: String(
+              ship.apartment ?? prevShip.apartment ?? "",
+            ),
+            building: String(ship.building ?? prevShip.building ?? ""),
+            floor: String(ship.floor ?? prevShip.floor ?? ""),
+            deliveryNote: String(
+              ship.deliveryNote ?? prevShip.deliveryNote ?? "",
+            ),
           },
         } as Order);
       } else { 
@@ -223,10 +281,10 @@ export default function OrderDetailsAdmin() {
     setProductInfoDoc(null);
   };
 
-  const updateOrderStatus = async (newStatus: AdminOrderStatus) => {
+  const updateFulfillment = async (newStatus: FulfillmentStatus) => {
     if (!order || updating) return;
     const rec = order as unknown as Record<string, unknown>;
-    if (!canAdvanceOrderStatus(newStatus, rec)) {
+    if (!isOrderPaymentConfirmed(rec)) {
       Alert.alert(
         "Paiement non confirmé",
         "Impossible d’avancer cette commande : aucun paiement enregistré (pas de date paidAt ni statut de paiement valide). Les commandes de test ne doivent pas être traitées ni livrées.",
@@ -236,7 +294,7 @@ export default function OrderDetailsAdmin() {
 
     Alert.alert(
       'Confirmer le changement',
-      `Passer la commande au statut « ${getAdminStatusUi(newStatus).label} » ?`,
+      `Passer le suivi logistique à « ${getFulfillmentUi(newStatus).label} » ?`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -245,11 +303,11 @@ export default function OrderDetailsAdmin() {
             setUpdating(true);
             try {
               await updateDoc(doc(db, 'orders', order.id), { 
-                status: newStatus, 
+                fulfillmentStatus: newStatus, 
                 updatedAt: Timestamp.now() 
               });
-              setOrder({ ...order, status: newStatus });
-              Alert.alert('Succès', 'Statut mis à jour');
+              setOrder({ ...order, fulfillmentStatus: newStatus });
+              Alert.alert('Succès', 'Suivi logistique mis à jour');
             } catch (error) {
               Alert.alert('Erreur', 'Mise à jour échouée');
               console.error(error);
@@ -285,7 +343,7 @@ export default function OrderDetailsAdmin() {
     // Si un seul fournisseur, on ouvre directement le modal
     if (suppliers.length === 1) {
       const supplier = suppliers[0];
-      const itemsList = supplier.items.map((i: any) => `• ${i.name} (x${i.quantity})`).join('\n');
+      const itemsList = formatSupplierItemsList(supplier.items);
       
       setSelectedSupplier({ 
         name: supplier.items[0].name, 
@@ -326,7 +384,7 @@ export default function OrderDetailsAdmin() {
       }
 
       const supplier = suppliers[currentIndex];
-      const itemsList = supplier.items.map((i: any) => `• ${i.name} (x${i.quantity})`).join('\n');
+      const itemsList = formatSupplierItemsList(supplier.items);
       
       Alert.alert(
         `Fournisseur ${currentIndex + 1}/${suppliers.length}`,
@@ -371,8 +429,8 @@ export default function OrderDetailsAdmin() {
   };
 
   const notifyAllSuppliersAtOnce = (suppliers: any[]) => {
-    const groupsMessage = suppliers.map(s => 
-      `🏭 ${s.company} :\n${s.items.map((i: any) => `  • ${i.name} (x${i.quantity})`).join('\n')}`
+    const groupsMessage = suppliers.map(s =>
+      `🏭 ${s.company} :\n${formatSupplierItemsList(s.items).replace(/^• /gm, "  • ")}`
     ).join('\n\n');
 
     Alert.alert(
@@ -422,16 +480,22 @@ export default function OrderDetailsAdmin() {
 
   if (!order) return null;
 
-  const statusInfo = getAdminStatusUi(order.status);
+  const fulfillment = resolveFulfillmentStatus(order);
+  const statusInfo = fulfillment
+    ? getFulfillmentUi(fulfillment)
+    : getAdminStatusUi(order.status);
   const orderRec = order as unknown as Record<string, unknown>;
   const paymentOk = isOrderPaymentConfirmed(orderRec);
   const paymentMismatch = orderStatusImpliesPaymentMismatch(
     String(order.status),
     orderRec,
   );
-  const nextStatus = statusInfo.nextStatus;
+  const nextFulfillment = nextFulfillmentStatus(fulfillment, order.deliveryMode);
   const canShowAdvance =
-    nextStatus && canAdvanceOrderStatus(nextStatus, orderRec);
+    Boolean(nextFulfillment) &&
+    paymentOk &&
+    order.status !== "cancelled" &&
+    order.status !== "failed";
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -466,6 +530,9 @@ export default function OrderDetailsAdmin() {
           <View style={[styles.statusDot, { backgroundColor: statusInfo.color }]} />
           <Text style={[styles.statusBannerText, { color: statusInfo.color }]}>
             {statusInfo.label}
+            {!isDeliveryModeUnconfirmed(order.deliveryMode) && deliveryModeLabel(order.deliveryMode)
+              ? ` · ${deliveryModeLabel(order.deliveryMode)}`
+              : ''}
           </Text>
           <Text style={styles.dateText}>{formatAdminOrderDate(order.createdAt)}</Text>
         </View>
@@ -482,6 +549,15 @@ export default function OrderDetailsAdmin() {
             </Text>
           </View>
         </View>
+
+        {shouldConfirmDeliveryMode(order) && (
+          <View style={styles.paymentMismatch}>
+            <Ionicons name="alert-circle-outline" size={22} color="#B45309" />
+            <Text style={styles.paymentMismatchText}>
+              {DELIVERY_MODE_UNCONFIRMED_MESSAGE}
+            </Text>
+          </View>
+        )}
 
         {paymentMismatch ? (
           <View style={styles.paymentMismatch}>
@@ -540,9 +616,11 @@ export default function OrderDetailsAdmin() {
           {order.items?.map((item, index) => {
             const imageUrl = getCleanProductImageUrl(item as Record<string, unknown>);
             const isNotified = notifiedSuppliers.has(item.companyName);
+            const variantLines = getOrderItemVariantLines(item as Record<string, unknown>);
+            const grouped = variantLines.length > 1;
             
             return (
-              <View key={index} style={styles.productCard}>
+              <View key={getOrderLineStableKey(item as Record<string, unknown>, index)} style={styles.productCard}>
                 <TouchableOpacity
                   activeOpacity={0.85}
                   onPress={() => openProductInfo(item)}
@@ -579,20 +657,20 @@ export default function OrderDetailsAdmin() {
                         <Text style={styles.specText}>{item.specifications.volume}</Text>
                       </View>
                     )}
-                    
-                    {item.color && (
-                      <View style={[styles.specBadge, { backgroundColor: '#F0F2F5' }]}>
-                        <View style={[styles.colorDot, { backgroundColor: item.color.toLowerCase() }]} />
-                        <Text style={styles.specText}>{item.color}</Text>
-                      </View>
-                    )}
-                    
-                    {item.size && (
-                      <View style={styles.specBadge}>
-                        <Text style={styles.specText}>Taille: {item.size}</Text>
-                      </View>
-                    )}
                   </View>
+
+                  {hasVisibleVariantAttrs(variantLines)
+                    ? variantLines.map((line, lineIndex) => (
+                    <Text
+                      key={`${line.color}-${line.size}-${lineIndex}`}
+                      style={styles.variantLineText}
+                    >
+                      {formatVariantQuantityLine(String(item.name || "Produit"), line, {
+                        includeName: !grouped,
+                      })}
+                    </Text>
+                      ))
+                    : null}
 
                   {/* Quantité et fournisseur */}
                   <View style={styles.productFooter}>
@@ -611,7 +689,15 @@ export default function OrderDetailsAdmin() {
                         
                         // Message personnalisé pour ce fournisseur avec TOUS ses articles
                         const supplierItems = order.items.filter(i => i.companyName === item.companyName);
-                        const itemsList = supplierItems.map(i => `• ${i.name} (x${i.quantity})`).join('\n');
+                        const itemsList = supplierItems
+                          .flatMap((i) => {
+                            const name = String(i.name || "Produit");
+                            const lines = getOrderItemVariantLines(i as Record<string, unknown>);
+                            return lines.map((line) =>
+                              `• ${formatVariantQuantityLine(name, line)}`,
+                            );
+                          })
+                          .join('\n');
                         
                         setMessage(
                           `Bonjour ${item.companyName},\n\n` +
@@ -711,12 +797,52 @@ export default function OrderDetailsAdmin() {
               <Ionicons name="location-outline" size={20} color="#FF6B00" />
               <View style={styles.addressTextContainer}>
                 <Text style={styles.addressLine}>{order.shippingAddress?.street}</Text>
+                {(!!order.shippingAddress?.building ||
+                  !!order.shippingAddress?.floor ||
+                  !!order.shippingAddress?.apartment) && (
+                  <Text style={styles.addressLine}>
+                    {[
+                      order.shippingAddress?.building
+                        ? `Bâtiment : ${order.shippingAddress.building}`
+                        : null,
+                      order.shippingAddress?.floor
+                        ? `Étage : ${order.shippingAddress.floor}`
+                        : null,
+                      order.shippingAddress?.apartment
+                        ? `Appt : ${order.shippingAddress.apartment}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </Text>
+                )}
                 <Text style={styles.addressLine}>
                   {order.shippingAddress?.postalCode} {order.shippingAddress?.city}
                 </Text>
                 <Text style={styles.addressLine}>{order.shippingAddress?.country}</Text>
+                {!!order.shippingAddress?.deliveryNote && (
+                  <Text style={styles.addressLine}>
+                    Note livreur : {order.shippingAddress.deliveryNote}
+                  </Text>
+                )}
               </View>
             </View>
+
+            <View style={styles.divider} />
+
+            {(() => {
+              const transport = resolveOrderShippingMethod(order as unknown as Record<string, unknown>);
+              return (
+                <View style={styles.addressContainer}>
+                  <Ionicons name="airplane-outline" size={20} color="#FF6B00" />
+                  <View style={styles.addressTextContainer}>
+                    <Text style={styles.addressLine}>
+                      Mode de transport : {shippingMethodIcon(transport.type)} {transport.name}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
           </View>
         </View>
 
@@ -734,17 +860,19 @@ export default function OrderDetailsAdmin() {
             <Ionicons name="call" size={22} color="#3B82F6" />
           </TouchableOpacity>
           
-          {canShowAdvance && nextStatus ? (
+          {canShowAdvance && nextFulfillment ? (
             <TouchableOpacity 
               style={[styles.actionButton, { backgroundColor: statusInfo.color }]}
-              onPress={() => updateOrderStatus(nextStatus)}
+              onPress={() => updateFulfillment(nextFulfillment)}
               disabled={updating}
             >
               {updating ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
                 <>
-                  <Text style={styles.actionButtonText}>{statusInfo.nextAction}</Text>
+                  <Text style={styles.actionButtonText}>
+                    {fulfillmentAdvanceLabel(fulfillment, nextFulfillment)}
+                  </Text>
                   <Ionicons name="arrow-forward" size={20} color="#FFF" />
                 </>
               )}
@@ -898,6 +1026,9 @@ export default function OrderDetailsAdmin() {
                     pickStr(doc?.longDescription) ||
                     pickStr(doc?.shortDescription);
 
+                  const variantLines = getOrderItemVariantLines(line);
+                  const productName = pickStr(line.name) || "Produit";
+
                   return (
                     <>
                       {img ? (
@@ -910,8 +1041,19 @@ export default function OrderDetailsAdmin() {
                       ) : null}
 
                       <Text style={styles.productDetailName}>
-                        {pickStr(line.name) || "Produit"}
+                        {productName}
                       </Text>
+
+                      {variantLines.map((variant, variantIndex) => (
+                        <Text
+                          key={`${variant.color}-${variant.size}-${variantIndex}`}
+                          style={styles.productDetailPriceLine}
+                        >
+                          {formatVariantQuantityLine(productName, variant, {
+                            includeName: variantLines.length === 1,
+                          })}
+                        </Text>
+                      ))}
 
                       <View style={styles.productDetailPrices}>
                         <Text style={styles.productDetailPriceLine}>
@@ -1289,6 +1431,12 @@ const styles = StyleSheet.create({
     color: '#111', 
     lineHeight: 20,
     marginBottom: 8,
+  },
+  variantLineText: {
+    fontSize: 12,
+    color: '#4B5563',
+    lineHeight: 18,
+    marginBottom: 2,
   },
   specsContainer: {
     flexDirection: 'row',

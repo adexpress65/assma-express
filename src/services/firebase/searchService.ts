@@ -2,6 +2,7 @@
 import { collection, query, where, getDocs, limit, orderBy, startAt, endAt } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Product } from './productsService';
+import { getClientPriceXOF } from '@/utils/productPrice';
 
 export interface SearchResult {
   id: string;
@@ -158,7 +159,7 @@ export class SearchService {
           id: product.id,
           type: 'product' as const,
           name: product.name || '',
-          price: product.price || product.originalPrice,
+          price: getClientPriceXOF(product),
           currency: product.currency || 'FCFA',
           supplier: product.supplier || product.companyName,
           companyName: product.companyName,

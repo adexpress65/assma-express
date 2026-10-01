@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import {
   collection,
   query,
@@ -13,6 +13,7 @@ import {
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore";
+import { AppState } from "react-native";
 
 /** Limite les écoutes temps réel : évite de télécharger TOUT l'historique (lenteur / Mo data). */
 const ORDERS_LISTEN_LIMIT = 80;
@@ -22,6 +23,14 @@ import {
   dedupeOrderLineItems,
   pickOrderItemsArray,
 } from "@/utils/orderLineItemsDedupe";
+import type { FulfillmentStatus } from "@/constants/Config";
+import { isFulfillmentStatus } from "@/constants/Config";
+import {
+  clearInFlightPayment,
+  isOrderAwaitingNgeniusPayment,
+  peekInFlightPayment,
+  verifyOrderWithBackend,
+} from "@/services/ngeniusVerify";
 
 /* =======================
     TYPES
@@ -32,6 +41,10 @@ export interface Order {
   userId: string;
   items: any[];
   status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled" | "failed";
+  /** Statut logistique (indépendant du paiement). */
+  fulfillmentStatus?: FulfillmentStatus;
+  /** Dernier kilomètre : retrait entrepôt ou domicile. */
+  deliveryMode?: "pickup" | "home" | "unknown";
   total: number;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -49,6 +62,7 @@ export interface Order {
   };
   paymentMethod: string;
   paymentStatus: string;
+  provider?: string;
   /** Avis client enregistré sur la commande */
   customerReview?: {
     rating: number;
@@ -62,6 +76,7 @@ interface OrderContextType {
   loading: boolean;
   createOrder: (data: any) => Promise<string>;
   updateOrderStatus: (orderId: string, status: Order["status"]) => Promise<void>;
+  updateFulfillmentStatus: (orderId: string, fulfillmentStatus: FulfillmentStatus) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
   getOrderById: (id: string) => Order | undefined;
   /** Listener temps réel : no-op (compat écran commandes) */
@@ -118,6 +133,10 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
               name: item.name || item.productName || "Produit sans nom",
               price: Number(item.price) || 0,
               quantity: Number(item.quantity) || 1,
+              selectedColor: item.selectedColor ?? item.color ?? null,
+              selectedSize: item.selectedSize ?? item.size ?? null,
+              color: item.color ?? item.selectedColor ?? null,
+              size: item.size ?? item.selectedSize ?? null,
             };
           });
 
@@ -145,12 +164,23 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
                 ? "pending"
                 : rawStatus;
 
+          const fulfillmentStatus = isFulfillmentStatus(d.fulfillmentStatus)
+            ? d.fulfillmentStatus
+            : undefined;
+          const rawMode = String(d.deliveryMode ?? "").toLowerCase().trim();
+          const deliveryMode =
+            rawMode === "pickup" || rawMode === "home" || rawMode === "unknown"
+              ? rawMode
+              : undefined;
+
           return {
             id: docSnap.id,
             ...d,
             items: dedupedItems,
             total: Number(d.total) || 0,
             status: normalizedStatus,
+            fulfillmentStatus,
+            deliveryMode,
             customerReview,
             createdAt: d.createdAt instanceof Timestamp
               ? d.createdAt.toDate()
@@ -185,6 +215,65 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
     return unsubscribe;
   }, [user]);
 
+  const ordersRef = useRef<Order[]>([]);
+  const reconcilingRef = useRef(false);
+  const lastVerifyAttemptRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
+  const reconcilePendingPayments = useCallback(async () => {
+    if (!user || reconcilingRef.current) return;
+    reconcilingRef.current = true;
+    try {
+      const storedId = await peekInFlightPayment().catch(() => null);
+      const now = Date.now();
+      const ids = new Set<string>();
+
+      for (const order of ordersRef.current) {
+        const createdAt = order.createdAt?.getTime?.() ?? 0;
+        const isRecent = !createdAt || now - createdAt < 72 * 60 * 60 * 1000;
+        if (isRecent && isOrderAwaitingNgeniusPayment(order)) {
+          ids.add(order.id);
+        }
+      }
+      if (storedId) ids.add(storedId);
+
+      for (const id of ids) {
+        const last = lastVerifyAttemptRef.current.get(id) ?? 0;
+        if (now - last < 15000) continue;
+        lastVerifyAttemptRef.current.set(id, now);
+        try {
+          const result = await verifyOrderWithBackend(id);
+          if (result.isPaid || result.isFailed) {
+            await clearInFlightPayment(id);
+          }
+        } catch (err) {
+          lastVerifyAttemptRef.current.delete(id);
+          console.log("[OrderContext] Vérification NGenius indisponible", {
+            orderId: id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } finally {
+      reconcilingRef.current = false;
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || loading) return;
+    void reconcilePendingPayments();
+  }, [user, loading, orders, reconcilePendingPayments]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void reconcilePendingPayments();
+    });
+    return () => sub.remove();
+  }, [reconcilePendingPayments]);
+
   const createOrder = async (data: any) => {
     if (!user) throw new Error("Utilisateur non connecté");
     const docRef = await addDoc(collection(db, "orders"), {
@@ -203,6 +292,16 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const updateFulfillmentStatus = async (
+    orderId: string,
+    fulfillmentStatus: FulfillmentStatus,
+  ) => {
+    await updateDoc(doc(db, "orders", orderId), {
+      fulfillmentStatus,
+      updatedAt: serverTimestamp(),
+    });
+  };
+
   const deleteOrder = async (orderId: string) => {
     try {
       await deleteDoc(doc(db, "orders", orderId));
@@ -215,7 +314,7 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
   const getOrderById = (id: string) => orders.find(o => o.id === id);
 
   const refreshOrders = async () => {
-    /* Les commandes viennent d’onSnapshot : rien à recharger manuellement */
+    await reconcilePendingPayments();
   };
 
   return (
@@ -223,7 +322,8 @@ export const OrderProvider = ({ children }: { children: ReactNode }) => {
       orders, 
       loading, 
       createOrder, 
-      updateOrderStatus, 
+      updateOrderStatus,
+      updateFulfillmentStatus,
       deleteOrder,
       getOrderById,
       refreshOrders,

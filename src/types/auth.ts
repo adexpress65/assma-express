@@ -8,19 +8,24 @@ export interface AuthUser {
   email: string | null;
   displayName: string | null;
   photoURL: string | null;
+  phoneNumber: string | null;
   emailVerified: boolean;
   providerData: any[];
 }
 
 export interface UserProfile {
   uid: string;
+  /** Peut être `""` pour un compte téléphone sans e-mail. */
   email: string;
   displayName: string;
+  /** Nom / prénom saisi (comptes téléphone). */
+  name?: string;
   role: UserRole;
   createdAt: Timestamp;
   updatedAt: Timestamp;
   isActive: boolean;
   phoneNumber?: string;
+  photoURL?: string;
   address?: string;
   providerId?: string;
   socialAccounts?: {
@@ -28,6 +33,8 @@ export interface UserProfile {
     facebook?: boolean;
     apple?: boolean;
   };
+  /** ID document Firestore `companies/{companyId}` */
+  companyId?: string;
   lastLogin?: Timestamp;
   sellerInfo?: SellerInfo;
   adminInfo?: AdminInfo;

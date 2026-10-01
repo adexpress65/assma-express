@@ -1,23 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  Animated,
   FlatList,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
-import { collection, query, where, limit, onSnapshot } from 'firebase/firestore';
-import { db } from '../../config/firebase'; 
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const BANNER_WIDTH = SCREEN_WIDTH - 32;
 const TRENDING_ITEM_WIDTH = 85 + 18; // Largeur du cercle (85) + marginRight (18)
+const TRENDING_DISPLAY_LIMIT = 15;
 
 const BANNERS = [
   { id: 'banner_1', image: 'https://images.unsplash.com/photo-1578575437130-527eed3abbec?w=800', title: 'Grossiste International', subtitle: 'Direct Usine' },
@@ -28,27 +26,30 @@ const BANNERS = [
   { id: 'banner_6', image: 'https://images.unsplash.com/photo-1556740758-90de374c12ad?w=800', title: 'Devenir Fournisseur', subtitle: 'Vendez dans le monde entier' },
 ];
 
-export default function HeroBanner() {
+export type HeroBannerProduct = {
+  id?: string;
+  firebaseId?: string;
+  name?: string;
+  mainImage?: string | null;
+  imageUrl?: string | null;
+};
+
+type HeroBannerProps = {
+  trendingProducts?: HeroBannerProduct[];
+};
+
+export default function HeroBanner({ trendingProducts = [] }: HeroBannerProps) {
   const { t } = useTranslation();
   const router = useRouter();
-  const [trendingProducts, setTrendingProducts] = useState<any[]>([]);
   const flatListBannerRef = useRef<FlatList>(null);
   const flatListTrendingRef = useRef<FlatList>(null);
   const [bannerIndex, setBannerIndex] = useState(0);
   const [trendingIndex, setTrendingIndex] = useState(0);
 
-  useEffect(() => {
-    const q = query(collection(db, 'products'), where('isActive', '==', true), limit(15));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const prods = snapshot.docs.map(doc => ({ 
-        firebaseId: doc.id,
-        ...doc.data() 
-      }));
-      setTrendingProducts(prods);
-    }, (err) => console.log("Erreur Firestore Banner:", err));
-
-    return () => unsubscribe();
-  }, []);
+  const displayedTrending = useMemo(
+    () => trendingProducts.slice(0, TRENDING_DISPLAY_LIMIT),
+    [trendingProducts],
+  );
 
   // Auto-scroll Bannières
   useEffect(() => {
@@ -62,15 +63,19 @@ export default function HeroBanner() {
 
   // Auto-scroll Tendances
   useEffect(() => {
-    if (trendingProducts.length > 0) {
+    if (displayedTrending.length > 0) {
       const interval = setInterval(() => {
-        const next = (trendingIndex + 1) % trendingProducts.length;
+        const next = (trendingIndex + 1) % displayedTrending.length;
         setTrendingIndex(next);
         flatListTrendingRef.current?.scrollToIndex({ index: next, animated: true, viewPosition: 0 });
       }, 4000);
       return () => clearInterval(interval);
     }
-  }, [trendingIndex, trendingProducts]);
+  }, [trendingIndex, displayedTrending]);
+
+  useEffect(() => {
+    setTrendingIndex(0);
+  }, [displayedTrending]);
 
   return (
     <View style={styles.container}>
@@ -91,7 +96,13 @@ export default function HeroBanner() {
           // ---------------------------
           renderItem={({ item }) => (
             <TouchableOpacity onPress={() => router.push('/categories')} style={styles.bannerItem}>
-              <Image source={{ uri: item.image }} style={styles.bannerImage} />
+              <Image
+                source={{ uri: item.image }}
+                style={styles.bannerImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={item.id}
+              />
               <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.overlay}>
                 <Text style={styles.title}>{item.title}</Text>
                 <Text style={styles.subtitle}>{item.subtitle}</Text>
@@ -106,10 +117,10 @@ export default function HeroBanner() {
         <Text style={styles.sectionTitle}>{t('app.premium.heroCurrentTrends')}</Text>
         <FlatList
           ref={flatListTrendingRef}
-          data={trendingProducts}
+          data={displayedTrending}
           horizontal
           showsHorizontalScrollIndicator={false}
-          keyExtractor={(item, index) => `trending-${item.firebaseId || index}`}
+          keyExtractor={(item, index) => `trending-${item.id || item.firebaseId || index}`}
           contentContainerStyle={{ paddingLeft: 16, paddingBottom: 10 }}
           // --- AJOUTS POUR LE WEB ---
           getItemLayout={(data, index) => (
@@ -117,17 +128,28 @@ export default function HeroBanner() {
           )}
           onScrollToIndexFailed={() => {}}
           // ---------------------------
-          renderItem={({ item }) => (
+          renderItem={({ item }) => {
+            const productId = item.id || item.firebaseId;
+            return (
             <TouchableOpacity 
               style={styles.circleCard}
-              onPress={() => router.push(`/product/${item.firebaseId}`)}
+              onPress={() => {
+                if (productId) router.push(`/product/${productId}`);
+              }}
             >
               <View style={styles.circleImageWrapper}>
-                <Image source={{ uri: item.mainImage || item.imageUrl }} style={styles.circleImage} />
+                <Image
+                  source={{ uri: item.mainImage || item.imageUrl || undefined }}
+                  style={styles.circleImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={productId}
+                />
               </View>
               <Text numberOfLines={1} style={styles.circleName}>{item.name}</Text>
             </TouchableOpacity>
-          )}
+            );
+          }}
         />
       </View>
     </View>

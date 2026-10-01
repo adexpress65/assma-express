@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  ImageBackground,
   Animated,
   Easing,
 } from 'react-native';
@@ -19,9 +18,21 @@ import { useTranslation } from 'react-i18next';
 
 const { width } = Dimensions.get('window');
 
-export default function CategoryGridPremium() {
+export type CategoryGridItem = {
+  id: string;
+  name: string;
+  image?: string;
+};
+
+type CategoryGridPremiumProps = {
+  /** Liste déjà chargée par le parent : aucune requête Firestore si fournie. */
+  categories?: CategoryGridItem[];
+};
+
+function CategoryGridPremium({ categories }: CategoryGridPremiumProps) {
   const { t } = useTranslation();
-  const [realCategories, setRealCategories] = useState<any[]>([]);
+  const parentControlled = categories !== undefined;
+  const [fetchedCategories, setFetchedCategories] = useState<CategoryGridItem[]>([]);
   const shimmerAnim = useRef(new Animated.Value(-1)).current;
 
   // Animation Shimmer Premium
@@ -36,43 +47,41 @@ export default function CategoryGridPremium() {
       }).start(() => startAnimation());
     };
     startAnimation();
-  }, []);
+  }, [shimmerAnim]);
 
   useEffect(() => {
+    if (parentControlled) return;
+
     const loadRealCategories = async () => {
       try {
         const q = query(collection(db, 'categories'), limit(6));
         const snapshot = await getDocs(q);
-        const firestoreCategories = snapshot.docs.map(doc => ({
-          id: doc.id,
-          name: doc.data().name || t('app.premium.categoryDefaultName'),
-          // On passe le nom à la fonction d'image
-          image: getCategoryImage(doc.data().name)
-        }));
-        setRealCategories(firestoreCategories);
+        const firestoreCategories = snapshot.docs.map(doc => {
+          const data = doc.data() as Record<string, unknown>;
+          const imageRaw =
+            [data.image, data.imageUrl, data.coverImage].find(
+              (value) => typeof value === 'string' && String(value).trim().length > 0,
+            ) ?? '';
+          return {
+            id: doc.id,
+            name: (typeof data.name === 'string' && data.name.trim())
+              ? data.name
+              : t('app.premium.categoryDefaultName'),
+            image: String(imageRaw).trim(),
+          };
+        });
+        setFetchedCategories(firestoreCategories);
       } catch (error) {
         console.error('❌ Erreur Firestore:', error);
       }
     };
-    loadRealCategories();
-  }, [t]);
+    void loadRealCategories();
+  }, [parentControlled, t]);
 
-  // LOGIQUE D'IMAGES CIBLÉES
-  const getCategoryImage = (name: string) => {
-    const n = name.toLowerCase();
-    if (n.includes('maison') || n.includes('jardin')) 
-        return 'https://images.unsplash.com/photo-1615873968403-89e068629275?w=600'; // Salon/Jardin moderne
-    if (n.includes('beauté') || n.includes('santé') || n.includes('beaute')) 
-        return 'https://images.unsplash.com/photo-1512290923902-8a9f81dc236c?w=600'; // Cosmétique/Bien-être
-    if (n.includes('mode') || n.includes('vêtement')) 
-        return 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=600';
-    if (n.includes('machine') || n.includes('industriel')) 
-        return 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=600';
-    if (n.includes('electronique') || n.includes('informatique')) 
-        return 'https://images.unsplash.com/photo-1550009158-9ebf69173e03?w=600';
-    
-    return 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600'; // Défaut (Gadget premium)
-  };
+  const realCategories = useMemo(() => {
+    const source = parentControlled ? (categories ?? []) : fetchedCategories;
+    return source.filter((cat) => cat?.id).slice(0, 6);
+  }, [parentControlled, categories, fetchedCategories]);
 
   const categoryHref = (cat: { id: string; name: string }) => ({
     pathname: "/category/[id]" as const,
@@ -116,6 +125,41 @@ export default function CategoryGridPremium() {
     />
   );
 
+  const renderCardImage = (cat: CategoryGridItem, variant: 'hero' | 'small') => {
+    const uri = cat.image?.trim();
+    return (
+      <View style={styles.imgBg}>
+        {uri ? (
+          <ExpoImage
+            source={{ uri }}
+            style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={cat.id}
+          />
+        ) : null}
+        <LinearGradient
+          colors={
+            variant === 'hero'
+              ? ['transparent', 'rgba(0,0,0,0.85)']
+              : ['transparent', 'rgba(0,0,0,0.75)']
+          }
+          style={styles.gradient}
+        >
+          {variant === 'hero' ? (
+            <>
+              <View style={styles.badge}><Text style={styles.badgeText}>{t('app.premium.categorySpotlight')}</Text></View>
+              <Text style={styles.cardTitle}>{cat.name}</Text>
+            </>
+          ) : (
+            <Text style={styles.cardTitleSmall}>{cat.name}</Text>
+          )}
+        </LinearGradient>
+        <ShimmerOverlay />
+      </View>
+    );
+  };
+
   if (realCategories.length < 1) return null;
 
   return (
@@ -132,7 +176,6 @@ export default function CategoryGridPremium() {
       </View>
 
       <View style={styles.bentoGrid}>
-        {/* CARTE 1 - LARGE (La première catégorie de ta liste) */}
         {realCategories[0] && (
           <TouchableOpacity 
             style={[styles.card, styles.largeCard]} 
@@ -140,18 +183,11 @@ export default function CategoryGridPremium() {
             onPress={() => navigateToCategory(realCategories[0])}
             activeOpacity={0.8}
           >
-            <ImageBackground source={{ uri: realCategories[0].image }} style={styles.imgBg}>
-              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.gradient}>
-                <View style={styles.badge}><Text style={styles.badgeText}>{t('app.premium.categorySpotlight')}</Text></View>
-                <Text style={styles.cardTitle}>{realCategories[0].name}</Text>
-              </LinearGradient>
-              <ShimmerOverlay />
-            </ImageBackground>
+            {renderCardImage(realCategories[0], 'hero')}
           </TouchableOpacity>
         )}
 
         <View style={styles.rightColumn}>
-          {/* CARTE 2 */}
           {realCategories[1] && (
             <TouchableOpacity 
               style={[styles.card, styles.mediumCard]}
@@ -159,16 +195,10 @@ export default function CategoryGridPremium() {
               onPress={() => navigateToCategory(realCategories[1])}
               activeOpacity={0.8}
             >
-              <ImageBackground source={{ uri: realCategories[1].image }} style={styles.imgBg}>
-                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.gradient}>
-                  <Text style={styles.cardTitleSmall}>{realCategories[1].name}</Text>
-                </LinearGradient>
-                <ShimmerOverlay />
-              </ImageBackground>
+              {renderCardImage(realCategories[1], 'small')}
             </TouchableOpacity>
           )}
 
-          {/* CARTE 3 */}
           {realCategories[2] && (
             <TouchableOpacity 
               style={[styles.card, styles.mediumCard]}
@@ -176,12 +206,7 @@ export default function CategoryGridPremium() {
               onPress={() => navigateToCategory(realCategories[2])}
               activeOpacity={0.8}
             >
-              <ImageBackground source={{ uri: realCategories[2].image }} style={styles.imgBg}>
-                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.gradient}>
-                  <Text style={styles.cardTitleSmall}>{realCategories[2].name}</Text>
-                </LinearGradient>
-                <ShimmerOverlay />
-              </ImageBackground>
+              {renderCardImage(realCategories[2], 'small')}
             </TouchableOpacity>
           )}
         </View>
@@ -189,6 +214,23 @@ export default function CategoryGridPremium() {
     </View>
   );
 }
+
+export default React.memo(
+  CategoryGridPremium,
+  (prev, next) => {
+    const prevCats = prev.categories;
+    const nextCats = next.categories;
+    if (prevCats === nextCats) return true;
+    if (!prevCats || !nextCats) return prevCats === nextCats;
+    if (prevCats.length !== nextCats.length) return false;
+    return prevCats.every(
+      (cat, index) =>
+        cat.id === nextCats[index]?.id &&
+        cat.name === nextCats[index]?.name &&
+        cat.image === nextCats[index]?.image,
+    );
+  },
+);
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: 16, marginVertical: 25 },

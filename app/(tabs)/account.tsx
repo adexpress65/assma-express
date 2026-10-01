@@ -17,6 +17,7 @@ import {
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRequireAuth } from '@/contexts/AuthGuardContext';
 import LoginModal from '@/components/account/LoginModal';
 import { useRouter } from 'expo-router';
 import { collection, query, where, getDocs, orderBy, limit, getDoc, doc } from 'firebase/firestore';
@@ -26,6 +27,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useTranslation } from 'react-i18next';
 import { getLocalizedProductText } from '@/utils/productLocale';
+import { getUserDisplayLabel } from '@/utils/userIdentity';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -53,7 +55,7 @@ const normalizeRole = (role: unknown): NormalizedRole => {
   if (['super-admin', 'super_admin', 'superadmin', 'super admin'].includes(raw)) return 'super-admin';
   if (raw === 'admin') return 'admin';
   if (raw === 'seller') return 'seller';
-  if (raw === 'customer') return 'customer';
+  if (raw === 'customer' || raw === 'client' || raw === 'user') return 'customer';
   return 'visitor';
 };
 
@@ -74,6 +76,7 @@ export default function AccountScreen() {
   
   const { orders } = useOrders() as any;
   const [loginModalVisible, setLoginModalVisible] = useState(false);
+  const { requireAuth } = useRequireAuth();
   const [proModalVisible, setProModalVisible] = useState(false);
   const [emailForReset, setEmailForReset] = useState('');
   const [trendingProducts, setTrendingProducts] = useState<Product[]>([]);
@@ -183,7 +186,7 @@ export default function AccountScreen() {
   const handleProAction = (type: 'dash_std' | 'dash_prem') => {
     setProModalVisible(false);
     if (!user) {
-      setLoginModalVisible(true);
+      requireAuth({ reason: 'account', href: '/suppliers/dashboard' });
       return;
     }
     if (type === 'dash_std' || type === 'dash_prem') {
@@ -229,12 +232,12 @@ export default function AccountScreen() {
     }
   };
 
-  const navigateToOrders = () => { if (!user) { setLoginModalVisible(true); return; } router.push('/orders'); };
-  const navigateToMessages = () => { if (!user) { setLoginModalVisible(true); return; } router.push('/(tabs)/messages'); };
-  const navigateToPayment = () => { if (!user) { setLoginModalVisible(true); return; } router.push('/payment'); };
-  const navigateToFavorites = () => { if (!user) { setLoginModalVisible(true); return; } router.push('/favorites'); };
+  const navigateToOrders = () => { if (!requireAuth({ reason: 'account', href: '/orders' })) return; router.push('/orders'); };
+  const navigateToMessages = () => { if (!requireAuth({ reason: 'messages', href: '/(tabs)/messages' })) return; router.push('/(tabs)/messages'); };
+  const navigateToPayment = () => { if (!requireAuth({ reason: 'account', href: '/payment' })) return; router.push('/payment'); };
+  const navigateToFavorites = () => { if (!requireAuth({ reason: 'account', href: '/favorites' })) return; router.push('/favorites'); };
   const navigateToProductDetail = (id: string) => router.push(`/product/${id}`);
-  const openProfileSettings = () => { if (!user) { setLoginModalVisible(true); return; } router.push('/profile/edit'); };
+  const openProfileSettings = () => { if (!requireAuth({ reason: 'account', href: '/profile/edit' })) return; router.push('/profile/edit'); };
 
   const ProfileHeader = () => {
     const getRoleLabel = () => {
@@ -270,7 +273,13 @@ export default function AccountScreen() {
               
               <View style={profileStyles.userInfo}>
                 <Text style={profileStyles.userName}>
-                  {user ? userProfile?.displayName || user.email?.split('@')[0] : t('app.account.guest')}
+                  {user
+                    ? getUserDisplayLabel({
+                        displayName: userProfile?.displayName || user.displayName,
+                        email: user.email || userProfile?.email,
+                        phoneNumber: user.phoneNumber || userProfile?.phoneNumber,
+                      })
+                    : t('app.account.guest')}
                 </Text>
                 <View style={profileStyles.roleContainer}>
                   <Text style={profileStyles.userRole}>
@@ -391,7 +400,7 @@ export default function AccountScreen() {
                   <Text style={sellerStyles.benefitText}>{t('app.account.sellerBenefitTools')}</Text>
                 </View>
               </View>
-              <TouchableOpacity style={sellerStyles.ctaButton} onPress={() => !user ? setLoginModalVisible(true) : router.push('/suppliers')} activeOpacity={0.8}>
+              <TouchableOpacity style={sellerStyles.ctaButton} onPress={() => !requireAuth({ reason: 'account', href: '/suppliers' }) ? undefined : router.push('/suppliers')} activeOpacity={0.8}>
                 <LinearGradient colors={['#FF6B00', '#FF9800']} style={sellerStyles.ctaGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                   <Text style={sellerStyles.ctaText}>{t('app.account.sellerBecome')}</Text>
                   <Ionicons name="arrow-forward" size={18} color="white" />

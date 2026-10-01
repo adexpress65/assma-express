@@ -4,14 +4,17 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../../src/config/firebase'; 
 import { Ionicons } from '@expo/vector-icons';
+import { useOperationalStaffAccess } from '@/hooks/useOperationalStaffAccess';
 
 export default function CompanyDetail() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const { allowed, isLoading: accessLoading } = useOperationalStaffAccess();
   const [company, setCompany] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!allowed) return;
     const fetchCompanyDetails = async () => {
       try {
         if (!id) return;
@@ -32,7 +35,11 @@ export default function CompanyDetail() {
     };
 
     fetchCompanyDetails();
-  }, [id]);
+  }, [id, allowed]);
+
+  if (accessLoading || !allowed) {
+    return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2563EB" />;
+  }
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#FF6B00" />;
   if (!company) return <View style={styles.container}><Text>Aucune donnée trouvée.</Text></View>;

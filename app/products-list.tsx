@@ -97,14 +97,9 @@ export default function ProductsListScreen() {
   const handleProductPress = useCallback(async (product: Product) => {
     try {
       setLoadingProductId(product.id);
-      
-      if (product.originalLink) {
-        router.push({
-          pathname: "/webview",
-          params: { url: product.originalLink, title: product.name },
-        });
-        return;
-      }
+
+      // originalLink (résidu d'import catalogue) ne doit jamais ouvrir une WebView :
+      // un tap ouvre toujours la fiche produit A2Express.
 
       console.log('Chargement du produit complet:', product.id);
       const productRef = doc(db, 'products', product.id);

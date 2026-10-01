@@ -34,9 +34,33 @@ import TrustBadges from '../../src/components/TrustBadges';
 import { useCart } from '../../src/contexts/CartContext';
 import { useCurrency } from '../../src/contexts/CurrencyContext';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { useRequireAuth } from '../../src/contexts/AuthGuardContext';
 import { isZeroDollarsShop, isZeroDollarsProduct } from '../../src/utils/zeroDollarsShop';
+import { getClientPriceXOF } from '../../src/utils/productPrice';
+import {
+  findWarehouse,
+  isZeroFcfaCatalogPrice,
+  warehouseFeeHintLabel,
+  ZERO_FCFA_UNAVAILABLE_MESSAGE,
+} from '../../src/utils/warehouseFee';
+import { useWarehouseFees } from '../../src/hooks/useWarehouseFees';
 import ZeroDollarsFreeBadge from '../../src/components/ZeroDollarsFreeBadge';
 import { QuickChatModal } from '../../src/components/chat/QuickChatModal';
+import { MAX_ORDER_QUANTITY } from '../../src/constants/order';
+import { shareProduct } from '../../src/utils/shareProduct';
+import {
+  attributeValues,
+  buildOrderMatrix,
+  findColorAttribute,
+  findSizeAttribute,
+  normalizeColorKey,
+  normalizeVariantAttributes,
+} from '../../src/utils/productStock';
+import {
+  buildCartLineId,
+  buildPersistedVariantLines,
+} from '../../src/utils/orderItemVariants';
+
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 32 - 12) / 2;
 
@@ -63,7 +87,10 @@ interface FirebaseProduct {
   currency: string;
   inStock: boolean;
   stockQuantity: number;
+  unlimitedStock?: boolean;
   hasVariants: boolean;
+  variantColors?: string[];
+  variantSizes?: string[];
   attributes?: Array<{
     id?: string;
     name: string;
@@ -129,6 +156,9 @@ interface FirebaseProduct {
   companyLogo?: string;
   imageUrl?: string;
   hasFreeShipping?: boolean;
+  originWarehouseId?: string | null;
+  originWarehouseLabel?: string | null;
+  basePrice?: number;
 }
 
 interface OrderMatrixItem {
@@ -140,6 +170,8 @@ interface OrderMatrixItem {
   stock: number;
   image?: string;
   sku: string;
+  /** Autres attributs (hors couleur/taille) affichés en sous-titre si présents. */
+  extraLabel?: string;
 }
 
 type BootstrapProduct = FirebaseProduct & {
@@ -212,14 +244,17 @@ function normalizeBootstrapProduct(rawValue: unknown, fallbackId?: string): Boot
       description: String(parsed?.description || ''),
       images,
       mainImage: String(parsed?.mainImage || parsed?.imageUrl || images[0] || ''),
-      price: Number(parsed?.price) || 0,
+      price: getClientPriceXOF(parsed),
       originalPrice: parsed?.originalPrice ? Number(parsed.originalPrice) : undefined,
       minOrder: Number(parsed?.minOrder) || 1,
       currency: String(parsed?.currency || 'XOF'),
       inStock: parsed?.inStock ?? true,
       stockQuantity: Number(parsed?.stockQuantity) || 0,
+      unlimitedStock: parsed?.unlimitedStock === true,
       hasVariants: Boolean(parsed?.hasVariants),
       attributes: parsed?.attributes || [],
+      variantColors: Array.isArray(parsed?.variantColors) ? parsed.variantColors : undefined,
+      variantSizes: Array.isArray(parsed?.variantSizes) ? parsed.variantSizes : undefined,
       attributesLocalized: Array.isArray(parsed?.attributesLocalized)
         ? parsed.attributesLocalized
         : undefined,
@@ -271,12 +306,15 @@ export default function ProductDetailScreen() {
   const router = useRouter();
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { requireAuth } = useRequireAuth();
   const { addToCart } = useCart();
+  const { config: warehouseFeesConfig } = useWarehouseFees();
   const { currency } = useCurrency();
-  const bootstrapProduct = useMemo(
-    () => normalizeBootstrapProduct(initialProductData, id),
-    [id, initialProductData]
-  );
+  const bootstrapProduct = useMemo(() => {
+    const parsed = normalizeBootstrapProduct(initialProductData, id);
+    if (parsed && parsed.isActive === false) return null;
+    return parsed;
+  }, [id, initialProductData]);
 
   // --- ÉTATS ---
   const [product, setProduct] = useState<FirebaseProduct | null>(bootstrapProduct);
@@ -298,6 +336,10 @@ export default function ProductDetailScreen() {
   
   // --- ÉTAT POUR LA COULEUR SÉLECTIONNÉE DANS LE CARROUSEL ---
   const [selectedCarouselColor, setSelectedCarouselColor] = useState<string>('');
+
+  useEffect(() => {
+    setSelectedCarouselColor('');
+  }, [product?.id]);
   
   // --- ÉTAT : Matrice de commande (objet pour stocker les quantités par combinaison) ---
   const [orderMatrix, setOrderMatrix] = useState<Record<string, OrderMatrixItem>>({});
@@ -362,17 +404,53 @@ const [loadingMoreSimilar, setLoadingMoreSimilar] = useState(false);
 
   const effectiveUnitPrice = useMemo(() => {
     if (!product) return 0;
-    const base = selectedVariant?.price ?? product.price ?? 0;
+    const catalog = Number(product.price) || 0;
     const isZero = isZeroDollarsProduct({
-      price: base,
+      price: catalog,
       basePrice: (product as any).basePrice,
       companyName: product.companyName,
       supplier: product.supplier,
       seller: (product as any).seller,
       name: product.name,
     });
-    return isZero ? 0 : base;
-  }, [product, selectedVariant]);
+    return isZero ? 0 : catalog;
+  }, [product]);
+
+  const warehouseFeeHint = useMemo(() => {
+    if (!product) return null;
+    if (!isZeroFcfaCatalogPrice(effectiveUnitPrice)) return null;
+    return warehouseFeeHintLabel(product.originWarehouseId, warehouseFeesConfig);
+  }, [product, effectiveUnitPrice, warehouseFeesConfig]);
+
+  const assertZeroFcfaWarehouseOrAlert = useCallback((): boolean => {
+    if (!product) return false;
+    if (!isZeroFcfaCatalogPrice(effectiveUnitPrice)) return true;
+    const hub = findWarehouse(warehouseFeesConfig, product.originWarehouseId);
+    if (!hub || !hub.active) {
+      Alert.alert("Indisponible", ZERO_FCFA_UNAVAILABLE_MESSAGE);
+      return false;
+    }
+    return true;
+  }, [product, effectiveUnitPrice, warehouseFeesConfig]);
+
+  const resolveWarehouseFields = useCallback(() => {
+    const hub = findWarehouse(warehouseFeesConfig, product?.originWarehouseId);
+    return {
+      originWarehouseId: hub?.id ?? product?.originWarehouseId ?? null,
+      originWarehouseLabel:
+        hub?.label ?? product?.originWarehouseLabel ?? null,
+    };
+  }, [product, warehouseFeesConfig]);
+
+  const handleShareProduct = useCallback(() => {
+    const productId = String(product?.id || id || '');
+    if (!productId) return;
+    void shareProduct({
+      productId,
+      title: localizedTitle || product?.name || 'Produit A2Express',
+      priceLabel: formatDisplayPrice(effectiveUnitPrice),
+    });
+  }, [product, id, localizedTitle, formatDisplayPrice, effectiveUnitPrice]);
 
   const currentStock = useMemo(() => {
     if (!product) return 0;
@@ -404,7 +482,20 @@ const [loadingMoreSimilar, setLoadingMoreSimilar] = useState(false);
       return;
     }
 
-    setProduct(bootstrapProduct);
+    // Affichage rapide : ne jamais écraser attributes/variants déjà chargés depuis Firestore.
+    setProduct((prev) => {
+      const normalizedBootstrap = normalizeVariantAttributes(bootstrapProduct);
+      if (!prev?.id || prev.id !== normalizedBootstrap.id) {
+        return normalizedBootstrap;
+      }
+      return {
+        ...normalizedBootstrap,
+        ...prev,
+        attributes: prev.attributes?.length ? prev.attributes : normalizedBootstrap.attributes,
+        variants: prev.variants?.length ? prev.variants : normalizedBootstrap.variants,
+        hasVariants: prev.hasVariants || normalizedBootstrap.hasVariants,
+      };
+    });
     setLoading(false);
     setError(null);
     setProductSource(bootstrapProduct.sourceType === 'api' ? 'api' : 'firebase');
@@ -459,7 +550,7 @@ const fetchSimilarProducts = async (categoryId, companyId, currentProductId) => 
         uniqueProducts.set(doc.id, {
           ...productData,
           id: doc.id,
-          price: Number(productData.price) || 0,
+          price: getClientPriceXOF(productData),
           minOrder: Number(productData.minOrder) || 1,
         } as FirebaseProduct);
       }
@@ -492,103 +583,43 @@ const fetchSimilarProducts = async (categoryId, companyId, currentProductId) => 
 };
 
 // --- Attribut « couleur » + valeurs (pour i18n + carrousel) ---
-const colorAttributeMeta = useMemo(() => {
-  const attrs = product?.attributes || [];
-  return attrs.find(
-    (a) =>
-      a.name.toLowerCase().includes('couleur') ||
-      a.name.toLowerCase().includes('color'),
-  );
-}, [product]);
+const colorAttributeMeta = useMemo(
+  () => findColorAttribute(product?.attributes),
+  [product],
+);
 
 const availableColors = useMemo(
-  () => colorAttributeMeta?.values || [],
+  () => attributeValues(colorAttributeMeta),
   [colorAttributeMeta],
 );
 
-const sizeAttributeMeta = useMemo(() => {
-  const attrs = product?.attributes || [];
-  return attrs.find(
-    (a) =>
-      a.name.toLowerCase().includes('taille') ||
-      a.name.toLowerCase().includes('size'),
-  );
-}, [product]);
-
-const availableSizes = useMemo(
-  () => sizeAttributeMeta?.values || [],
-  [sizeAttributeMeta],
+const sizeAttributeMeta = useMemo(
+  () => findSizeAttribute(product?.attributes),
+  [product],
 );
 
-// --- INITIALISATION DE LA MATRICE DE COMMANDE ---
 // --- INITIALISATION DE LA MATRICE DE COMMANDE ---
 useEffect(() => {
   if (!product) return;
 
-  const newMatrix: Record<string, OrderMatrixItem> = {};
+  const normalizedProduct = normalizeVariantAttributes(product);
+  const newMatrix = buildOrderMatrix(normalizedProduct, colorAttributeMeta, sizeAttributeMeta);
+  setOrderMatrix(newMatrix);
 
-  if (product.hasVariants && product.attributes && product.attributes.length > 0) {
-    // 1. On récupère tous les noms d'attributs présents (ex: ["Couleur", "Taille", "Tiges"])
-    const attrNames = product.attributes.map(a => a.name);
-
-    // 2. Fonction pour générer toutes les combinaisons possibles (récursif)
-    const generateCombinations = (attrIndex, currentComb) => {
-      if (attrIndex === product.attributes.length) {
-        // On a une combinaison complète, on crée la clé unique
-        const matrixKey = Object.values(currentComb).join('_');
-        
-        // RECHERCHE DYNAMIQUE : On vérifie que TOUS les attributs correspondent
-        const existingVariant = product.variants?.find(v => {
-          return attrNames.every(name => 
-            String(v.combination?.[name]).trim().toLowerCase() === String(currentComb[name]).trim().toLowerCase()
-          );
-        });
-
-        // On remplit la matrice
-        newMatrix[matrixKey] = {
-          variantId: existingVariant?.id || `gen-${matrixKey}`,
-          color: currentComb["Couleur"] || currentComb["Color"] || "", 
-          // On affiche les autres attributs dans le champ 'size' pour la lisibilité
-          size: Object.entries(currentComb)
-            .filter(([k]) => !/couleur|color/i.test(k))
-            .map(([_, v]) => v)
-            .join(' - '),
-          quantity: 0,
-          price: existingVariant?.price || product.price,
-          stock: existingVariant?.stock || 0,
-          image: existingVariant?.image || product.mainImage,
-          sku: existingVariant?.sku || `${product.id}-${matrixKey}`
-        };
-        return;
-      }
-
-      // Parcourir les valeurs de l'attribut actuel
-      const currentAttr = product.attributes[attrIndex];
-      currentAttr.values.forEach(val => {
-        generateCombinations(attrIndex + 1, { ...currentComb, [currentAttr.name]: val });
-      });
-    };
-
-    generateCombinations(0, {});
-    setOrderMatrix(newMatrix);
-
-    // Initialisation de la couleur par défaut pour le carrousel
-    if (colorAttributeMeta && colorAttributeMeta.values.length > 0 && !selectedCarouselColor) {
-      setSelectedCarouselColor(String(colorAttributeMeta.values[0]));
+  const colors = attributeValues(colorAttributeMeta);
+  if (colors.length) {
+    setSelectedCarouselColor((prev) =>
+      colors.some((c) => normalizeColorKey(c) === normalizeColorKey(prev)) ? prev : colors[0],
+    );
+  } else {
+    const firstColor =
+      normalizedProduct.variantColors?.[0] ||
+      normalizedProduct.variants?.find((v) => v.color)?.color;
+    if (firstColor) {
+      setSelectedCarouselColor(String(firstColor));
     }
-
-  } else if (product) {
-    // Cas produit simple...
-    newMatrix['default'] = {
-      variantId: 'default', color: '', size: '',
-      quantity: product.minOrder || 1,
-      price: product.price,
-      stock: product.stockQuantity || 0,
-      image: product.mainImage, sku: product.id
-    };
-    setOrderMatrix(newMatrix);
   }
-}, [product]);
+}, [product, colorAttributeMeta, sizeAttributeMeta]);
   
   // Dédoublonnage automatique des produits similaires
 const uniqueSimilarProducts = useMemo(() => {
@@ -632,7 +663,7 @@ const loadMoreSimilar = async () => {
         .map(doc => ({
           ...doc.data(),
           id: doc.id,
-          price: Number(doc.data().price) || 0,
+          price: getClientPriceXOF(doc.data()),
         } as FirebaseProduct))
         .filter(p => p.id !== product.id && !existingIds.has(p.id)); // ← Filtrage anti-doublon
 
@@ -656,18 +687,22 @@ const loadMoreSimilar = async () => {
 };
 
   // --- FILTRER LA MATRICE PAR COULEUR SÉLECTIONNÉE ---
-  const filteredMatrix = useMemo(() => {
-    if (!selectedCarouselColor || !Object.keys(orderMatrix).length) {
-      return Object.values(orderMatrix);
+  const filteredMatrixEntries = useMemo(() => {
+    const entries = Object.entries(orderMatrix);
+    if (entries.length === 0) return entries;
+
+    if (availableColors.length > 0 && selectedCarouselColor) {
+      const selected = normalizeColorKey(selectedCarouselColor);
+      const matching = entries.filter(
+        ([, item]) => normalizeColorKey(item.color) === selected,
+      );
+      if (matching.length > 0) return matching;
+      const uncolored = entries.filter(([, item]) => !normalizeColorKey(item.color));
+      if (uncolored.length > 0) return uncolored;
     }
-    
-    // Si le produit a des tailles, filtrer par couleur
-    if (availableSizes.length > 0) {
-      return Object.values(orderMatrix).filter(item => item.color === selectedCarouselColor);
-    }
-    // Sinon retourner toute la matrice
-    return Object.values(orderMatrix);
-  }, [orderMatrix, selectedCarouselColor, availableSizes.length]);
+
+    return entries;
+  }, [orderMatrix, selectedCarouselColor, availableColors.length]);
 
   // --- RÉCUPÉRATION DU PRODUIT DEPUIS FIRESTORE ---
   useEffect(() => {
@@ -695,6 +730,12 @@ const loadMoreSimilar = async () => {
           setError("Ce produit n'existe pas ou n'est plus disponible.");
         } else {
           const productData = productSnap.data();
+
+          if (productData.isActive !== true) {
+            setProduct(null);
+            setError("Ce produit n'existe pas ou n'est plus disponible.");
+            return;
+          }
           
           if (productData.name === undefined) {
             setError("Ce produit n'a pas de nom valide");
@@ -702,18 +743,36 @@ const loadMoreSimilar = async () => {
             return;
           }
           
-          const productWithId: FirebaseProduct = {
+          const productWithId: FirebaseProduct = normalizeVariantAttributes({
             ...productData,
             id: productSnap.id,
-            price: Number(productData.price) || 0,
+            price: getClientPriceXOF(productData),
             minOrder: Number(productData.minOrder) || 1,
             stockQuantity: Number(productData.stockQuantity) || 0,
-            inStock: productData.inStock ?? (Number(productData.stockQuantity) > 0)
-          } as FirebaseProduct;
+            unlimitedStock: productData.unlimitedStock === true,
+            inStock: productData.inStock ?? (Number(productData.stockQuantity) > 0),
+            hasVariants: productData.hasVariants === true,
+            variantColors: Array.isArray(productData.variantColors) ? productData.variantColors : undefined,
+            variantSizes: Array.isArray(productData.variantSizes) ? productData.variantSizes : undefined,
+            attributes: Array.isArray(productData.attributes) ? productData.attributes : undefined,
+            variants: Array.isArray(productData.variants)
+              ? productData.variants.map((v: Record<string, unknown>) => ({
+                  ...v,
+                  price: getClientPriceXOF(v),
+                }))
+              : undefined,
+          } as FirebaseProduct);
           
           setProduct((prev) => ({
             ...(prev || {}),
             ...productWithId,
+            attributes: productWithId.attributes?.length
+              ? productWithId.attributes
+              : prev?.attributes,
+            variants: productWithId.variants?.length
+              ? productWithId.variants
+              : prev?.variants,
+            hasVariants: productWithId.hasVariants,
           }));
           setProductSource('firebase');
           
@@ -815,8 +874,9 @@ const loadMoreSimilar = async () => {
   // --- PRIX UNITAIRE EFFECTIF POUR CHAQUE LIGNE ---
   const getEffectiveUnitPrice = (item: OrderMatrixItem) => {
     if (!product) return item.price;
+    const catalog = Number(product.price) || 0;
     const isZero = isZeroDollarsProduct({
-      price: item.price,
+      price: catalog,
       basePrice: product.basePrice as any,
       companyName: product.companyName,
       supplier: product.supplier,
@@ -824,20 +884,20 @@ const loadMoreSimilar = async () => {
       name: product.name,
     });
     if (isZero) return 0;
-    
+
     if (isWholesale) {
       const existingVariant = product.variants?.find(
         v => v.color === item.color && v.size === item.size
       );
-      
+
       if (existingVariant?.wholesalePrice) {
         return existingVariant.wholesalePrice;
       }
-      
-      return product.wholesalePrice || item.price;
+
+      return product.wholesalePrice || catalog;
     }
-    
-    return item.price;
+
+    return catalog;
   };
 
   // --- CALCUL DU PRIX TOTAL ---
@@ -852,9 +912,8 @@ const loadMoreSimilar = async () => {
     setOrderMatrix(prev => {
       const item = prev[matrixKey];
       if (!item) return prev;
-      
-      // Validation du stock
-      const validQuantity = Math.max(0, Math.min(newQuantity, item.stock));
+
+      const validQuantity = Math.max(0, Math.min(newQuantity, MAX_ORDER_QUANTITY));
       
       return {
         ...prev,
@@ -868,7 +927,7 @@ const loadMoreSimilar = async () => {
 
   const incrementQuantity = (matrixKey: string) => {
     const item = orderMatrix[matrixKey];
-    if (item && item.quantity < item.stock) {
+    if (item && item.quantity < MAX_ORDER_QUANTITY) {
       handleQuantityChange(matrixKey, item.quantity + 1);
     }
   };
@@ -880,42 +939,63 @@ const loadMoreSimilar = async () => {
     }
   };
 
+  const resolveSelectedMatrixItems = () => {
+    return Object.values(orderMatrix).filter((item) => item.quantity > 0);
+  };
+
   // --- FONCTION AJOUT AU PANIER (GROUPÉ) ---
 const handleAddToCart = () => {
+  if (!requireAuth({ reason: 'add_to_cart', onAuthorized: handleAddToCart })) return false;
+
   if (!product) {
     Alert.alert("Erreur", "Produit non chargé");
     return false;
   }
 
-  const itemsToAdd = Object.values(orderMatrix).filter((item) => item.quantity > 0);
+  const itemsToAdd = resolveSelectedMatrixItems();
 
   if (itemsToAdd.length === 0) {
     Alert.alert("Sélection requise", "Veuillez sélectionner au moins une variante.");
     return false;
   }
 
+  if (!isMOQReached) {
+    Alert.alert(
+      "Quantité minimale",
+      `La quantité minimale de commande est de ${product.minOrder || 1} article(s).`
+    );
+    return false;
+  }
+
+  if (!assertZeroFcfaWarehouseOrAlert()) return false;
+
   setAddingToCart(true);
 
   try {
+    const warehouseFields = resolveWarehouseFields();
     itemsToAdd.forEach((item) => {
       const unitPrice = getEffectiveUnitPrice(item);
       const lineSpecs = getLineSpecsForCart(product, item);
 
       const productForCart = {
         id: product.id,
-        cartId: `${product.id}-${item.color || "NS"}-${item.size || "NS"}`,
+        cartId: buildCartLineId(product.id, item.size, item.color),
         name: product.name,
         price: unitPrice,
+        priceXOF: unitPrice,
         quantity: item.quantity,
         selectedSize: item.size || null,
         selectedColor: item.color || null,
+        size: item.size || null,
+        color: item.color || null,
         image: item.image || product.mainImage || product.images?.[0] || "",
         seller: product.companyName || product.supplier || "Vendeur",
+        sellerId: product.companyId || product.sellerId || null,
         minOrder: product.minOrder || 1,
         inStock: product.inStock ?? true,
         originalCurrency: product.currency || "XOF",
         hasFreeShipping: product.hasFreeShipping || false,
-        
+        ...warehouseFields,
         specifications: {
           weight: lineSpecs.weight,
           volume: lineSpecs.volume,
@@ -929,6 +1009,11 @@ const handleAddToCart = () => {
     return true;
   } catch (error) {
     console.error("Erreur ajout panier:", error);
+    const msg =
+      error instanceof Error && error.message
+        ? error.message
+        : "Impossible d'ajouter au panier";
+    Alert.alert("Erreur", msg);
     return false;
   } finally {
     setAddingToCart(false);
@@ -936,21 +1021,34 @@ const handleAddToCart = () => {
 };
 
 const handleBuyNow = async () => {
+  if (!requireAuth({ reason: 'buy_now', onAuthorized: () => { void handleBuyNow(); } })) return;
+
   if (!product) {
     Alert.alert("Erreur", "Produit non chargé");
     return;
   }
 
-  const itemsToOrder = Object.values(orderMatrix).filter((item) => item.quantity > 0);
+  const itemsToOrder = resolveSelectedMatrixItems();
 
   if (itemsToOrder.length === 0) {
     Alert.alert("Sélection requise", "Veuillez sélectionner au moins une variante.");
     return;
   }
 
+  if (!isMOQReached) {
+    Alert.alert(
+      "Quantité minimale",
+      `La quantité minimale de commande est de ${product.minOrder || 1} article(s).`
+    );
+    return;
+  }
+
+  if (!assertZeroFcfaWarehouseOrAlert()) return;
+
   setAddingToCart(true);
 
   try {
+        const warehouseFields = resolveWarehouseFields();
         const formattedItems = itemsToOrder.map((item) => {
           const unitPrice = getEffectiveUnitPrice(item);
           const lineSpecs = getLineSpecsForCart(product, item);
@@ -962,18 +1060,34 @@ const handleBuyNow = async () => {
             seller: (product as any).seller,
             name: product.name,
           });
+          const cartId = buildCartLineId(product.id, item.size, item.color);
+          const selectedSize = item.size || null;
+          const selectedColor = item.color || null;
           return {
-            id: product.id,
-            cartId: `${product.id}-${item.color || "NS"}-${item.size || "NS"}`,
+            id: cartId,
+            cartId,
+            productId: product.id,
             name: product.name,
             price: unitPrice,
+            priceXOF: unitPrice,
             quantity: item.quantity,
-            selectedSize: item.size || null,
-            selectedColor: item.color || null,
+            selectedSize,
+            selectedColor,
+            size: selectedSize,
+            color: selectedColor,
+            variantLines: buildPersistedVariantLines(
+              selectedColor,
+              selectedSize,
+              item.quantity,
+            ),
             image: item.image || product.mainImage || product.images?.[0] || "",
+            imageUrl: item.image || product.mainImage || product.images?.[0] || "",
             seller: product.companyName || product.supplier || "Vendeur",
+            sellerId: product.companyId || product.sellerId || null,
+            companyName: product.companyName || product.supplier || "Vendeur",
             minOrder: product.minOrder || 1,
             hasFreeShipping: isZero ? false : (product.hasFreeShipping || false),
+            ...warehouseFields,
             specifications: {
               weight: lineSpecs.weight,
               volume: lineSpecs.volume,
@@ -989,6 +1103,9 @@ const handleBuyNow = async () => {
       summary: {
         subtotal: totalPrice,
         shipping: 0,
+        discount: 0,
+        warehouseFees: [],
+        warehouseFeeTotal: 0,
         total: totalPrice
       }
     };
@@ -1019,10 +1136,10 @@ const handleBuyNow = async () => {
     }
 
     if (!user?.uid) {
-      Alert.alert(
-        "Connexion requise",
-        "Connectez-vous pour écrire à la boutique ou à l’entreprise."
-      );
+      requireAuth({
+        reason: 'contact_seller',
+        onAuthorized: () => { void handleChat(); },
+      });
       return;
     }
 
@@ -1099,10 +1216,10 @@ const handleBuyNow = async () => {
   // 2. Ouverture du pop-up de discussion rapide (via la bulle flottante)
   const handleOpenQuickChat = () => {
     if (!user?.uid) {
-      Alert.alert(
-        "Connexion requise",
-        "Connectez-vous pour écrire à la boutique ou à l’entreprise."
-      );
+      requireAuth({
+        reason: 'contact_seller',
+        onAuthorized: handleOpenQuickChat,
+      });
       return;
     }
     setIsChatOpen(true);
@@ -1113,10 +1230,10 @@ const handleBuyNow = async () => {
     if (!product) return;
 
     if (!user?.uid) {
-      Alert.alert(
-        "Connexion requise",
-        "Connectez-vous pour écrire à la boutique ou à l’entreprise."
-      );
+      requireAuth({
+        reason: 'contact_seller',
+        onAuthorized: () => handleSendMessage(messageText),
+      });
       return;
     }
 
@@ -1180,7 +1297,7 @@ const handleBuyNow = async () => {
         sellerName: resolvedSellerName,
         companyName: resolvedSellerName,
         sellerLogo: resolvedSellerLogo,
-        initialMessage: messageText,
+        message: messageText,
       },
     });
   };
@@ -1209,47 +1326,40 @@ const handleBuyNow = async () => {
     return (
       <View style={styles.colorCarouselContainer}>
         <Text style={styles.colorCarouselTitle}>{t('productDetail.colorsAvailable')}</Text>
-        <ScrollView 
-          horizontal 
+        <ScrollView
+          horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.colorCarouselScroll}
+          contentContainerStyle={styles.colorChipScrollContent}
         >
-          {availableColors.map((color, index) => {
-            const variantWithColor = product?.variants?.find(v => v.color === color);
-            const imageSource = variantWithColor?.image || product?.mainImage;
-            const totalStock = Object.values(orderMatrix)
-              .filter(item => item.color === color)
-              .reduce((sum, item) => sum + item.stock, 0);
-            
+          {availableColors.map((color) => {
+            const isSelected =
+              normalizeColorKey(selectedCarouselColor) === normalizeColorKey(color);
+            const localizedColor = getLocalizedVariantValue(
+              color,
+              colorAttrForLocale,
+              productRecord,
+              i18n.language,
+            );
+
             return (
               <TouchableOpacity
-                key={index}
-                style={[
-                  styles.colorCarouselItem,
-                  selectedCarouselColor === color && styles.colorCarouselItemSelected
-                ]}
+                key={color}
+                style={[styles.colorChip, isSelected && styles.colorChipSelected]}
                 onPress={() => setSelectedCarouselColor(color)}
+                activeOpacity={0.85}
               >
-                <Image 
-                  source={{ uri: imageSource || 'https://via.placeholder.com/60' }}
-                  style={styles.colorCarouselImage}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={120}
-                />
-                <View style={styles.colorCarouselInfo}>
-                  <Text style={styles.colorCarouselColorName}>
-                    {getLocalizedVariantValue(color, colorAttrForLocale, productRecord, i18n.language)}
+                <View style={[styles.colorChipDot, isSelected && styles.colorChipDotSelected]} />
+                <View style={styles.colorChipTextWrap}>
+                  <Text
+                    style={[styles.colorChipLabel, isSelected && styles.colorChipLabelSelected]}
+                    numberOfLines={1}
+                  >
+                    {localizedColor}
                   </Text>
-                  <Text style={styles.colorCarouselStock}>
-                    {t('productDetail.inStockCount', { count: totalStock })}
+                  <Text style={styles.colorChipStock}>
+                    {t('productCard.inStock')}
                   </Text>
                 </View>
-                {selectedCarouselColor === color && (
-                  <View style={styles.colorCarouselCheck}>
-                    <Ionicons name="checkmark-circle" size={20} color={COLORS.primary} />
-                  </View>
-                )}
               </TouchableOpacity>
             );
           })}
@@ -1260,6 +1370,7 @@ const handleBuyNow = async () => {
 
   // --- COMPOSANT POUR LA LIGNE DE TAILLE ---
   const SizeRow = ({ item, matrixKey }: { item: OrderMatrixItem; matrixKey: string }) => {
+    const maxQty = MAX_ORDER_QUANTITY;
     const unitPrice = getEffectiveUnitPrice(item);
     const productRecord = product as unknown as Record<string, unknown>;
     const sizeAttrForLocale = {
@@ -1274,16 +1385,18 @@ const handleBuyNow = async () => {
       <View style={styles.sizeRow}>
         <View style={styles.sizeInfo}>
           <Text style={styles.sizeName}>{sizeLabel}</Text>
+          {item.extraLabel ? (
+            <Text style={styles.sizeExtraLabel} numberOfLines={1}>
+              {item.extraLabel}
+            </Text>
+          ) : null}
           <View style={styles.sizePriceStock}>
             <Text style={styles.sizePrice}>{formatDisplayPrice(unitPrice)}</Text>
-            <Text style={[
-              styles.sizeStock,
-              item.stock > 10 ? styles.inStock : 
-              item.stock > 0 ? styles.lowStock : 
-              styles.outOfStock
-            ]}>
-              {t('productDetail.stockLabel', { count: item.stock })}
-            </Text>
+            <View style={[styles.stockBadge, styles.stockBadgeOk]}>
+              <Text style={[styles.stockBadgeText, styles.stockBadgeTextOk]}>
+                {t('productCard.inStock')}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -1308,11 +1421,11 @@ const handleBuyNow = async () => {
           />
           
           <TouchableOpacity 
-            style={[styles.stepperButton, item.quantity >= item.stock && styles.stepperButtonDisabled]}
+            style={[styles.stepperButton, item.quantity >= maxQty && styles.stepperButtonDisabled]}
             onPress={() => incrementQuantity(matrixKey)}
-            disabled={item.quantity >= item.stock}
+            disabled={item.quantity >= maxQty}
           >
-            <Ionicons name="add" size={16} color={item.quantity >= item.stock ? '#CCC' : COLORS.primary} />
+            <Ionicons name="add" size={16} color={item.quantity >= maxQty ? '#CCC' : COLORS.primary} />
           </TouchableOpacity>
         </View>
       </View>
@@ -1508,9 +1621,21 @@ const handleBuyNow = async () => {
             }) && <ZeroDollarsFreeBadge />}
           </View>
 
-          <Text style={styles.productName} numberOfLines={3}>
-            {localizedTitle}
-          </Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.productName} numberOfLines={3}>
+              {localizedTitle}
+            </Text>
+            <TouchableOpacity
+              style={styles.shareButton}
+              onPress={handleShareProduct}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Partager ce produit"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="share-social-outline" size={20} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
 
 {/* 3. Zone de Prix Dynamique */}
           <View style={styles.priceContainer}>
@@ -1534,6 +1659,9 @@ const handleBuyNow = async () => {
               </View>
             ) : null}
           </View>
+          {warehouseFeeHint ? (
+            <Text style={styles.warehouseFeeHint}>{warehouseFeeHint}</Text>
+          ) : null}
 
           {/* 4. Livraison Gratuite */}
           {product.hasFreeShipping && (
@@ -1605,21 +1733,33 @@ const handleBuyNow = async () => {
         {/* CARROUSEL DE COULEURS ET MATRICE (HORS DU MAININFO) */}
         {availableColors.length > 0 && <ColorCarousel />}
 
-        {filteredMatrix.length > 0 && (
+        {filteredMatrixEntries.length > 0 && (
           <View style={styles.matrixSection}>
             <View style={styles.matrixHeader}>
               <Text style={styles.matrixTitle}>
-                {selectedCarouselColor ? `Tailles - ${selectedCarouselColor}` : 'Tailles disponibles'}
+                {selectedCarouselColor && availableColors.length > 0
+                  ? `${t('productDetail.sizesForColor', {
+                      color: getLocalizedVariantValue(
+                        selectedCarouselColor,
+                        {
+                          id: colorAttributeMeta?.id,
+                          name: colorAttributeMeta?.name || 'Couleur',
+                        },
+                        product as unknown as Record<string, unknown>,
+                        i18n.language,
+                      ),
+                      defaultValue: `Tailles — ${selectedCarouselColor}`,
+                    })}`
+                  : t('productDetail.sizesAvailable', { defaultValue: 'Tailles disponibles' })}
               </Text>
               {totalQuantity > 0 && (
                 <Text style={styles.matrixSubtitle}>{totalQuantity} sélectionné(s)</Text>
               )}
             </View>
             <View style={styles.sizesList}>
-              {filteredMatrix.map((item) => {
-                const matrixKey = item.color && item.size ? `${item.color}_${item.size}` : item.variantId;
-                return <SizeRow key={matrixKey} item={item} matrixKey={matrixKey} />;
-              })}
+              {filteredMatrixEntries.map(([matrixKey, item]) => (
+                <SizeRow key={matrixKey} item={item} matrixKey={matrixKey} />
+              ))}
             </View>
           </View>
         )}
@@ -1801,6 +1941,12 @@ const handleBuyNow = async () => {
         onAddToCart={handleAddToCart}
         onBuyNow={handleBuyNow}
         addingToCart={addingToCart}
+        disabled={totalQuantity === 0 || !isMOQReached}
+        disabledReason={
+          totalQuantity === 0
+            ? 'Veuillez sélectionner au moins 1 article (quantité > 0).'
+            : `La quantité minimale de commande est de ${product.minOrder || 1} article(s).`
+        }
       />
 
       {/* MODAL DE DEVIS GROSSISTE */}
@@ -1852,6 +1998,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     marginLeft: 6,
+  },
+  warehouseFeeHint: {
+    fontSize: 13,
+    color: COLORS.primary,
+    fontWeight: '600',
+    marginTop: 4,
+    marginBottom: 4,
   },
   container: { 
     flex: 1, 
@@ -1962,12 +2115,29 @@ const styles = StyleSheet.create({
     color: COLORS.white
   },
   productName: { 
+    flex: 1,
     fontSize: 21, 
     color: '#0F172A', 
     lineHeight: 28, 
-    marginBottom: 14, 
     fontWeight: '700',
     letterSpacing: -0.3,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 14,
+  },
+  shareButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
   },
   badgesContainer: {
     flexDirection: 'row',
@@ -2163,57 +2333,64 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#999',
   },
-  // Styles pour le carrousel de couleurs
+  // Styles pour le sélecteur de couleurs
   colorCarouselContainer: {
     backgroundColor: COLORS.white,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     marginBottom: 8,
   },
   colorCarouselTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: COLORS.text,
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  colorCarouselScroll: {
-    flexDirection: 'row',
+  colorChipScrollContent: {
+    paddingRight: 8,
+    gap: 8,
   },
-  colorCarouselItem: {
+  colorChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    padding: 8,
-    marginRight: 12,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    minWidth: 150,
+    backgroundColor: '#F7F7F8',
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginRight: 8,
+    borderWidth: 1.5,
+    borderColor: '#E8E8ED',
+    maxWidth: 180,
   },
-  colorCarouselItemSelected: {
+  colorChipSelected: {
     borderColor: COLORS.primary,
-    backgroundColor: '#FFF0E6',
+    backgroundColor: '#FFF4EC',
   },
-  colorCarouselImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 4,
+  colorChipDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#CBD5E0',
     marginRight: 8,
   },
-  colorCarouselInfo: {
-    flex: 1,
+  colorChipDotSelected: {
+    backgroundColor: COLORS.primary,
   },
-  colorCarouselColorName: {
+  colorChipTextWrap: {
+    flexShrink: 1,
+  },
+  colorChipLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: COLORS.text,
+    color: '#4A5568',
   },
-  colorCarouselStock: {
-    fontSize: 11,
-    color: '#666',
+  colorChipLabelSelected: {
+    color: COLORS.primary,
   },
-  colorCarouselCheck: {
-    marginLeft: 4,
+  colorChipStock: {
+    fontSize: 10,
+    color: '#718096',
+    marginTop: 1,
   },
   // Styles pour la matrice
   matrixSection: {
@@ -2256,20 +2433,50 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: COLORS.text,
+    marginBottom: 2,
+  },
+  sizeExtraLabel: {
+    fontSize: 12,
+    color: '#718096',
     marginBottom: 4,
   },
   sizePriceStock: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexWrap: 'wrap',
   },
   sizePrice: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: COLORS.primary,
   },
-  sizeStock: {
-    fontSize: 12,
+  stockBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  stockBadgeOk: {
+    backgroundColor: '#E6F7ED',
+  },
+  stockBadgeLow: {
+    backgroundColor: '#FFF4E5',
+  },
+  stockBadgeOut: {
+    backgroundColor: '#FEECEC',
+  },
+  stockBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  stockBadgeTextOk: {
+    color: COLORS.success,
+  },
+  stockBadgeTextLow: {
+    color: COLORS.warning,
+  },
+  stockBadgeTextOut: {
+    color: COLORS.error,
   },
   stepperContainer: {
     flexDirection: 'row',

@@ -65,7 +65,8 @@ const RoleDebugScreen = () => {
       <View style={{ marginBottom: 20 }}>
         <Text style={{ fontWeight: 'bold' }}>Utilisateur:</Text>
         <Text>UID: {user?.uid}</Text>
-        <Text>Email: {user?.email}</Text>
+        <Text>Email: {user?.email || '—'}</Text>
+        <Text>Téléphone: {user?.phoneNumber || userProfile?.phoneNumber || '—'}</Text>
       </View>
       
       <View style={{ marginBottom: 20 }}>

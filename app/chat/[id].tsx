@@ -38,6 +38,7 @@ import {
   arrayRemove
 } from 'firebase/firestore';
 import { db, auth, storage } from '@/config/firebase';
+import { getUserDisplayLabel } from '@/utils/userIdentity';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
@@ -205,12 +206,20 @@ export default function ChatScreen() {
         conversationId,
         text: text.trim(),
         senderId: user.uid,
-        senderName: user.displayName || user.email || 'Client',
+        senderName: getUserDisplayLabel(
+          {
+            displayName: user.displayName,
+            email: user.email,
+            phoneNumber: user.phoneNumber,
+          },
+          'Client',
+        ),
         senderAvatar: user.photoURL || '👤',
         type,
         metadata,
         readBy: [user.uid],
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        timestamp: serverTimestamp()
       };
 
       // Ajouter le message

@@ -234,15 +234,8 @@ function ProductCardPremiumComponent({
 
     console.log('⚡ Navigation instantanée vers produit:', product.id);
 
-    // Vérifier si c'est un lien externe
-    if (product.originalLink) {
-      console.log('🔗 Lien externe détecté');
-      router.push({
-        pathname: "/webview",
-        params: { url: product.originalLink, title: displayName },
-      });
-      return;
-    }
+    // originalLink (résidu d'import catalogue) ne doit jamais ouvrir une WebView :
+    // un tap ouvre toujours la fiche produit A2Express.
 
     // NAVIGATION INSTANTANÉE : On passe l'objet produit complet via params
     const navigationParams = {

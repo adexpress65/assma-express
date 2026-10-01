@@ -280,7 +280,12 @@ export default function SupplierDashboard() {
       <View style={styles.catalogContainer}>
         <View style={styles.catalogTitleRow}>
           <Text style={styles.sectionTitle}>{t('app.supplier.dashboard.catalogManagement')}</Text>
-          <Text style={styles.catalogCountText}>{myProducts.length} / {productCount}</Text>
+          <View style={styles.catalogTitleActions}>
+            <TouchableOpacity onPress={() => router.push('/suppliers/stock')}>
+              <Text style={styles.stockLink}>{t('app.supplier.dashboard.viewStock')}</Text>
+            </TouchableOpacity>
+            <Text style={styles.catalogCountText}>{myProducts.length} / {productCount}</Text>
+          </View>
         </View>
         
         {myProducts.length === 0 ? (
@@ -392,6 +397,8 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: '#111827', fontWeight: '700', fontSize: 14 },
   catalogContainer: { padding: 16 },
   catalogTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  catalogTitleActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  stockLink: { color: '#FF6B00', fontSize: 13, fontWeight: '700' },
   catalogCountText: { color: '#6B7280', fontSize: 12, fontWeight: '600' },
   productCard: { flexDirection: 'row', backgroundColor: '#FFF', padding: 12, borderRadius: 12, marginBottom: 12, alignItems: 'center', elevation: 1 },
   productImg: { width: 60, height: 60, borderRadius: 8, backgroundColor: '#F3F4F6' },

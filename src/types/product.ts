@@ -6,6 +6,9 @@ export interface ProductVariantInfo {
   variantId?: string;
 }
 
+/** Devise de saisie vendeur. Absent sur les produits existants → XOF. */
+export type ProductPriceCurrency = 'XOF' | 'CNY' | 'USD';
+
 export interface ProductSpecifications {
   /** Chaîne ou nombre (Firestore / formulaires) */
   weight?: number | string;
@@ -14,11 +17,23 @@ export interface ProductSpecifications {
   dimensions?: string;
 }
 
+/** Champs entrepôt d'origine (frais logistique 0 FCFA) */
+export type ProductWarehouseOrigin = {
+  originWarehouseId?: string | null;
+  originWarehouseLabel?: string | null;
+};
+
 /** Représente un hit Algolia (index "products") */
 export interface AlgoliaHit {
   objectID: string;
   name?: string;
+  /** Prix client — toujours en XOF (alias historique de priceXOF). */
   price?: number;
+  /** Prix saisi par le vendeur dans `priceCurrency` (ne jamais afficher au client). */
+  priceOriginal?: number;
+  priceCurrency?: ProductPriceCurrency | string;
+  /** Prix converti en F CFA. Fallback : `price`. */
+  priceXOF?: number;
   currency?: string;
   supplier?: string;
   companyName?: string;

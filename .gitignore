@@ -81,6 +81,8 @@ firebase-config.json
 # Clés API
 api-keys.json
 secrets.json
+play-service-account.json
+pc service account.json
 keys/
 credentials/
 

@@ -6,8 +6,9 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, getDocs, query, orderBy, updateDoc, doc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../../src/config/firebase'; // ✅ Chemin corrigé selon ton arborescence
+import { db } from '../../../src/config/firebase';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useOperationalStaffAccess } from '@/hooks/useOperationalStaffAccess';
 
 interface Company {
   id: string;
@@ -21,13 +22,15 @@ interface Company {
 
 export default function CompaniesManagement() {
   const router = useRouter();
+  const { allowed, isLoading: accessLoading } = useOperationalStaffAccess();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
+    if (!allowed) return;
     fetchCompanies();
-  }, []);
+  }, [allowed]);
 
   const fetchCompanies = async () => {
     try {
@@ -130,6 +133,14 @@ export default function CompaniesManagement() {
       </View>
     </View>
   );
+
+  if (accessLoading || !allowed) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, 
-  TouchableOpacity, Image, Dimensions,
+  TouchableOpacity, Dimensions,
   ActivityIndicator
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -159,7 +160,7 @@ const getMockSuppliers = (): Supplier[] => [
   }
 ];
 
-export default function PremiumSuppliersSection({ products, suppliers }: PremiumSuppliersSectionProps) {
+function PremiumSuppliersSection({ products, suppliers }: PremiumSuppliersSectionProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const [selectedSupplier, setSelectedSupplier] = useState(0);
@@ -323,6 +324,9 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
             <Image 
               source={{ uri: supplier.logo }} 
               style={styles.supplierNavLogo}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={supplier.id}
             />
             <Text 
               style={[
@@ -353,6 +357,9 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
                 <Image 
                   source={{ uri: displaySuppliers[selectedSupplier].logo }} 
                   style={styles.supplierLogo}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={displaySuppliers[selectedSupplier].id}
                 />
                 <View style={styles.supplierDetails}>
                   <View style={styles.supplierNameRow}>
@@ -501,6 +508,8 @@ export default function PremiumSuppliersSection({ products, suppliers }: Premium
     </View>
   );
 }
+
+export default React.memo(PremiumSuppliersSection);
 
 const styles = StyleSheet.create({
   container: {

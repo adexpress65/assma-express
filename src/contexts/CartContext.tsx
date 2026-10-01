@@ -5,7 +5,14 @@ import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db } from "../config/firebase";
 import { isZeroDollarsProduct } from "../utils/zeroDollarsShop";
+import { getClientPriceXOF } from "../utils/productPrice";
+import {
+  isZeroFcfaCatalogPrice,
+  ZERO_FCFA_UNAVAILABLE_MESSAGE,
+} from "../utils/warehouseFee";
 import type { CartItem, AddToCartInput } from "../types/cart";
+import { MAX_ORDER_QUANTITY } from "../constants/order";
+import { buildCartLineId } from "../utils/orderItemVariants";
 
 // Ré-export pour rétrocompatibilité avec les fichiers qui importent CartItem depuis ce module
 export type { CartItem } from "../types/cart";
@@ -65,11 +72,11 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const saneQty = (q: unknown): number => {
     const n = Math.floor(Number(q));
-    return (!Number.isFinite(n) || n < 1) ? 1 : (n > 999 ? 999 : n);
+    return (!Number.isFinite(n) || n < 1) ? 1 : (n > MAX_ORDER_QUANTITY ? MAX_ORDER_QUANTITY : n);
   };
 
   const normalizeParsedItem = (item: AddToCartInput): CartItem => {
-    const cleanPrice = Number(item.price) || 0;
+    const cleanPrice = getClientPriceXOF(item);
     const isZero = isZeroDollarsProduct({
       price: cleanPrice,
       companyName: item.companyName ?? item.seller ?? item.supplier,
@@ -77,14 +84,25 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       seller: item.seller ?? undefined,
       name: item.name ?? "",
     });
+    const warehouseId =
+      typeof item.originWarehouseId === "string" && item.originWarehouseId.trim()
+        ? item.originWarehouseId.trim()
+        : null;
+    const warehouseLabel =
+      typeof item.originWarehouseLabel === "string" &&
+      item.originWarehouseLabel.trim()
+        ? item.originWarehouseLabel.trim()
+        : null;
     return {
       ...item,
-      cartId: `${item.id}-${item.selectedSize || "NS"}-${item.selectedColor || "NS"}`,
+      cartId: buildCartLineId(item.id, item.selectedSize, item.selectedColor),
       quantity: saneQty(item.quantity),
       originalCurrency: "XOF",
       image: fixFirebaseUrl(item.image),
       hasFreeShipping: isZero ? false : !!item.hasFreeShipping,
       price: isZero ? 0 : cleanPrice,
+      originWarehouseId: warehouseId,
+      originWarehouseLabel: warehouseLabel,
     } as CartItem;
   };
 
@@ -257,11 +275,24 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addToCart = (product: AddToCartInput) => {
+    const rawPrice = getClientPriceXOF(product);
+    const warehouseId =
+      typeof product.originWarehouseId === "string" &&
+      product.originWarehouseId.trim()
+        ? product.originWarehouseId.trim()
+        : null;
+    if (isZeroFcfaCatalogPrice(rawPrice) && !warehouseId) {
+      throw new Error(ZERO_FCFA_UNAVAILABLE_MESSAGE);
+    }
+
     setCartItems((prev) => {
-      const uniqueCartId = `${product.id}-${product.selectedSize || 'NS'}-${product.selectedColor || 'NS'}`;
+      const uniqueCartId = buildCartLineId(
+        product.id,
+        product.selectedSize,
+        product.selectedColor,
+      );
       const existing = prev.find((i) => i.cartId === uniqueCartId);
       const qtyToAdd = saneQty(product.quantity ?? 1);
-      const rawPrice = Number(product.price) || 0;
       const isZero = isZeroDollarsProduct({
         price: rawPrice,
         basePrice: product.variantInfo?.basePrice ?? product.basePrice,
@@ -271,6 +302,11 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         name: product.name,
       });
       const finalPrice = isZero ? 0 : rawPrice;
+      const warehouseLabel =
+        typeof product.originWarehouseLabel === "string" &&
+        product.originWarehouseLabel.trim()
+          ? product.originWarehouseLabel.trim()
+          : null;
 
       const cleanStr = (str: unknown) => (typeof str === 'string' ? str.trim() : null);
       const cleanId = (v: unknown) => {
@@ -299,6 +335,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           priceAdjustment: product.variantInfo.priceAdjustment,
           variantId: product.variantInfo.variantId,
         } : null,
+        originWarehouseId: warehouseId,
+        originWarehouseLabel: warehouseLabel,
         ...(product.specifications != null
           ? { specifications: product.specifications }
           : {}),
@@ -310,6 +348,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             ? {
                 ...i,
                 quantity: saneQty(i.quantity + qtyToAdd),
+                originWarehouseId: warehouseId ?? i.originWarehouseId,
+                originWarehouseLabel: warehouseLabel ?? i.originWarehouseLabel,
                 ...(i.specifications == null && product.specifications != null
                   ? { specifications: product.specifications }
                   : {}),

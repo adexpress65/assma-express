@@ -1,12 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
   ActivityIndicator,
   Text,
   Linking,
+  BackHandler,
+  TouchableOpacity,
 } from "react-native";
 import { WebView } from "react-native-webview";
+import type { WebViewMessageEvent } from "react-native-webview";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -61,6 +64,51 @@ const STATUS_PARAM_KEYS = [
   "payment_status",
   "transactionstatus",
 ];
+
+/**
+ * Page NGenius « Payment accepted » : le client n'a pas besoin d'appuyer sur
+ * « Return to basket » pour que la commande soit vérifiée.
+ */
+const DETECT_PAYMENT_RESULT_JS = `
+(function() {
+  function check() {
+    try {
+      var text = (document.body && (document.body.innerText || document.body.textContent) || '').toLowerCase();
+      var accepted =
+        text.indexOf('payment accepted') !== -1 ||
+        text.indexOf('paiement accept') !== -1 ||
+        text.indexOf('your payment has been accepted') !== -1 ||
+        text.indexOf('votre paiement a été accept') !== -1 ||
+        text.indexOf('votre paiement a ete accept') !== -1;
+      if (!accepted || window.__a2PaymentResultSent) return;
+      window.__a2PaymentResultSent = true;
+      var nodes = document.querySelectorAll('a, button, input[type="submit"], input[type="button"]');
+      for (var i = 0; i < nodes.length; i++) {
+        var t = ((nodes[i].innerText || nodes[i].value || nodes[i].textContent || '') + '').toLowerCase();
+        if (
+          t.indexOf('return to basket') !== -1 ||
+          t.indexOf('retourner au panier') !== -1 ||
+          t.indexOf('retour au panier') !== -1
+        ) {
+          try { nodes[i].click(); } catch (e) {}
+          break;
+        }
+      }
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'payment-accepted' }));
+      }
+    } catch (e) {}
+  }
+  check();
+  var n = 0;
+  var iv = setInterval(function() {
+    check();
+    n += 1;
+    if (n > 40 || window.__a2PaymentResultSent) clearInterval(iv);
+  }, 500);
+})();
+true;
+`;
 
 function normalizeHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, "");
@@ -159,6 +207,25 @@ export default function PaymentWebView() {
   const [loading, setLoading] = useState(true);
   const handledRef = useRef(false);
   const isInitializingRef = useRef(false);
+  const acceptedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const webViewRef = useRef<WebView>(null);
+
+  const goToPending = useCallback(
+    (reason: string) => {
+      if (handledRef.current) return;
+      handledRef.current = true;
+      if (acceptedTimeoutRef.current) {
+        clearTimeout(acceptedTimeoutRef.current);
+        acceptedTimeoutRef.current = null;
+      }
+      console.log("[PaymentWebView] Vérification serveur", { orderId, reason });
+      router.replace({
+        pathname: "/checkout/pending" as never,
+        params: { orderId },
+      });
+    },
+    [orderId, router],
+  );
 
   useEffect(() => {
     if (isInitializingRef.current) return;
@@ -167,6 +234,18 @@ export default function PaymentWebView() {
       router.replace("/");
     }
   }, [paymentUrl, router]);
+
+  useEffect(() => {
+    const onBack = () => {
+      goToPending("hardware-back");
+      return true;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", onBack);
+    return () => {
+      sub.remove();
+      if (acceptedTimeoutRef.current) clearTimeout(acceptedTimeoutRef.current);
+    };
+  }, [goToPending]);
 
   /**
    * @returns `true` si la WebView doit continuer à charger l'URL.
@@ -225,8 +304,13 @@ export default function PaymentWebView() {
         break;
 
       case "storefront":
-        console.log("[PaymentWebView] Retour boutique -> panier", { orderId });
-        router.replace("/cart");
+        console.log("[PaymentWebView] Retour boutique -> vérification serveur", {
+          orderId,
+        });
+        router.replace({
+          pathname: "/checkout/pending" as never,
+          params: { orderId },
+        });
         break;
     }
 
@@ -247,12 +331,35 @@ export default function PaymentWebView() {
     return handleUrl("onShouldStartLoadWithRequest", url);
   };
 
+  const handleWebViewMessage = (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data) as { type?: string };
+      if (data?.type !== "payment-accepted") return;
+    } catch {
+      return;
+    }
+
+    if (handledRef.current) return;
+    console.log("[PaymentWebView] Page « Payment accepted » détectée", { orderId });
+    if (acceptedTimeoutRef.current) clearTimeout(acceptedTimeoutRef.current);
+    // Laisse une chance au clic auto sur « Return to basket » (redirection URL).
+    acceptedTimeoutRef.current = setTimeout(() => {
+      goToPending("payment-accepted-page");
+    }, 1200);
+  };
+
   if (!paymentUrl || typeof paymentUrl !== "string") return null;
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.miniHeader}>
-        <Text style={styles.secureText}>🔒 Paiement Sécurisé - A2Express</Text>
+        <Text style={styles.secureText}>Paiement Sécurisé - A2Express</Text>
+        <TouchableOpacity
+          onPress={() => goToPending("manual-continue")}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={styles.continueText}>Continuer</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.container}>
@@ -266,6 +373,7 @@ export default function PaymentWebView() {
         )}
 
         <WebView
+          ref={webViewRef}
           source={{ uri: paymentUrl }}
           javaScriptEnabled
           domStorageEnabled
@@ -273,7 +381,12 @@ export default function PaymentWebView() {
           originWhitelist={["*"]}
           setSupportMultipleWindows={false}
           mixedContentMode="always"
-          onLoadEnd={() => setLoading(false)}
+          injectedJavaScript={DETECT_PAYMENT_RESULT_JS}
+          onMessage={handleWebViewMessage}
+          onLoadEnd={() => {
+            setLoading(false);
+            webViewRef.current?.injectJavaScript(DETECT_PAYMENT_RESULT_JS);
+          }}
           onShouldStartLoadWithRequest={handleShouldStart}
           onNavigationStateChange={(navState) => {
             // Filet de sécurité : sur Android, les redirections 302 de la
@@ -310,7 +423,9 @@ const styles = StyleSheet.create({
   },
   miniHeader: {
     height: 40,
-    justifyContent: "center",
+    paddingHorizontal: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
@@ -319,6 +434,11 @@ const styles = StyleSheet.create({
   secureText: {
     fontSize: 12,
     color: "#2D3748",
+    fontWeight: "700",
+  },
+  continueText: {
+    fontSize: 13,
+    color: "#FF6A00",
     fontWeight: "700",
   },
   webview: {

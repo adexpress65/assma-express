@@ -13,6 +13,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { getClientPriceXOF } from '../utils/productPrice';
 
 // ============= INTERFACES =============
 export interface Product {
@@ -124,7 +125,7 @@ const transformProduct = (doc: any): Product => {
     id: doc.id,
     name: data.name || '',
     description: data.description || '',
-    price: data.price || 0,
+    price: getClientPriceXOF(data),
     originalPrice: data.originalPrice,
     imageUrl: data.imageUrl || data.mainImage || data.thumbnail,
     mainImage: data.mainImage,

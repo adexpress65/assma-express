@@ -17,11 +17,25 @@ import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { useCart, CartItem as CartItemType } from '@/contexts/CartContext';
 import { useCheckout } from '@/contexts/CheckoutContext';
+import { useRequireAuth } from '@/contexts/AuthGuardContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { saneQty } from '@/utils/quantity';
+import { MAX_ORDER_QUANTITY } from '@/constants/order';
 import { isZeroDollarsProduct } from '@/utils/zeroDollarsShop';
 import { displaySellerName } from '@/utils/companyDisplayName';
+import {
+  buildCartLineId,
+  buildPersistedVariantLines,
+} from '@/utils/orderItemVariants';
+import { useWarehouseFees } from '@/hooks/useWarehouseFees';
+import {
+  anyZeroFcfaMissingWarehouse,
+  computeWarehouseFeeBreakdown,
+  formatWarehouseFeeUsd,
+  isZeroFcfaCatalogPrice,
+  ZERO_FCFA_UNAVAILABLE_MESSAGE,
+} from '@/utils/warehouseFee';
 
 const { width } = Dimensions.get('window');
 
@@ -144,6 +158,11 @@ const CartItem = memo(({
           {formatPrice(itemPrice)}{' '}
           <Text style={styles.unitSuffix}>{t('app.cart.perUnit')}</Text>
         </Text>
+        {isZeroFcfaCatalogPrice(itemPrice) && item.originWarehouseLabel ? (
+          <Text style={styles.warehouseHint}>
+            Entrepôt de {item.originWarehouseLabel}
+          </Text>
+        ) : null}
 
         <View style={styles.quantityContainer}>
           <TouchableOpacity 
@@ -240,6 +259,8 @@ export default function CartScreen() {
   const { formatPrice } = useCurrency();
   const { cartItems, updateQuantity, removeFromCart } = useCart();
   const { initOrder } = useCheckout();
+  const { requireAuth } = useRequireAuth();
+  const { config: warehouseFeesConfig } = useWarehouseFees();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [quantities, setQuantities] = useState<Record<string, number>>({});
@@ -269,7 +290,7 @@ export default function CartScreen() {
     [cartItems, selected]
   );
 
-  const subtotalXOF = useMemo(
+  const catalogueSubtotalXOF = useMemo(
     () =>
       selectedItems.reduce((sum, item) => {
         const qty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 0;
@@ -286,6 +307,27 @@ export default function CartScreen() {
       }, 0),
     [selectedItems, quantities]
   );
+
+  const warehouseBreakdown = useMemo(() => {
+    const linesForFees = selectedItems.map((item) => {
+      const rawPrice = Number(item.price) || 0;
+      const isZero = isZeroDollarsProduct({
+        price: rawPrice,
+        companyName: item.seller || undefined,
+        supplier: (item as any).supplier,
+        seller: item.seller || undefined,
+        name: item.name,
+      });
+      return {
+        price: isZero || isZeroFcfaCatalogPrice(rawPrice) ? 0 : rawPrice,
+        originWarehouseId: item.originWarehouseId,
+        originWarehouseLabel: item.originWarehouseLabel,
+      };
+    });
+    return computeWarehouseFeeBreakdown(linesForFees, warehouseFeesConfig);
+  }, [selectedItems, warehouseFeesConfig]);
+
+  const subtotalXOF = catalogueSubtotalXOF + warehouseBreakdown.warehouseFeeTotal;
 
   const selectedCount = selectedItems.length;
   
@@ -334,7 +376,7 @@ export default function CartScreen() {
   const handleIncrease = useCallback((item: CartItemType) => {
     const currentQty = Number(quantities[item.cartId] ?? saneQty(item.quantity)) || 1;
     const newQty = currentQty + 1;
-    if (newQty <= 999) updateQuantityWithDebounce(item.cartId, newQty);
+    if (newQty <= MAX_ORDER_QUANTITY) updateQuantityWithDebounce(item.cartId, newQty);
   }, [quantities, updateQuantityWithDebounce]);
 
   const handleDecrease = useCallback((item: CartItemType) => {
@@ -374,37 +416,68 @@ export default function CartScreen() {
 
 const handleCheckout = async () => {
     if (selectedItems.length === 0) return;
+    if (!requireAuth({ reason: 'checkout', onAuthorized: () => { void handleCheckout(); } })) return;
+
+    const feeItems = selectedItems.map((item) => {
+      const rawPrice = Number(item.price) || 0;
+      return {
+        price: isZeroFcfaCatalogPrice(rawPrice) ? 0 : rawPrice,
+        originWarehouseId: item.originWarehouseId,
+        originWarehouseLabel: item.originWarehouseLabel,
+      };
+    });
+    if (anyZeroFcfaMissingWarehouse(feeItems, warehouseFeesConfig)) {
+      Alert.alert('Indisponible', ZERO_FCFA_UNAVAILABLE_MESSAGE);
+      return;
+    }
+
     setIsCheckingOut(true);
     try {
       await new Promise(resolve => setTimeout(resolve, 800));
+
+      const breakdown = computeWarehouseFeeBreakdown(feeItems, warehouseFeesConfig);
       
       const orderData = {
-        items: selectedItems.map(item => ({
-          id: item.cartId,
-          productId: item.id,
-          name: item.name,
-          price: Number(item.price),
-          quantity: quantities[item.cartId] ?? item.quantity,
-          imageUrl: item.image || item.imageUrl,
-          companyName: displaySellerName({
-            seller: item.seller,
-            companyName: (item as { companyName?: string }).companyName,
-            companyId: (item as { companyId?: string }).companyId,
-          }),
-          
-          // --- AJOUTS CRUCIAUX POUR LE SHIPPING ---
-          specifications: {
-            // On récupère le poids depuis l'item du panier
-            weight: item.specifications?.weight || (item as any).weight || 0,
-            volume: item.specifications?.volume || (item as any).volume || 0,
-          },
-          hasFreeShipping: item.hasFreeShipping || false,
-          // ----------------------------------------
-        })),
+        items: selectedItems.map(item => {
+          const selectedSize = item.selectedSize ?? null;
+          const selectedColor = item.selectedColor ?? null;
+          const quantity = quantities[item.cartId] ?? item.quantity;
+          const cartId = item.cartId || buildCartLineId(item.id, selectedSize, selectedColor);
+          return {
+            id: cartId,
+            cartId,
+            productId: item.id,
+            name: item.name,
+            price: Number(item.price),
+            quantity,
+            imageUrl: item.image || item.imageUrl,
+            companyName: displaySellerName({
+              seller: item.seller,
+              companyName: (item as { companyName?: string }).companyName,
+              companyId: (item as { companyId?: string }).companyId,
+            }),
+            sellerId: item.sellerId ?? null,
+            selectedSize,
+            selectedColor,
+            size: selectedSize,
+            color: selectedColor,
+            variantLines: buildPersistedVariantLines(selectedColor, selectedSize, quantity),
+            specifications: {
+              weight: item.specifications?.weight || (item as any).weight || 0,
+              volume: item.specifications?.volume || (item as any).volume || 0,
+            },
+            hasFreeShipping: item.hasFreeShipping || false,
+            originWarehouseId: item.originWarehouseId ?? null,
+            originWarehouseLabel: item.originWarehouseLabel ?? null,
+          };
+        }),
         summary: {
-          subtotal: Number(subtotalXOF),
+          subtotal: Number(catalogueSubtotalXOF),
           shipping: 0,
-          total: Number(subtotalXOF)
+          discount: 0,
+          warehouseFees: breakdown.lines,
+          warehouseFeeTotal: breakdown.warehouseFeeTotal,
+          total: Number(catalogueSubtotalXOF) + breakdown.warehouseFeeTotal,
         }
       };
 
@@ -480,6 +553,14 @@ const handleCheckout = async () => {
                 {t('app.cart.itemsSelected', { count: selectedCount })}
               </Text>
               <Text style={styles.footerPrice}>{formatPrice(subtotalXOF)}</Text>
+              {warehouseBreakdown.lines.length > 0 ? (
+                <Text style={styles.footerWarehouseNote}>
+                  dont frais d'entrepôt :{' '}
+                  {warehouseBreakdown.lines
+                    .map((l) => `${l.label} ${formatWarehouseFeeUsd(l.feeUsd)}`)
+                    .join(' · ')}
+                </Text>
+              ) : null}
             </View>
             <TouchableOpacity 
               style={[styles.checkoutBtn, (selectedCount === 0 || isCheckingOut) && styles.checkoutBtnDisabled]}
@@ -528,6 +609,7 @@ const styles = StyleSheet.create({
   variantText: { fontSize: 10, color: '#666' },
   price: { color: '#ff6a00', fontWeight: '700', fontSize: 15, marginBottom: 6 },
   unitSuffix: { fontSize: 12, color: '#999', fontWeight: '500' },
+  warehouseHint: { fontSize: 11, color: '#718096', marginBottom: 6 },
   quantityContainer: { flexDirection: 'row', alignItems: 'center' },
   quantityButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#f5f5f5', justifyContent: 'center', alignItems: 'center' },
   quantityValue: { minWidth: 40, alignItems: 'center' },
@@ -541,6 +623,7 @@ const styles = StyleSheet.create({
   footerLeft: { flex: 1 },
   footerLabel: { fontSize: 12, color: '#999' },
   footerPrice: { fontSize: 20, fontWeight: '700', color: '#ff6a00' },
+  footerWarehouseNote: { fontSize: 11, color: '#718096', marginTop: 4, maxWidth: width * 0.5 },
   checkoutBtn: { backgroundColor: '#ff6a00', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8, minWidth: 140, alignItems: 'center' },
   checkoutBtnDisabled: { backgroundColor: '#ccc' },
   checkoutBtnTxt: { color: '#fff', fontWeight: '700' },

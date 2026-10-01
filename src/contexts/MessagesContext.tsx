@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { 
   collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, 
   query, where, orderBy, limit, startAfter, onSnapshot, writeBatch, 
-  serverTimestamp, Timestamp, setDoc, DocumentData, QueryDocumentSnapshot 
+  serverTimestamp, Timestamp, setDoc, arrayUnion, DocumentData, QueryDocumentSnapshot 
 } from 'firebase/firestore';
 import { Alert } from 'react-native';
 import { db } from '../config/firebase'; // Ajustez selon votre chemin d'import firebase
@@ -48,6 +48,77 @@ export interface Conversation {
   [key: string]: any;
 }
 
+export interface CreateConversationOptions {
+  participants?: string[] | string | null;
+  title?: string;
+  companyId?: string;
+  [key: string]: any;
+}
+
+/**
+ * Accepte aussi bien un tableau qu'une valeur simple ou un objet { uid | id },
+ * car les écrans appelants n'envoient pas tous la même forme de données.
+ */
+const toParticipantIds = (value: unknown): string[] => {
+  const rawList = Array.isArray(value) ? value : value == null ? [] : [value];
+  return rawList
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      const asObject = entry as { uid?: unknown; id?: unknown } | null;
+      const candidate = asObject?.uid ?? asObject?.id;
+      return typeof candidate === 'string' ? candidate.trim() : '';
+    })
+    .filter((id) => id.length > 0);
+};
+
+function clientUidFromCanonicalId(
+  conversationId: string,
+  companyId?: string | null,
+): string | null {
+  if (companyId && conversationId.startsWith(`${companyId}_`)) {
+    const suffix = conversationId.slice(companyId.length + 1);
+    return suffix || null;
+  }
+  const i = conversationId.lastIndexOf('_');
+  if (i <= 0 || i === conversationId.length - 1) return null;
+  return conversationId.slice(i + 1);
+}
+
+function mapConversationDocs(
+  docs: QueryDocumentSnapshot<DocumentData>[],
+): Conversation[] {
+  return docs.map((docSnap) => ({
+    id: docSnap.id,
+    ...docSnap.data(),
+  } as Conversation));
+}
+
+function conversationTimeMs(conv: Conversation): number {
+  const value = conv.updatedAt || conv.lastMessageTime;
+  if (!value) return 0;
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toMillis' in value &&
+    typeof (value as Timestamp).toMillis === 'function'
+  ) {
+    return (value as Timestamp).toMillis();
+  }
+  if (value instanceof Date) return value.getTime();
+  const parsed = new Date(value as string | number);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function mergeConversationLists(lists: Conversation[][]): Conversation[] {
+  const map = new Map<string, Conversation>();
+  for (const list of lists) {
+    for (const conv of list) map.set(conv.id, conv);
+  }
+  return [...map.values()].sort(
+    (a, b) => conversationTimeMs(b) - conversationTimeMs(a),
+  );
+}
+
 interface MessagesContextType {
   getConversationName: (conv: Conversation) => string;
   conversations: Conversation[];
@@ -59,7 +130,12 @@ interface MessagesContextType {
   selectedConversation: Conversation | null;
   unreadCount: number;
   
-  createConversation: (participantIds: string[], title?: string, companyFirestoreId?: string, extraData?: any) => Promise<string>;
+  createConversation: (
+    participantsOrOptions: string[] | string | CreateConversationOptions,
+    title?: string,
+    companyFirestoreId?: string,
+    extraData?: any
+  ) => Promise<string>;
   deleteConversation: (conversationId: string) => Promise<void>;
   loadMoreConversations: () => Promise<void>;
   leaveConversation: (conversationId: string) => Promise<void>;
@@ -98,42 +174,156 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
 
   const lastVisibleDoc = useRef<QueryDocumentSnapshot<DocumentData> | null>(null);
   const typingTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
+  const participantConversations = useRef<Conversation[]>([]);
+  const clientUidConversations = useRef<Conversation[]>([]);
+  const recoveredConversations = useRef<Conversation[]>([]);
+  const repairedCanonical = useRef<Set<string>>(new Set());
+
+  const publishConversations = () => {
+    setConversations(
+      mergeConversationLists([
+        participantConversations.current,
+        clientUidConversations.current,
+        recoveredConversations.current,
+      ]),
+    );
+  };
+
+  const repairMissingClientParticipant = (conv: Conversation, actorUid: string) => {
+    const suffix = clientUidFromCanonicalId(conv.id, typeof conv.companyId === 'string' ? conv.companyId : null);
+    if (!suffix || suffix === actorUid) return;
+    if (suffix === conv.companyId || suffix === conv.sellerUid) return;
+    const parts = Array.isArray(conv.participants) ? conv.participants : [];
+    const needsParticipant = !parts.includes(suffix);
+    const needsClientUid = conv.clientUid !== suffix;
+    if (!needsParticipant && !needsClientUid) return;
+    const key = `${conv.id}:${suffix}`;
+    if (repairedCanonical.current.has(key)) return;
+    repairedCanonical.current.add(key);
+    updateDoc(doc(db, 'conversations', conv.id), {
+      ...(needsParticipant ? { participants: arrayUnion(suffix) } : {}),
+      ...(needsClientUid ? { clientUid: suffix } : {}),
+    }).catch(() => {
+      repairedCanonical.current.delete(key);
+    });
+  };
+
+  const restoreSelfAsParticipant = (conv: Conversation, uid: string) => {
+    const parts = Array.isArray(conv.participants) ? conv.participants : [];
+    if (parts.includes(uid)) return;
+    const suffix = clientUidFromCanonicalId(conv.id, typeof conv.companyId === 'string' ? conv.companyId : null);
+    if (suffix !== uid && conv.clientUid !== uid) return;
+    const key = `self:${conv.id}:${uid}`;
+    if (repairedCanonical.current.has(key)) return;
+    repairedCanonical.current.add(key);
+    updateDoc(doc(db, 'conversations', conv.id), {
+      participants: arrayUnion(uid),
+      clientUid: uid,
+    }).catch(() => {
+      repairedCanonical.current.delete(key);
+    });
+  };
 
   // ================================
   // 🔄 ÉCOUTEURS TEMPS RÉEL (CONVERSATIONS)
   // ================================
   useEffect(() => {
     if (!user?.uid) {
+      participantConversations.current = [];
+      clientUidConversations.current = [];
+      recoveredConversations.current = [];
       setConversations([]);
       setLoading(false);
       return;
     }
 
+    const uid = user.uid;
     setLoading(true);
-    const q = query(
+
+    const participantsQuery = query(
       collection(db, 'conversations'),
-      where('participants', 'array-contains', user.uid),
+      where('participants', 'array-contains', uid),
       orderBy('updatedAt', 'desc'),
-      limit(20)
+      limit(20),
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      lastVisibleDoc.current = snapshot.docs[snapshot.docs.length - 1] || null;
-      setHasMoreConversations(snapshot.docs.length === 20);
+    const unsubscribeParticipants = onSnapshot(
+      participantsQuery,
+      (snapshot) => {
+        lastVisibleDoc.current = snapshot.docs[snapshot.docs.length - 1] || null;
+        setHasMoreConversations(snapshot.docs.length === 20);
+        const list = mapConversationDocs(snapshot.docs);
+        participantConversations.current = list;
+        list.forEach((conv) => repairMissingClientParticipant(conv, uid));
+        publishConversations();
+        setLoading(false);
+      },
+      (error) => {
+        console.error('❌ Erreur écoute conversations:', error);
+        setLoading(false);
+      },
+    );
 
-      const list: Conversation[] = snapshot.docs.map(docSnap => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      } as Conversation));
+    const unsubscribeClientUid = onSnapshot(
+      query(
+        collection(db, 'conversations'),
+        where('clientUid', '==', uid),
+        limit(40),
+      ),
+      (snapshot) => {
+        const list = mapConversationDocs(snapshot.docs);
+        clientUidConversations.current = list;
+        list.forEach((conv) => restoreSelfAsParticipant(conv, uid));
+        publishConversations();
+      },
+      (error) => {
+        console.warn('Écoute conversations clientUid:', error);
+      },
+    );
 
-      setConversations(list);
-      setLoading(false);
-    }, (error) => {
-      console.error('❌ Erreur écoute conversations:', error);
-      setLoading(false);
-    });
+    let cancelled = false;
+    const recoverFromOrders = async () => {
+      try {
+        const ordersSnap = await getDocs(
+          query(collection(db, 'orders'), where('userId', '==', uid), limit(40)),
+        );
+        const companyIds = new Set<string>();
+        ordersSnap.forEach((orderDoc) => {
+          const data = orderDoc.data() as Record<string, any>;
+          const fromItem = data.items?.[0]?.companyId || data.items?.[0]?.sellerId;
+          for (const candidate of [data.companyId, data.sellerId, fromItem]) {
+            if (typeof candidate === 'string' && candidate.trim()) {
+              companyIds.add(candidate.trim());
+            }
+          }
+        });
 
-    return () => unsubscribe();
+        const recovered: Conversation[] = [];
+        await Promise.all(
+          [...companyIds].map(async (companyId) => {
+            const convId = `${companyId}_${uid}`;
+            const snap = await getDoc(doc(db, 'conversations', convId));
+            if (!snap.exists()) return;
+            const conv = { id: snap.id, ...snap.data() } as Conversation;
+            restoreSelfAsParticipant(conv, uid);
+            recovered.push(conv);
+          }),
+        );
+        if (cancelled) return;
+        recoveredConversations.current = recovered;
+        publishConversations();
+      } catch (error) {
+        console.warn('Récupération conversations via commandes:', error);
+      }
+    };
+
+    void recoverFromOrders();
+
+    return () => {
+      cancelled = true;
+      unsubscribeParticipants();
+      unsubscribeClientUid();
+    };
   }, [user?.uid]);
 
   // ================================
@@ -150,15 +340,34 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
   };
 
   const createConversation = async (
-    participantIds: string[], 
-    title?: string, 
-    companyFirestoreId?: string, 
+    participantsOrOptions: string[] | string | CreateConversationOptions,
+    title?: string,
+    companyFirestoreId?: string,
     extraData?: any
   ): Promise<string> => {
     if (!user?.uid) throw new Error('Utilisateur non connecté');
 
-    let finalParticipants = [...participantIds];
-    if (companyFirestoreId) {
+    // Deux formes d'appel coexistent dans l'app : positionnelle (tableau d'ids)
+    // et objet ({ participants, title, companyId, ... }).
+    const isOptionsObject =
+      !!participantsOrOptions &&
+      typeof participantsOrOptions === 'object' &&
+      !Array.isArray(participantsOrOptions);
+
+    const {
+      participants: optionParticipants,
+      title: optionTitle,
+      companyId: optionCompanyId,
+      ...optionExtra
+    } = (isOptionsObject ? participantsOrOptions : {}) as CreateConversationOptions;
+
+    const participantIds = toParticipantIds(isOptionsObject ? optionParticipants : participantsOrOptions);
+    const finalTitle = optionTitle || title;
+    const companyId = optionCompanyId || companyFirestoreId;
+
+    let finalParticipants = Array.isArray(participantIds) ? [...participantIds] : [participantIds];
+
+    if (!isOptionsObject && companyFirestoreId) {
       const realUserId = await ensureEntrepreneurHasUser(companyFirestoreId);
       finalParticipants = finalParticipants.map(id => (id === companyFirestoreId || id === finalParticipants[0]) ? realUserId : id);
       if (!finalParticipants.includes(realUserId)) finalParticipants.push(realUserId);
@@ -167,12 +376,14 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
     const uniqueParticipants = Array.from(new Set([user.uid, ...finalParticipants]));
 
     const newConvRef = await addDoc(collection(db, 'conversations'), {
-      title: title || 'Discussion',
+      title: finalTitle || 'Discussion',
       participants: uniqueParticipants,
       admins: [user.uid],
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       messageCount: 0,
+      ...(companyId ? { companyId } : {}),
+      ...optionExtra,
       ...extraData
     });
 
@@ -273,6 +484,63 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
       const { increment, arrayUnion } = await import('firebase/firestore');
       const convRef = doc(db, 'conversations', conversationId);
 
+      const conversation = conversations.find(c => c.id === conversationId);
+      const convSnap = await getDoc(convRef);
+      const convLive = convSnap.exists() ? convSnap.data() : null;
+      const companyIdFromCache =
+        typeof conversation?.companyId === 'string'
+          ? conversation.companyId
+          : typeof convLive?.companyId === 'string'
+            ? convLive.companyId
+            : null;
+      const clientUidFromCache =
+        typeof conversation?.clientUid === 'string'
+          ? conversation.clientUid
+          : typeof convLive?.clientUid === 'string'
+            ? convLive.clientUid
+            : null;
+      const sellerUidFromCache =
+        typeof conversation?.sellerUid === 'string'
+          ? conversation.sellerUid
+          : typeof convLive?.sellerUid === 'string'
+            ? convLive.sellerUid
+            : null;
+      const parsedClientUid =
+        clientUidFromCanonicalId(conversationId, companyIdFromCache) || clientUidFromCache;
+      const parsedCompanyId =
+        companyIdFromCache ||
+        (parsedClientUid && conversationId.endsWith(`_${parsedClientUid}`)
+          ? conversationId.slice(0, conversationId.length - parsedClientUid.length - 1)
+          : null);
+
+      const participantIds = [
+        user.uid,
+        parsedClientUid,
+        parsedCompanyId,
+        sellerUidFromCache,
+      ].filter(
+        (id, i, arr): id is string => Boolean(id) && arr.indexOf(id) === i,
+      );
+
+      const senderLooksLikeSeller =
+        user.uid === parsedCompanyId ||
+        user.uid === conversation?.companyId ||
+        user.uid === sellerUidFromCache;
+      const clientUidToPersist =
+        parsedClientUid && (!senderLooksLikeSeller || parsedClientUid !== user.uid)
+          ? parsedClientUid
+          : null;
+
+      const unreadTargets = new Set(
+        [
+          ...(Array.isArray(conversation?.participants) ? conversation.participants : []),
+          ...(Array.isArray(convLive?.participants) ? convLive.participants : []),
+          parsedClientUid,
+          parsedCompanyId,
+          sellerUidFromCache,
+        ].filter((id): id is string => Boolean(id) && id !== user.uid),
+      );
+
       const updateData: Record<string, any> = {
         id: conversationId,
         lastMessage: safeText,
@@ -281,15 +549,15 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
         updatedAt: serverTimestamp(),
         [`unreadCount.${user.uid}`]: 0,
         messageCount: increment(1),
-        participants: arrayUnion(user.uid),
+        participants: arrayUnion(...participantIds),
+        ...(clientUidToPersist ? { clientUid: clientUidToPersist } : {}),
+        ...(parsedCompanyId ? { companyId: parsedCompanyId } : {}),
+        ...(sellerUidFromCache ? { sellerUid: sellerUidFromCache } : {}),
       };
 
-      const conversation = conversations.find(c => c.id === conversationId);
-      if (conversation?.participants) {
-        conversation.participants
-          .filter(p => p !== user.uid)
-          .forEach(id => { updateData[`unreadCount.${id}`] = increment(1); });
-      }
+      unreadTargets.forEach((id) => {
+        updateData[`unreadCount.${id}`] = increment(1);
+      });
 
       // UTILISATION DE setDoc AVEC MERGE AU LIEU DE updateDoc POUR ÉVITER L'ERREUR DE DOCUMENT MANQUANT
       await setDoc(convRef, updateData, { merge: true });

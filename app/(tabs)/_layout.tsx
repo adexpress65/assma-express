@@ -17,6 +17,8 @@ import { Image } from "expo-image";
 import { LinearGradient } from 'expo-linear-gradient';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../../src/config/firebase';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { useRequireAuth } from '../../src/contexts/AuthGuardContext';
 import { getCategories } from '../../src/services/firebase/categoriesService';
 import { useTranslation } from 'react-i18next';
 
@@ -26,6 +28,8 @@ export default function TabsLayout() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
+  const { requireAuth } = useRequireAuth();
 
   const [showFlash, setShowFlash] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
@@ -194,6 +198,13 @@ useEffect(() => {
             tabBarLabel: t('app.tabs.messages'),
             tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" size={size} color={color} />,
           }}
+          listeners={{
+            tabPress: (e) => {
+              if (authLoading || user) return;
+              e.preventDefault();
+              requireAuth({ reason: 'messages', href: '/(tabs)/messages' });
+            },
+          }}
         />
         <Tabs.Screen
           name="account"
@@ -201,6 +212,13 @@ useEffect(() => {
             title: t('app.tabs.account'),
             tabBarLabel: t('app.tabs.account'),
             tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
+          }}
+          listeners={{
+            tabPress: (e) => {
+              if (authLoading || user) return;
+              e.preventDefault();
+              requireAuth({ reason: 'account', href: '/(tabs)/account' });
+            },
           }}
         />
       </Tabs>

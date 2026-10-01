@@ -40,14 +40,15 @@ function formatWhen(d: Date | null): string {
 
 export default function SuperAdminSupportScreen() {
   const router = useRouter();
-  const { user, isSuperAdmin } = useAuth();
+  const { user, isSuperAdmin, isAdmin } = useAuth();
+  const isOperationalStaff = isSuperAdmin || isAdmin;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [tickets, setTickets] = useState<SupportTicketRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (isRefresh = false) => {
-    if (!user || !isSuperAdmin) return;
+      if (!user || !isOperationalStaff) return;
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
@@ -62,20 +63,20 @@ export default function SuperAdminSupportScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, isSuperAdmin]);
+  }, [user, isOperationalStaff]);
 
   useEffect(() => {
     if (!user) {
       router.replace("/");
       return;
     }
-    if (!isSuperAdmin) {
-      Alert.alert("Accès refusé", "Réservé aux super-administrateurs.");
+    if (!isOperationalStaff) {
+      Alert.alert("Accès refusé", "Réservé aux administrateurs.");
       router.back();
       return;
     }
     void load(false);
-  }, [user, isSuperAdmin, load, router]);
+  }, [user, isOperationalStaff, load, router]);
 
   const onMarkResolved = (row: SupportTicketRow) => {
     Alert.alert(

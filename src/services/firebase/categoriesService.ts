@@ -41,10 +41,14 @@ export const getCategories = async (opts?: { force?: boolean }): Promise<Categor
         [data.name, data.name_zh, data.name_zh_CN, data.label, data.title].find(
           (v) => typeof v === "string" && String(v).trim().length > 0,
         ) ?? "";
+      const imageRaw =
+        [data.image, data.imageUrl, data.coverImage].find(
+          (v) => typeof v === "string" && String(v).trim().length > 0,
+        ) ?? "";
       categories.push({
         id: doc.id,
         name: String(nameRaw).trim(),
-        image: (data.image as string) || "",
+        image: String(imageRaw).trim(),
         productCount: Number(data.productCount) || 0,
         name_en: typeof data.name_en === "string" ? data.name_en : undefined,
         name_fr: typeof data.name_fr === "string" ? data.name_fr : undefined,

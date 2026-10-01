@@ -18,7 +18,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ---------- CONFIG ----------
-const firebaseConfig = {
+export const firebaseWebConfig = {
   apiKey: "AIzaSyDRl3TmG0xLlkSXCEEaFsgQ8m97wcT0xi0",
   authDomain: "assma-expresse.firebaseapp.com",
   projectId: "assma-expresse",
@@ -26,6 +26,8 @@ const firebaseConfig = {
   messagingSenderId: "251188713496",
   appId: "1:251188713496:web:65a63cba1a7be091dc0b6d"
 };
+
+const firebaseConfig = firebaseWebConfig;
 
 // ---------- APP INITIALIZATION ----------
 // On vérifie si l'application est déjà initialisée pour éviter les crashs au rechargement (Hot Reload)

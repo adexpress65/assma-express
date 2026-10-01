@@ -1,23 +1,17 @@
-import { View, ActivityIndicator } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 export default function Index() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
 
+  // Redirection dès le premier effet : un aller-retour de state en plus retardait
+  // la navigation d'un cycle de render complet.
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
     router.replace('/intro');
-  }, [mounted]);
+  }, [router]);
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <ActivityIndicator size="large" />
-    </View>
+    <View style={{ flex: 1, backgroundColor: '#ffffff' }} />
   );
 }

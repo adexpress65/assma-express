@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
@@ -16,20 +16,30 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword,
   sendPasswordResetEmail,
   UserCredential,
   GoogleAuthProvider,
   signInWithCredential,
-  FacebookAuthProvider,
   OAuthProvider
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../../config/firebase';
+import { auth } from '../../config/firebase';
+import { useAuth } from '@/contexts/AuthContext';
+import { getUserDisplayLabel } from '@/utils/userIdentity';
+import {
+  DEFAULT_PHONE_COUNTRY,
+  formatE164ForDisplay,
+  isValidE164,
+  PHONE_COUNTRIES,
+  toE164,
+  type PhoneCountry,
+} from '@/utils/phoneE164';
+import {
+  FirebaseRecaptchaVerifierModal,
+  isRecaptchaCancelled,
+  type FirebaseRecaptchaVerifierRef,
+} from '@/components/auth/FirebaseRecaptchaVerifierModal';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import * as Facebook from 'expo-auth-session/providers/facebook';
 import * as AppleAuthentication from 'expo-apple-authentication';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -38,35 +48,15 @@ interface LoginModalProps {
   visible: boolean;
   onClose: () => void;
   onLoginSuccess?: () => void;
-}
-
-interface UserData {
-  uid: string;
-  email: string | null;
-  displayName: string;
-  role: string;
-  createdAt: Date;
-  updatedAt: Date;
-  isActive: boolean;
-  lastLogin: Date;
-  profileCompleted: boolean;
-  preferences?: {
-    notifications: boolean;
-    newsletter: boolean;
-  };
+  /** Message contextuel (ex. action bloquée en mode invité). */
+  infoMessage?: string;
+  initialMode?: 'login' | 'register';
 }
 
 type FirebaseError = {
   code: string;
   message: string;
 };
-
-const USER_ROLES = {
-  CLIENT: 'client',
-  ADMIN: 'admin',
-  SUPER_ADMIN: 'super_admin',
-  SELLER: 'seller'
-} as const;
 
 const ERROR_MESSAGES = {
   INVALID_EMAIL: {
@@ -89,38 +79,44 @@ const ERROR_MESSAGES = {
     title: 'Mot de passe faible',
     message: 'Le mot de passe doit contenir au moins 6 caractères.'
   },
+  INVALID_PHONE: {
+    title: 'Numéro invalide',
+    message: 'Saisissez un numéro valide avec l’indicatif pays.'
+  },
+  INVALID_OTP: {
+    title: 'Code incorrect',
+    message: 'Le code SMS à 6 chiffres est invalide ou a expiré.'
+  },
+  SMS_BLOCKED: {
+    title: 'SMS indisponible',
+    message:
+      'Firebase a refusé l’envoi du SMS (quota, protection anti-abus ou pays non desservi). Utilisez un numéro de test dans Authentication > Sign-in method > Phone, ou réessayez plus tard.',
+  },
   DEFAULT: {
     title: 'Erreur',
     message: 'Une erreur est survenue. Veuillez réessayer.'
   }
 } as const;
 
-const createUserProfile = async (userCredential: UserCredential): Promise<void> => {
-  const { user } = userCredential;
-  const userDocRef = doc(db, 'users', user.uid);
-  
-  const userData: UserData = {
-    uid: user.uid,
-    email: user.email,
-    displayName: user.displayName || user.email?.split('@')[0] || 'Utilisateur',
-    role: USER_ROLES.CLIENT,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    isActive: true,
-    lastLogin: new Date(),
-    profileCompleted: false,
-    preferences: {
-      notifications: true,
-      newsletter: false
-    }
-  };
+const OTP_COOLDOWN_SECONDS = 60;
 
-  await setDoc(userDocRef, userData);
-  console.log('ℹ️ Nouveau profil créé avec rôle: client');
+const isSmsBlockedError = (error: { code?: string; message?: string }): boolean => {
+  const code = String(error?.code ?? '');
+  const message = String(error?.message ?? '');
+  return (
+    code === 'auth/error-code:-39' ||
+    /error-code:-39/i.test(code) ||
+    /error-code:-39/i.test(message) ||
+    /error code:\s*-?39/i.test(message)
+  );
 };
 
 const getFirebaseErrorMessage = (error: FirebaseError): { title: string; message: string } => {
   const { code, message } = error;
+
+  if (isSmsBlockedError(error)) {
+    return ERROR_MESSAGES.SMS_BLOCKED;
+  }
 
   switch (code) {
     case 'auth/email-already-in-use':
@@ -139,6 +135,19 @@ const getFirebaseErrorMessage = (error: FirebaseError): { title: string; message
       return { title: 'Erreur réseau', message: 'Vérifiez votre connexion internet.' };
     case 'auth/too-many-requests':
       return { title: 'Trop de tentatives', message: 'Veuillez réessayer dans quelques minutes.' };
+    case 'auth/invalid-phone-number':
+    case 'auth/missing-phone-number':
+      return ERROR_MESSAGES.INVALID_PHONE;
+    case 'auth/invalid-verification-code':
+    case 'auth/invalid-verification-id':
+    case 'auth/missing-verification-code':
+    case 'auth/code-expired':
+    case 'auth/session-expired':
+      return ERROR_MESSAGES.INVALID_OTP;
+    case 'auth/captcha-check-failed':
+      return { title: 'Vérification', message: 'La vérification de sécurité a échoué. Réessayez.' };
+    case 'auth/quota-exceeded':
+      return { title: 'SMS indisponible', message: 'Quota SMS atteint. Réessayez plus tard.' };
     default:
       console.warn('Code d\'erreur Firebase non géré:', code, message);
       return { title: ERROR_MESSAGES.DEFAULT.title, message: message || ERROR_MESSAGES.DEFAULT.message };
@@ -150,13 +159,30 @@ const validateEmail = (email: string): boolean => {
   return emailRegex.test(email);
 };
 
-export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginModalProps) {
-  const [isLogin, setIsLogin] = useState<boolean>(true);
+export default function LoginModal({
+  visible,
+  onClose,
+  onLoginSuccess,
+  infoMessage,
+  initialMode = 'login',
+}: LoginModalProps) {
+  const { login, register, sendPhoneCode, confirmPhoneCode, completePhoneProfile, clearPhoneChallenge } = useAuth();
+  const recaptchaRef = useRef<FirebaseRecaptchaVerifierRef>(null);
+  const [isLogin, setIsLogin] = useState<boolean>(initialMode !== 'register');
+  const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
+  const [phoneStep, setPhoneStep] = useState<'number' | 'otp' | 'profile'>('number');
+  const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>(DEFAULT_PHONE_COUNTRY);
+  const [phoneLocal, setPhoneLocal] = useState('');
+  const [phoneE164, setPhoneE164] = useState('');
+  const [phoneFullName, setPhoneFullName] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpCooldown, setOtpCooldown] = useState(0);
+  const [countryPickerVisible, setCountryPickerVisible] = useState(false);
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [confirmPassword, setConfirmPassword] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
-  const [socialLoading, setSocialLoading] = useState<'google' | 'facebook' | 'apple' | null>(null);
+  const [socialLoading, setSocialLoading] = useState<'google' | 'apple' | null>(null);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [forgotPasswordMode, setForgotPasswordMode] = useState<boolean>(false);
   const [slideAnim] = useState<Animated.Value>(new Animated.Value(0));
@@ -168,12 +194,9 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     webClientId: 'VOTRE_CLIENT_ID_WEB_GOOGLE',
   });
 
-  const [facebookRequest, facebookResponse, facebookPromptAsync] = Facebook.useAuthRequest({
-    clientId: 'VOTRE_CLIENT_ID_FACEBOOK',
-  });
-
   React.useEffect(() => {
     if (visible) {
+      setIsLogin(initialMode !== 'register');
       Animated.timing(slideAnim, {
         toValue: 1,
         duration: 300,
@@ -182,7 +205,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     } else {
       slideAnim.setValue(0);
     }
-  }, [visible, slideAnim]);
+  }, [visible, slideAnim, initialMode]);
 
   React.useEffect(() => {
     if (googleResponse?.type === 'success') {
@@ -190,11 +213,11 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
   }, [googleResponse]);
 
-  React.useEffect(() => {
-    if (facebookResponse?.type === 'success') {
-      handleFacebookSignIn(facebookResponse.authentication?.accessToken);
-    }
-  }, [facebookResponse]);
+  useEffect(() => {
+    if (otpCooldown <= 0) return;
+    const id = setTimeout(() => setOtpCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [otpCooldown]);
 
   const slideUp = {
     transform: [{
@@ -213,6 +236,16 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     setLoading(false);
     setSocialLoading(null);
     setForgotPasswordMode(false);
+    setAuthMethod('email');
+    setPhoneStep('number');
+    setPhoneCountry(DEFAULT_PHONE_COUNTRY);
+    setPhoneLocal('');
+    setPhoneE164('');
+    setPhoneFullName('');
+    setOtpCode('');
+    setOtpCooldown(0);
+    setCountryPickerVisible(false);
+    clearPhoneChallenge();
   };
 
   const validateForm = (): boolean => {
@@ -243,19 +276,6 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     } catch (error: any) {
       console.error('⚠️ Erreur Google Sign-In:', error);
       Alert.alert('Erreur', 'Échec de la connexion avec Google');
-      setSocialLoading(null);
-    }
-  };
-
-  const handleFacebookSignIn = async (accessToken: string | undefined) => {
-    if (!accessToken) return;
-    try {
-      const credential = FacebookAuthProvider.credential(accessToken);
-      const userCredential = await signInWithCredential(auth, credential);
-      handleAuthSuccess(userCredential, 'Facebook');
-    } catch (error: any) {
-      console.error('⚠️ Erreur Facebook Sign-In:', error);
-      Alert.alert('Erreur', 'Échec de la connexion avec Facebook');
       setSocialLoading(null);
     }
   };
@@ -293,8 +313,13 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
   };
 
   const handleAuthSuccess = (userCredential: UserCredential, provider: string) => {
-    console.log(`ℹ️ Connexion réussie avec ${provider}:`, userCredential.user.email);
-    Alert.alert('Connexion réussie', `Bienvenue ${userCredential.user.email || 'Utilisateur'} !`);
+    const welcome = getUserDisplayLabel({
+      displayName: userCredential.user.displayName,
+      email: userCredential.user.email,
+      phoneNumber: userCredential.user.phoneNumber,
+    });
+    console.log(`ℹ️ Connexion réussie avec ${provider}:`, welcome);
+    Alert.alert('Connexion réussie', `Bienvenue ${welcome} !`);
     resetForm();
     onClose();
     onLoginSuccess?.();
@@ -303,25 +328,34 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
   const handleLogin = async (): Promise<void> => {
     console.log('🔄 Tentative de connexion:', email);
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      handleAuthSuccess(userCredential, 'Email');
+      await login(email, password);
+      Alert.alert(
+        'Connexion réussie',
+        `Bienvenue ${getUserDisplayLabel({ email, displayName: null, phoneNumber: null })} !`,
+      );
+      resetForm();
+      onClose();
+      onLoginSuccess?.();
     } catch (error: any) {
       console.error('⚠️ Erreur de connexion:', error);
       const { title, message } = getFirebaseErrorMessage(error);
-      Alert.alert(title, message);
+      Alert.alert(title, error?.message || message);
     }
   };
 
   const handleRegister = async (): Promise<void> => {
     console.log('🔄 Tentative d\'inscription:', email);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await createUserProfile(userCredential);
-      handleAuthSuccess(userCredential, 'Email');
+      const displayName = getUserDisplayLabel({ email, displayName: null, phoneNumber: null });
+      await register(email, password, displayName, 'customer');
+      Alert.alert('Inscription réussie', `Bienvenue ${displayName} !`);
+      resetForm();
+      onClose();
+      onLoginSuccess?.();
     } catch (error: any) {
       console.error('⚠️ Erreur d\'inscription:', error);
       const { title, message } = getFirebaseErrorMessage(error);
-      Alert.alert(title, message);
+      Alert.alert(title, error?.message || message);
     }
   };
 
@@ -377,13 +411,93 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
     }
   };
 
-  const handleSocialLogin = async (provider: 'google' | 'facebook' | 'apple') => {
+  const finishPhoneAuth = (e164: string, displayName?: string) => {
+    const welcome = displayName?.trim() || formatE164ForDisplay(e164);
+    Alert.alert('Connexion réussie', `Bienvenue ${welcome} !`);
+    resetForm();
+    onClose();
+    onLoginSuccess?.();
+  };
+
+  const handleSendPhoneCode = async (isResend = false): Promise<void> => {
+    const e164 = isResend ? phoneE164 : toE164(phoneCountry.dial, phoneLocal);
+    if (!isValidE164(e164, isResend ? undefined : phoneCountry)) {
+      Alert.alert(
+        ERROR_MESSAGES.INVALID_PHONE.title,
+        `Saisissez un numéro ${phoneCountry.name} valide (${phoneCountry.minLocal} chiffres).`,
+      );
+      return;
+    }
+    const verifier = recaptchaRef.current;
+    if (!verifier) {
+      Alert.alert('Erreur', 'Vérification de sécurité indisponible. Réessayez.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await sendPhoneCode(e164, verifier);
+      setPhoneE164(e164);
+      setPhoneStep('otp');
+      setOtpCode('');
+      setOtpCooldown(OTP_COOLDOWN_SECONDS);
+    } catch (error: unknown) {
+      if (isRecaptchaCancelled(error)) {
+        return;
+      }
+      const firebaseError = error as FirebaseError;
+      const { title, message } = getFirebaseErrorMessage(firebaseError);
+      Alert.alert(title, message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmPhoneCode = async (): Promise<void> => {
+    const code = otpCode.replace(/\D/g, '');
+    if (code.length !== 6) {
+      Alert.alert('Code incomplet', 'Saisissez le code SMS à 6 chiffres.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { needsProfileName } = await confirmPhoneCode(code);
+      if (needsProfileName) {
+        setPhoneStep('profile');
+        return;
+      }
+      finishPhoneAuth(phoneE164);
+    } catch (error: any) {
+      const { title, message } = getFirebaseErrorMessage(error);
+      Alert.alert(title, error?.message || message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompletePhoneProfile = async (): Promise<void> => {
+    const trimmed = phoneFullName.trim().replace(/\s+/g, ' ');
+    if (trimmed.length < 2) {
+      Alert.alert('Nom requis', 'Saisissez votre nom et prénom.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await completePhoneProfile(trimmed);
+      finishPhoneAuth(phoneE164, trimmed);
+    } catch (error: any) {
+      const { title, message } = getFirebaseErrorMessage(error);
+      Alert.alert(title, error?.message || message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSocialLogin = async (provider: 'google' | 'apple') => {
     setSocialLoading(provider);
     try {
       if (provider === 'google') {
         await googlePromptAsync();
-      } else if (provider === 'facebook') {
-        await facebookPromptAsync();
       } else if (provider === 'apple') {
         await handleAppleSignIn();
       }
@@ -394,6 +508,7 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
   };
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -427,23 +542,37 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               <Text style={styles.title}>
                 {forgotPasswordMode
                   ? 'Mot de passe oublié'
-                  : isLogin
-                    ? 'Content de vous revoir ! 👋'
-                    : 'Rejoignez A2Express 🚀'}
+                  : authMethod === 'phone'
+                    ? phoneStep === 'otp'
+                      ? 'Code SMS'
+                      : phoneStep === 'profile'
+                        ? 'Compléter votre profil'
+                        : 'Connexion par téléphone'
+                    : isLogin
+                      ? 'Content de vous revoir ! 👋'
+                      : 'Rejoignez A2Express 🚀'}
               </Text>
               <Text style={styles.subtitle}>
                 {forgotPasswordMode
                   ? 'Saisissez votre e-mail : nous vous enverrons un lien pour réinitialiser votre mot de passe.'
-                  : isLogin
-                    ? 'Connectez-vous pour accéder à votre compte'
-                    : 'Créez votre compte en quelques secondes'}
+                  : infoMessage && phoneStep !== 'profile'
+                    ? infoMessage
+                    : authMethod === 'phone'
+                      ? phoneStep === 'otp'
+                        ? `Code envoyé au ${formatE164ForDisplay(phoneE164)}`
+                        : phoneStep === 'profile'
+                          ? 'Indiquez votre nom et prénom pour vos commandes'
+                          : 'Recevez un code à 6 chiffres par SMS'
+                      : isLogin
+                        ? 'Connectez-vous pour accéder à votre compte'
+                        : 'Créez votre compte en quelques secondes'}
               </Text>
             </Animated.View>
           </View>
 
           {/* FORMULAIRE */}
           <Animated.View style={[styles.form, slideUp]}>
-            {!forgotPasswordMode && (
+            {!forgotPasswordMode && phoneStep !== 'otp' && phoneStep !== 'profile' && (
               <>
                 <View style={styles.socialButtonsContainer}>
                   <TouchableOpacity 
@@ -461,27 +590,12 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                     )}
                   </TouchableOpacity>
 
-                  <TouchableOpacity 
-                    style={[styles.socialButton, styles.facebookButton]}
-                    onPress={() => handleSocialLogin('facebook')}
-                    disabled={socialLoading !== null}
-                  >
-                    {socialLoading === 'facebook' ? (
-                      <ActivityIndicator size="small" color="#4267B2" />
-                    ) : (
-                      <>
-                        <Ionicons name="logo-facebook" size={24} color="#4267B2" />
-                        <Text style={styles.socialButtonText}>Facebook</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
                   {Platform.OS === 'ios' && (
                     <AppleAuthentication.AppleAuthenticationButton
                       buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
                       buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
                       cornerRadius={8}
-                      style={{ width: '31%', height: 48 }}
+                      style={{ flex: 1, height: 48 }}
                       onPress={async () => {
                         await handleSocialLogin('apple');
                       }}
@@ -497,6 +611,49 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
               </>
             )}
 
+            {!forgotPasswordMode && phoneStep !== 'profile' && (
+              <View style={styles.methodTabs}>
+                <TouchableOpacity
+                  style={[styles.methodTab, authMethod === 'email' && styles.methodTabActive]}
+                  onPress={() => {
+                    setAuthMethod('email');
+                    setPhoneStep('number');
+                    setOtpCode('');
+                    clearPhoneChallenge();
+                  }}
+                  disabled={loading}
+                >
+                  <Ionicons
+                    name="mail-outline"
+                    size={16}
+                    color={authMethod === 'email' ? '#FF6B00' : '#666'}
+                  />
+                  <Text style={[styles.methodTabText, authMethod === 'email' && styles.methodTabTextActive]}>
+                    E-mail
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.methodTab, authMethod === 'phone' && styles.methodTabActive]}
+                  onPress={() => {
+                    setAuthMethod('phone');
+                    setForgotPasswordMode(false);
+                  }}
+                  disabled={loading}
+                >
+                  <Ionicons
+                    name="call-outline"
+                    size={16}
+                    color={authMethod === 'phone' ? '#FF6B00' : '#666'}
+                  />
+                  <Text style={[styles.methodTabText, authMethod === 'phone' && styles.methodTabTextActive]}>
+                    Numéro
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {authMethod === 'email' && (
+            <>
             {/* EMAIL */}
             <View style={styles.inputContainer}>
               <Text style={styles.label}>
@@ -654,10 +811,205 @@ export default function LoginModal({ visible, onClose, onLoginSuccess }: LoginMo
                 </View>
               </>
             )}
+            </>
+            )}
+
+            {authMethod === 'phone' && !forgotPasswordMode && phoneStep === 'number' && (
+              <>
+                <Text style={styles.label}>
+                  <Ionicons name="call-outline" size={16} color="#666" /> Numéro de téléphone
+                </Text>
+                <View style={styles.phoneRow}>
+                  <TouchableOpacity
+                    style={styles.dialButton}
+                    onPress={() => setCountryPickerVisible(true)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.dialCode}>+{phoneCountry.dial}</Text>
+                    <Ionicons name="chevron-down" size={16} color="#666" />
+                  </TouchableOpacity>
+                  <TextInput
+                    style={[styles.input, styles.phoneInput]}
+                    placeholder={phoneCountry.iso === 'ML' ? '70 12 34 56' : 'Numéro'}
+                    placeholderTextColor="#999"
+                    value={phoneLocal}
+                    onChangeText={setPhoneLocal}
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
+                    editable={!loading}
+                  />
+                </View>
+                <Text style={styles.phoneHint}>
+                  Indicatif {phoneCountry.name} (+{phoneCountry.dial}) — format international
+                </Text>
+                <TouchableOpacity
+                  style={[styles.authButton, loading && styles.authButtonDisabled]}
+                  onPress={() => handleSendPhoneCode(false)}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <View style={styles.buttonContent}>
+                      <Ionicons name="chatbubble-ellipses-outline" size={20} color="#FFF" />
+                      <Text style={styles.authButtonText}>Envoyer le code</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
+
+            {authMethod === 'phone' && !forgotPasswordMode && phoneStep === 'otp' && (
+              <>
+                <Text style={styles.label}>Code à 6 chiffres</Text>
+                <View style={styles.otpWrap}>
+                  <View style={styles.otpRow} pointerEvents="none">
+                    {Array.from({ length: 6 }, (_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.otpBox,
+                          otpCode.length === i && styles.otpBoxActive,
+                          otpCode[i] ? styles.otpBoxFilled : null,
+                        ]}
+                      >
+                        <Text style={styles.otpDigit}>{otpCode[i] || ''}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <TextInput
+                    style={styles.otpHiddenInput}
+                    value={otpCode}
+                    onChangeText={(text) => setOtpCode(text.replace(/\D/g, '').slice(0, 6))}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    autoFocus
+                    textContentType="oneTimeCode"
+                    autoComplete="sms-otp"
+                    caretHidden
+                    editable={!loading}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[styles.authButton, loading && styles.authButtonDisabled]}
+                  onPress={handleConfirmPhoneCode}
+                  disabled={loading || otpCode.length !== 6}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <View style={styles.buttonContent}>
+                      <Ionicons name="checkmark-circle-outline" size={20} color="#FFF" />
+                      <Text style={styles.authButtonText}>Valider le code</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                {otpCooldown > 0 ? (
+                  <Text style={styles.cooldownText}>
+                    Renvoyer le SMS dans {otpCooldown} s
+                  </Text>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.switchContainer}
+                    onPress={() => handleSendPhoneCode(true)}
+                    disabled={loading}
+                  >
+                    <Text style={styles.switchLink}>Renvoyer le code</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.switchContainer}
+                  onPress={() => {
+                    setPhoneStep('number');
+                    setOtpCode('');
+                    clearPhoneChallenge();
+                  }}
+                  disabled={loading}
+                >
+                  <Text style={styles.switchText}>
+                    <Text style={styles.switchLink}>Changer de numéro</Text>
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {authMethod === 'phone' && !forgotPasswordMode && phoneStep === 'profile' && (
+              <>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>
+                    <Ionicons name="person-outline" size={16} color="#666" /> Saisissez votre Nom et Prénom
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Prénom Nom"
+                    placeholderTextColor="#999"
+                    value={phoneFullName}
+                    onChangeText={setPhoneFullName}
+                    autoCapitalize="words"
+                    autoComplete="name"
+                    textContentType="name"
+                    autoFocus
+                    editable={!loading}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={[styles.authButton, loading && styles.authButtonDisabled]}
+                  onPress={handleCompletePhoneProfile}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <View style={styles.buttonContent}>
+                      <Ionicons name="checkmark-circle-outline" size={20} color="#FFF" />
+                      <Text style={styles.authButtonText}>Terminer</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+    <FirebaseRecaptchaVerifierModal ref={recaptchaRef} attemptInvisibleVerification />
+    <Modal
+      visible={countryPickerVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setCountryPickerVisible(false)}
+    >
+      <TouchableOpacity
+        style={styles.pickerOverlay}
+        activeOpacity={1}
+        onPress={() => setCountryPickerVisible(false)}
+      >
+        <View style={styles.pickerCard}>
+          <Text style={styles.pickerTitle}>Indicatif pays</Text>
+          <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled">
+            {PHONE_COUNTRIES.map((country) => (
+              <TouchableOpacity
+                key={country.iso}
+                style={[
+                  styles.pickerRow,
+                  country.iso === phoneCountry.iso && styles.pickerRowActive,
+                ]}
+                onPress={() => {
+                  setPhoneCountry(country);
+                  setCountryPickerVisible(false);
+                }}
+              >
+                <Text style={styles.pickerIso}>{country.iso}</Text>
+                <Text style={styles.pickerName}>{country.name}</Text>
+                <Text style={styles.pickerDial}>+{country.dial}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+    </>
   );
 }
 
@@ -755,10 +1107,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   googleButton: {
-    backgroundColor: '#FFF',
-    borderColor: '#E0E0E0',
-  },
-  facebookButton: {
     backgroundColor: '#FFF',
     borderColor: '#E0E0E0',
   },
@@ -889,5 +1237,153 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#0277BD',
     fontWeight: '500',
+  },
+  methodTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#F4F4F5',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    gap: 4,
+  },
+  methodTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  methodTabActive: {
+    backgroundColor: '#FFF',
+  },
+  methodTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+  },
+  methodTabTextActive: {
+    color: '#FF6B00',
+  },
+  phoneRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  dialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#FAFAFA',
+  },
+  dialCode: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+  },
+  phoneInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  phoneHint: {
+    marginTop: 8,
+    marginBottom: 16,
+    fontSize: 12,
+    color: '#888',
+  },
+  otpWrap: {
+    position: 'relative',
+    marginBottom: 20,
+    marginTop: 8,
+  },
+  otpRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  otpBox: {
+    flex: 1,
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#F0F0F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FAFAFA',
+  },
+  otpBoxActive: {
+    borderColor: '#FF6B00',
+  },
+  otpBoxFilled: {
+    backgroundColor: '#FFF',
+  },
+  otpDigit: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1A1A1A',
+  },
+  otpHiddenInput: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.02,
+    color: 'transparent',
+    fontSize: 22,
+  },
+  cooldownText: {
+    textAlign: 'center',
+    color: '#666',
+    fontSize: 14,
+    paddingVertical: 16,
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  pickerCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    paddingVertical: 12,
+    maxHeight: 420,
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+    color: '#1A1A1A',
+  },
+  pickerList: {
+    paddingHorizontal: 8,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    gap: 10,
+  },
+  pickerRowActive: {
+    backgroundColor: '#FFF0E6',
+  },
+  pickerIso: {
+    width: 32,
+    fontWeight: '700',
+    color: '#FF6B00',
+  },
+  pickerName: {
+    flex: 1,
+    color: '#333',
+    fontSize: 15,
+  },
+  pickerDial: {
+    color: '#666',
+    fontWeight: '600',
   },
 });

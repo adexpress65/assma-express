@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   StyleSheet,
   StatusBar,
@@ -30,15 +29,31 @@ import {
   limit,
   query,
   orderBy,
-  where,
   startAfter,
-  type QueryDocumentSnapshot,
+  where,
 } from "firebase/firestore";
 import { db } from "../../src/config/firebase";
 import {
   fetchCompanyDisplayNameMap,
   resolveSupplierLabels,
 } from "../../src/utils/companyDisplayName";
+import {
+  EMPTY_HOME_DATA,
+  fetchHomeFeed,
+  getFreeProductsSnapshot,
+  getHomeDataSnapshot,
+  isActiveProductDoc,
+  normalizeProduct,
+  primeHomeFeedCache,
+  shuffleArray,
+  takeHomeFeedPrefetch,
+  writeFreeProductsCache,
+  writeHomeFeedCache,
+  isHomeCacheStale,
+  type HomeDataState,
+  type HomeFeedResult,
+  type Product,
+} from "../../src/services/homeFeedService";
 import { getLocalizedProductText } from "../../src/utils/productLocale";
 import { useTranslation } from "react-i18next";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -55,7 +70,6 @@ import PremiumHeader, {
 import AnimatedQuickActions from "../../src/components/premium/AnimatedQuickActions";
 import FreeProductsSection from "../../src/components/premium/FreeProductsSection";
 import HeroBanner from "../../src/components/premium/HeroBanner";
-import PremiumSpecialOffers from "../../src/components/premium/PremiumSpecialOffers";
 import CategoryGridPremium from "../../src/components/premium/CategoryGridPremium";
 import ProductCardPremium from "../../src/components/premium/ProductCardPremium";
 import { isZeroDollarsShop } from "../../src/utils/zeroDollarsShop";
@@ -65,6 +79,10 @@ import PremiumAdBanner from "../../src/components/premium/PremiumAdBanner";
 import PremiumSuppliersSection from "../../src/components/premium/PremiumSuppliersSection";
 import FloatingCartButton from "../../src/components/premium/FloatingCartButton";
 import { warmVisualSearchIndex } from "../../src/services/visualSearchService";
+import {
+  getCategories,
+  type Category,
+} from "../../src/services/firebase/categoriesService";
 import { useCurrency } from "../../src/contexts/CurrencyContext";
 import { captureException } from "../../src/utils/errorReporting";
 import {
@@ -79,19 +97,12 @@ const HEADER_TOP_SPACER = 10;
 const HEADER_BACKGROUND = "#ff7a00";
 /** Taille des pages suivantes (scroll infini). */
 const PAGE_SIZE = 20;
-/** Premier chargement du flux « populaires » : un peu plus large pour remplir l’écran. */
-const POPULAR_INITIAL_LIMIT = 24;
 const MAX_POPULAR_PRODUCTS = 200;
 const HOME_PREFETCH_BATCH = 40;
 const HOME_PREFETCH_NEAR_VIEWPORT = 12;
 const ULTRA_LOW_RAM_MAX_BYTES = 2.2 * 1024 * 1024 * 1024;
 const LOW_RAM_MAX_BYTES = 3 * 1024 * 1024 * 1024;
 const MID_RAM_MAX_BYTES = 5 * 1024 * 1024 * 1024;
-const HOME_CACHE_KEY = "premium-home-cache-v3";
-const HOME_CACHE_TTL_MS = 10 * 60 * 1000;
-const FREE_CACHE_KEY = "premium-free-cache-v1";
-/** Aligné sur `shop/zero-dollars` : prix 0 ou 1 FCFA, affichés du plus récent au plus ancien. */
-const ZERO_DOLLARS_FEED_LIMIT = 50;
 const FREE_DISPLAY_WINDOW = 10;
 /** Pas de 1 = moins de cartes qui changent d’un coup (moins de flash). */
 const FREE_ROTATION_STEP = 1;
@@ -185,55 +196,6 @@ function resolveListPerfConfig(
   };
 }
 
-function docCreatedMsSnap(d: QueryDocumentSnapshot): number {
-  const c = d.data()?.createdAt as
-    | { toMillis?: () => number }
-    | number
-    | undefined
-    | null;
-  if (c && typeof c === "object" && typeof c.toMillis === "function") {
-    return c.toMillis();
-  }
-  if (typeof c === "number") return c;
-  return 0;
-}
-
-/** Même critère que la page boutique Zéro $ : `price` ∈ {0, 1}, tri `createdAt` décroissant si l’index existe. */
-async function fetchZeroDollarsProductDocs(
-  maxDocs: number,
-): Promise<QueryDocumentSnapshot[]> {
-  try {
-    const q = query(
-      collection(db, "products"),
-      where("price", "in", [0, 1]),
-      orderBy("createdAt", "desc"),
-      limit(maxDocs),
-    );
-    const snap = await getDocs(q);
-    return snap.docs;
-  } catch (e) {
-    if (__DEV__) {
-      console.warn(
-        "[home] Zéro $ — requête avec orderBy indisponible, tri côté client",
-        e,
-      );
-    }
-    try {
-      const q2 = query(
-        collection(db, "products"),
-        where("price", "in", [0, 1]),
-        limit(Math.min(maxDocs * 3, 100)),
-      );
-      const snap = await getDocs(q2);
-      return [...snap.docs]
-        .sort((a, b) => docCreatedMsSnap(b) - docCreatedMsSnap(a))
-        .slice(0, maxDocs);
-    } catch {
-      return [];
-    }
-  }
-}
-
 // Configuration du rafraîchissement aléatoire
 // UX type marketplace (AliExpress-like): listes stables, pas de rotation auto agressive.
 const ENABLE_HOME_ROTATION = false;
@@ -242,6 +204,10 @@ const ROTATION_INTERVAL_MAX = 6000;
 /** Rotation section Zéro $ : ~45–60 s pour un rythme très calme. */
 const FREE_ROTATION_INTERVAL_MIN = 45_000;
 const FREE_ROTATION_INTERVAL_MAX = 60_000;
+/** Diffère l’index visuel (scan Firestore lourd) après le premier écran. */
+const VISUAL_INDEX_DEFER_MS = 4000;
+/** Scroll au-delà duquel on monte les sections sous le fold. */
+const BELOW_FOLD_SCROLL_PX = 64;
 const ROTATION_SECTIONS = [
   "featured",
   "trending",
@@ -250,73 +216,6 @@ const ROTATION_SECTIONS = [
   "industrial",
 ] as const;
 type RotationSection = (typeof ROTATION_SECTIONS)[number];
-
-// Types stricts
-interface Product {
-  id: string;
-  name: string;
-  price: number;
-  originalPrice?: number;
-  imageUrl?: string | null;
-  mainImage?: string | null;
-  images?: string[];
-  createdAt?: number | null;
-  rating: number;
-  stock: number;
-  supplier: string;
-  companyName?: string;
-  companyId?: string;
-  /** companyData.name sur le document Firestore produit */
-  embeddedCompanyName?: string;
-  minOrder: number;
-  deliveryTime: string;
-  isVerified: boolean;
-  featured?: boolean;
-  trending?: boolean;
-  specialOffer?: boolean;
-  newArrival?: boolean;
-  industrial?: boolean;
-  categoryName?: string;
-  categoryId?: string;
-  category?: string;
-  originalLink?: string;
-  hasFreeShipping?: boolean;
-  freeShippingBadge?: string | null;
-  rotationKey?: string;
-}
-
-interface HomeDataState {
-  featuredProducts: Product[];
-  trendingProducts: Product[];
-  specialOffers: Product[];
-  popularProducts: Product[];
-  newArrivals: Product[];
-  industrialMachines: Product[];
-  suppliersWithProducts: any[];
-  categories: Array<{ id: string; name: string; icon: string; color: string }>;
-  pools: {
-    featured: Product[];
-    trending: Product[];
-    offers: Product[];
-    newArrivals: Product[];
-    industrial: Product[];
-  };
-}
-
-const DEFAULT_CATEGORIES: HomeDataState["categories"] = [
-  { id: "1", name: "category.electronics", icon: "?", color: "#ff6a00" },
-  { id: "2", name: "category.clothing", icon: "??", color: "#4CAF50" },
-  { id: "3", name: "category.machinery", icon: "??", color: "#2196F3" },
-  { id: "4", name: "category.materials", icon: "??", color: "#9C27B0" },
-];
-
-const EMPTY_POOLS: HomeDataState["pools"] = {
-  featured: [],
-  trending: [],
-  offers: [],
-  newArrivals: [],
-  industrial: [],
-};
 
 // Cache pour les produits récemment affichés
 class RotationCache {
@@ -350,16 +249,6 @@ class RotationCache {
     this.cache.set(section, new Set());
   }
 }
-
-// Utilitaires
-const shuffleArray = <T,>(array: T[]): T[] => {
-  const newArr = [...array];
-  for (let i = newArr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
-  }
-  return newArr;
-};
 
 const getRandomInterval = () =>
   Math.floor(
@@ -537,7 +426,7 @@ const HorizontalProductCarousel = React.memo(
           scrollEventThrottle={16}
           contentContainerStyle={styles.carouselListContent}
           renderItem={renderCarouselItem}
-          initialNumToRender={4}
+          initialNumToRender={3}
           maxToRenderPerBatch={6}
           windowSize={5}
           removeClippedSubviews={Platform.OS === "android"}
@@ -897,17 +786,24 @@ export default function PremiumHomeScreen() {
   const lastPrefetchAnchorIndexRef = useRef(-1);
   const onEndReachedLockRef = useRef(false);
 
-  const [homeData, setHomeData] = useState<HomeDataState>({
-    featuredProducts: [],
-    trendingProducts: [],
-    specialOffers: [],
-    popularProducts: [],
-    newArrivals: [],
-    industrialMachines: [],
-    suppliersWithProducts: [],
-    categories: DEFAULT_CATEGORIES,
-    pools: EMPTY_POOLS,
-  });
+  /**
+   * Le cache disque est remonté en mémoire pendant le splash : on peint donc le premier
+   * frame avec les dernières sections connues, sans passer par un état vide.
+   */
+  const [homeData, setHomeData] = useState<HomeDataState>(
+    () => getHomeDataSnapshot() ?? EMPTY_HOME_DATA
+  );
+  /** Vrai si le premier render affichait déjà des produits : évite d'afficher les skeletons pour rien. */
+  const paintedFromCacheRef = useRef(homeData.popularProducts.length > 0);
+  const [homeCategories, setHomeCategories] = useState<Category[]>([]);
+  const [belowFoldReady, setBelowFoldReady] = useState(false);
+  const belowFoldReadyRef = useRef(false);
+
+  const revealBelowFold = useCallback(() => {
+    if (belowFoldReadyRef.current) return;
+    belowFoldReadyRef.current = true;
+    setBelowFoldReady(true);
+  }, []);
 
   useEffect(() => {
     const totalMemory =
@@ -947,8 +843,12 @@ export default function PremiumHomeScreen() {
   // Feed dédié (Firestore) : prix 0–1, tri récent → ancien
   const [zeroDollarsFeed, setZeroDollarsFeed] = useState<Product[]>([]);
   // Pool "0 dollars" basé sur les produits récents, + sélection affichée qui tourne souvent
-  const [freeProductsDisplayed, setFreeProductsDisplayed] = useState<Product[]>([]);
-  const freeProductsDisplayedIdsRef = useRef<Set<string>>(new Set());
+  const [freeProductsDisplayed, setFreeProductsDisplayed] = useState<Product[]>(
+    () => getFreeProductsSnapshot() ?? []
+  );
+  const freeProductsDisplayedIdsRef = useRef<Set<string>>(
+    new Set((getFreeProductsSnapshot() ?? []).map((p) => p.id))
+  );
   const freeZeroRotationOffsetRef = useRef(0);
   const prevFreePoolLenRef = useRef(0);
 
@@ -1001,62 +901,6 @@ export default function PremiumHomeScreen() {
       })),
     [homeData.categories, t]
   );
-
-  // Normalisation produit
-  const normalizeProduct = useCallback((doc: any): Product => {
-    const data = doc.data();
-    const companyData = data.companyData;
-    const embeddedFromSnapshot =
-      companyData &&
-      typeof companyData === "object" &&
-      typeof (companyData as { name?: string }).name === "string"
-        ? String((companyData as { name: string }).name).trim()
-        : "";
-    const name = data.name || "";
-    const rawCat = data.categoryName || data.category || "";
-    const cleanCategory =
-      rawCat === "Uncategorized" || rawCat === "uncategorized" ? "" : rawCat;
-
-    const createdAtMillis =
-      typeof data?.createdAt?.toMillis === "function"
-        ? data.createdAt.toMillis()
-        : (typeof data?.createdAt === "number" ? data.createdAt : null);
-
-    const catalogName = name.includes(".") ? t(name) : name;
-
-    return {
-      ...(typeof data === "object" && data ? data : {}),
-      id: doc.id,
-      name: catalogName,
-      price: Number(data.price) || 0,
-      originalPrice: Number(data.originalPrice) || Number(data.price),
-      imageUrl: data.mainImage || data.imageUrl || null,
-      mainImage: data.mainImage || data.imageUrl || null,
-      createdAt: createdAtMillis,
-      rating: data.rating || 0,
-      stock: data.stockQuantity || data.stock || 0,
-      supplier: data.supplier || data.companyName || "Fournisseur",
-      companyName: data.companyName || "",
-      companyId:
-        typeof data.companyId === "string" && data.companyId.trim() !== ""
-          ? data.companyId.trim()
-          : "",
-      embeddedCompanyName: embeddedFromSnapshot || undefined,
-      minOrder: data.minOrder || 1,
-      deliveryTime: data.deliveryTime || "N/A",
-      isVerified: data.isVerified || false,
-      featured: data.featured || false,
-      trending: data.trending || false,
-      specialOffer: data.specialOffer || false,
-      newArrival: data.newArrival || false,
-      industrial: data.industrial || false,
-      categoryId: data.categoryId || data.category || "",
-      categoryName: cleanCategory,
-      originalLink: data.originalLink || "",
-      hasFreeShipping: data.hasFreeShipping || false,
-      freeShippingBadge: data.freeShippingBadge || null,
-    };
-  }, [t]);
 
   // Rotation (identique)
   const rotateSection = useCallback(
@@ -1192,7 +1036,7 @@ export default function PremiumHomeScreen() {
       const stable = pool.slice(0, Math.min(FREE_DISPLAY_WINDOW, pool.length));
       setFreeProductsDisplayed(stable);
       freeProductsDisplayedIdsRef.current = new Set(stable.map((p) => p.id));
-      AsyncStorage.setItem(FREE_CACHE_KEY, JSON.stringify(stable)).catch(() => {});
+      writeFreeProductsCache(stable);
       return;
     }
 
@@ -1221,7 +1065,7 @@ export default function PremiumHomeScreen() {
       setFreeProductsDisplayed(next);
       freeProductsDisplayedIdsRef.current = new Set(next.map((p) => p.id));
 
-      AsyncStorage.setItem(FREE_CACHE_KEY, JSON.stringify(next)).catch(() => {});
+      writeFreeProductsCache(next);
     };
 
     pickNextFree();
@@ -1246,63 +1090,14 @@ export default function PremiumHomeScreen() {
   }, [freeProductsPool]);
 
   // ------------------------------------------------------------
-  // OPTIMISATION FIRESTORE : fetchSuppliersWithProducts refactoré
-  // ------------------------------------------------------------
-  const fetchSuppliersWithProducts = useCallback(async () => {
-    try {
-      const suppliersQuery = query(
-        collection(db, "companies"),
-        where("isVerified", "==", true),
-        limit(6)
-      );
-      const suppliersSnap = await getDocs(suppliersQuery);
-      if (suppliersSnap.empty) return [];
-
-      const suppliers = suppliersSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-
-      const supplierIds = suppliers.map((s) => s.id);
-      const productsQuery = query(
-        collection(db, "products"),
-        where("companyId", "in", supplierIds),
-        limit(18)
-      );
-      const productsSnap = await getDocs(productsQuery);
-
-      const productsBySupplier = new Map<string, Product[]>();
-      productsSnap.docs.forEach((doc) => {
-        const product = normalizeProduct(doc);
-        const companyId = doc.data().companyId;
-        if (companyId) {
-          if (!productsBySupplier.has(companyId)) {
-            productsBySupplier.set(companyId, []);
-          }
-          productsBySupplier.get(companyId)!.push(product);
-        }
-      });
-
-      const suppliersWithProducts = suppliers
-        .map((supplier) => ({
-          ...supplier,
-          products: (productsBySupplier.get(supplier.id) || []).slice(0, 3),
-          productCount: (productsBySupplier.get(supplier.id) || []).length,
-        }))
-        .filter((s) => s.productCount > 0);
-
-      return shuffleArray(suppliersWithProducts);
-    } catch (e) {
-      console.error("fetchSuppliersWithProducts error", e);
-      return [];
-    }
-  }, [normalizeProduct]);
-
-  // ------------------------------------------------------------
   // Chargement des données principales
   // ------------------------------------------------------------
+  /**
+   * Applique un feed au state. `pending` permet de réutiliser la requête déjà lancée
+   * pendant le splash (`startHomeFeedPrefetch`) au lieu d'en émettre une nouvelle.
+   */
   const fetchHomeData = useCallback(
-    async (isRefresh = true) => {
+    async (isRefresh = true, pending?: Promise<HomeFeedResult> | null) => {
       try {
         if (isRefresh) {
           setRefreshing(true);
@@ -1312,146 +1107,16 @@ export default function PremiumHomeScreen() {
           ROTATION_SECTIONS.forEach((section) => rotationCache.clear(section));
         }
 
-        const [
-          featS,
-          trendS,
-          popS,
-          newS,
-          suppliersWithProducts,
-          zeroDollarDocs,
-        ] = await Promise.all([
-          getDocs(
-            query(
-              collection(db, "products"),
-              where("featured", "==", true),
-              limit(24)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, "products"),
-              where("trending", "==", true),
-              limit(24)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, "products"),
-              orderBy("createdAt", "desc"),
-              limit(POPULAR_INITIAL_LIMIT)
-            )
-          ),
-          getDocs(
-            query(
-              collection(db, "products"),
-              where("newArrival", "==", true),
-              limit(20)
-            )
-          ),
-          fetchSuppliersWithProducts(),
-          fetchZeroDollarsProductDocs(ZERO_DOLLARS_FEED_LIMIT).catch(
-            (): QueryDocumentSnapshot[] => [],
-          ),
-        ]);
+        const result = await (pending ?? fetchHomeFeed(t));
 
-        const companyIdSet = new Set<string>();
-        const collectCompanyIds = (docs: typeof featS.docs) => {
-          docs.forEach((d) => {
-            const id = d.data()?.companyId;
-            if (typeof id === "string" && id.trim() !== "") {
-              companyIdSet.add(id.trim());
-            }
-          });
-        };
-        collectCompanyIds(featS.docs);
-        collectCompanyIds(trendS.docs);
-        collectCompanyIds(popS.docs);
-        collectCompanyIds(newS.docs);
-        zeroDollarDocs.forEach((d) => {
-          const id = d.data()?.companyId;
-          if (typeof id === "string" && id.trim() !== "") {
-            companyIdSet.add(id.trim());
-          }
-        });
-        suppliersWithProducts.forEach((s: { id?: string }) => {
-          if (typeof s?.id === "string" && s.id) companyIdSet.add(s.id);
-        });
-
-        const companyNameById = await fetchCompanyDisplayNameMap(
-          db,
-          [...companyIdSet]
-        );
-        companyNameByIdRef.current = companyNameById;
-
-        const mapProduct = (doc: (typeof featS.docs)[number]) =>
-          resolveSupplierLabels(normalizeProduct(doc), companyNameById);
-
-        const zeroPool = zeroDollarDocs.map((doc) => mapProduct(doc));
-        setZeroDollarsFeed(zeroPool);
-
-        const featuredPool = featS.docs.map((doc) => mapProduct(doc));
-        const trendingPool = trendS.docs.map((doc) => mapProduct(doc));
-        const newArrivalsPool = newS.docs.map((doc) => mapProduct(doc));
-        const allPopular = popS.docs.map((doc) => mapProduct(doc));
-
-        const suppliersWithProductsResolved = suppliersWithProducts.map(
-          (s: {
-            id?: string;
-            name?: string;
-            products?: Product[];
-            [key: string]: unknown;
-          }) => {
-            const resolved = resolveSupplierLabels(
-              {
-                supplier: String(s.name || ""),
-                companyName: s.name != null ? String(s.name) : undefined,
-                companyId: s.id,
-              },
-              companyNameById
-            );
-            return {
-              ...s,
-              name: resolved.supplier,
-              products: Array.isArray(s.products)
-                ? s.products.map((p) =>
-                    resolveSupplierLabels(p, companyNameById)
-                  )
-                : s.products,
-            };
-          }
-        );
-
-        setLastDoc(popS.docs[popS.docs.length - 1]);
-        setHasMore(popS.docs.length >= 20);
-
-        const nextHomeData: HomeDataState = {
-          featuredProducts: shuffleArray(featuredPool).slice(0, 20),
-          trendingProducts: shuffleArray(trendingPool),
-          specialOffers: [],
-          popularProducts: allPopular,
-          newArrivals: shuffleArray(newArrivalsPool).slice(0, 16),
-          industrialMachines: [],
-          suppliersWithProducts: suppliersWithProductsResolved,
-          categories: DEFAULT_CATEGORIES,
-          pools: {
-            featured: featuredPool,
-            trending: trendingPool,
-            offers: [],
-            newArrivals: newArrivalsPool,
-            industrial: [],
-          },
-        };
-
+        companyNameByIdRef.current = result.companyNameById;
+        setZeroDollarsFeed(result.zeroPool);
+        setLastDoc(result.lastDoc);
+        setHasMore(result.hasMore);
         setHomeFetchError(null);
-        setHomeData(nextHomeData);
+        setHomeData(result.home);
 
-        void AsyncStorage.setItem(
-          HOME_CACHE_KEY,
-          JSON.stringify({
-            timestamp: Date.now(),
-            data: nextHomeData,
-          })
-        ).catch(() => {});
+        writeHomeFeedCache(result.home);
       } catch (error) {
         captureException(error, {
           screen: "PremiumHome",
@@ -1465,68 +1130,55 @@ export default function PremiumHomeScreen() {
         setLoadingSections(false);
       }
     },
-    [normalizeProduct, fetchSuppliersWithProducts, rotationCache]
+    [t, rotationCache]
   );
 
-  // Chargement initial
+  // Chargement initial : cache mémoire (déjà peint) → prefetch du splash → réseau
   useEffect(() => {
     let isMounted = true;
     let cancelBgFetch: (() => void) | undefined;
 
     const bootstrapHome = async () => {
-      let shouldRefreshFromNetwork = true;
-
-      try {
-        const [freeRaw, raw] = await Promise.all([
-          AsyncStorage.getItem(FREE_CACHE_KEY),
-          AsyncStorage.getItem(HOME_CACHE_KEY),
-        ]);
-
-        if (freeRaw) {
-          try {
-            const parsed = JSON.parse(freeRaw) as Product[];
-            if (Array.isArray(parsed) && parsed.length > 0 && isMounted) {
-              setFreeProductsDisplayed(parsed);
-              freeProductsDisplayedIdsRef.current = new Set(parsed.map((p) => p.id));
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-
-        if (!raw) {
-          if (isMounted) setLoadingSections(true);
-          await fetchHomeData(false);
-          shouldRefreshFromNetwork = false;
-          return;
-        }
-
-        const parsed = JSON.parse(raw) as {
-          timestamp?: number;
-          data?: HomeDataState;
-        };
-
-        // Toujours réhydrater depuis le disque si présent (même TTL dépassé) : affichage immédiat, puis SWR dans finally.
-        if (isMounted && parsed?.data) {
-          setHomeData({
-            ...parsed.data,
-            categories: parsed.data.categories?.length
-              ? parsed.data.categories
-              : DEFAULT_CATEGORIES,
-            pools: parsed.data.pools || EMPTY_POOLS,
-          });
-          setLoadingSections(false);
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        if (shouldRefreshFromNetwork) {
-          const id = setTimeout(() => {
-            if (isMounted) void fetchHomeData(false);
-          }, 0);
-          cancelBgFetch = () => clearTimeout(id);
-        }
+      // Le préchargement du splash a déjà émis les requêtes : on se contente de l'attendre.
+      const pending = takeHomeFeedPrefetch();
+      if (pending) {
+        if (!paintedFromCacheRef.current) setLoadingSections(true);
+        await fetchHomeData(false, pending);
+        return;
       }
+
+      // Sinon, on s'assure que le cache disque est en mémoire avant de décider quoi afficher.
+      await primeHomeFeedCache();
+      if (!isMounted) return;
+
+      const cachedFree = getFreeProductsSnapshot();
+      if (cachedFree?.length) {
+        setFreeProductsDisplayed(cachedFree);
+        freeProductsDisplayedIdsRef.current = new Set(cachedFree.map((p) => p.id));
+      }
+
+      const cachedHome = getHomeDataSnapshot();
+      if (!cachedHome) {
+        setLoadingSections(true);
+        await fetchHomeData(false);
+        return;
+      }
+
+      // Réhydratation immédiate (même TTL dépassé), puis SWR.
+      // Le TTL est lu : un cache périmé ne doit jamais court-circuiter le refresh réseau.
+      setHomeData(cachedHome);
+      setLoadingSections(false);
+
+      const cacheIsStale = isHomeCacheStale();
+      if (cacheIsStale) {
+        void fetchHomeData(false);
+        return;
+      }
+
+      const id = setTimeout(() => {
+        if (isMounted) void fetchHomeData(false);
+      }, 0);
+      cancelBgFetch = () => clearTimeout(id);
     };
 
     void bootstrapHome();
@@ -1538,11 +1190,56 @@ export default function PremiumHomeScreen() {
   }, [fetchHomeData]);
 
   useEffect(() => {
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const task = InteractionManager.runAfterInteractions(() => {
-      void warmVisualSearchIndex();
+      timeoutId = setTimeout(() => {
+        if (!cancelled) void warmVisualSearchIndex();
+      }, VISUAL_INDEX_DEFER_MS);
+    });
+    return () => {
+      cancelled = true;
+      task.cancel();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
+
+  /**
+   * Une seule lecture catégories au départ : alimente CategoryGridPremium
+   * et précharge les vignettes (sans 2e getDocs après interactions).
+   */
+  useEffect(() => {
+    let mounted = true;
+    void getCategories()
+      .then((categories) => {
+        if (mounted) setHomeCategories(categories);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!homeCategories.length) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      const uris = homeCategories
+        .map((category) => normalizeImageUrl(category.image))
+        .filter((uri): uri is string => Boolean(uri))
+        .slice(0, 24);
+      if (uris.length) {
+        Image.prefetch(uris, "memory-disk").catch(() => {});
+      }
     });
     return () => task.cancel();
-  }, []);
+  }, [homeCategories]);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      revealBelowFold();
+    });
+    return () => task.cancel();
+  }, [revealBelowFold]);
 
   const prefetchFromProducts = useCallback((products: Product[], max: number) => {
     const imageUris = products
@@ -1599,15 +1296,17 @@ export default function PremiumHomeScreen() {
     try {
       const nextQ = query(
         collection(db, "products"),
+        where("isActive", "==", true),
         orderBy("createdAt", "desc"),
         startAfter(lastVisible),
         limit(PAGE_SIZE)
       );
       const snap = await getDocs(nextQ);
       if (!snap.empty) {
+        const activeDocs = snap.docs.filter(isActiveProductDoc);
         const newCompanyIds = [
           ...new Set(
-            snap.docs
+            activeDocs
               .map((d) => d.data()?.companyId)
               .filter(
                 (id): id is string =>
@@ -1623,9 +1322,9 @@ export default function PremiumHomeScreen() {
           const extra = await fetchCompanyDisplayNameMap(db, missing);
           extra.forEach((v, k) => companyNameByIdRef.current.set(k, v));
         }
-        const nextItems = snap.docs.map((doc) =>
+        const nextItems = activeDocs.map((doc) =>
           resolveSupplierLabels(
-            normalizeProduct(doc),
+            normalizeProduct(doc, t),
             companyNameByIdRef.current
           )
         );
@@ -1647,7 +1346,7 @@ export default function PremiumHomeScreen() {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, lastVisible, homeData.popularProducts.length, normalizeProduct]);
+  }, [loadingMore, hasMore, lastVisible, homeData.popularProducts.length, t]);
 
   const buildCategoryPreviewPayload = useCallback(
     (item: Product) =>
@@ -1825,6 +1524,17 @@ export default function PremiumHomeScreen() {
     [scrollY]
   );
 
+  useEffect(() => {
+    const listenerId = scrollY.addListener(({ value }) => {
+      if (value >= BELOW_FOLD_SCROLL_PX) {
+        revealBelowFold();
+      }
+    });
+    return () => {
+      scrollY.removeListener(listenerId);
+    };
+  }, [scrollY, revealBelowFold]);
+
   const refreshControlNode = useMemo(
     () => (
       <RefreshControl
@@ -1900,7 +1610,7 @@ export default function PremiumHomeScreen() {
         </View>
         <FreeProductsSection products={freeProductsDisplayed} />
 
-        <HeroBanner />
+        <HeroBanner trendingProducts={homeData.trendingProducts} />
 
         {/* Section Produits en vedette */}
         {loadingSections && homeData.featuredProducts.length === 0 ? (
@@ -1931,6 +1641,10 @@ export default function PremiumHomeScreen() {
               nestedScrollEnabled
               showsHorizontalScrollIndicator={false}
               keyExtractor={(item) => `featured-${item.id}`}
+              initialNumToRender={3}
+              maxToRenderPerBatch={3}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === "android"}
               contentContainerStyle={{
                 paddingHorizontal: 20, // Ajusté pour un alignement plus doux
               }}
@@ -1960,28 +1674,30 @@ export default function PremiumHomeScreen() {
           />
         )}
 
-        <CategoryGridPremium />
+        <CategoryGridPremium categories={homeCategories} />
 
         <PremiumAdBanner />
 
-        {homeData.newArrivals.length > 0 && (
+        {belowFoldReady && homeData.newArrivals.length > 0 && (
           <NewArrivalsPremium products={homeData.newArrivals} />
         )}
 
-        {homeData.suppliersWithProducts.length > 0 && (
+        {belowFoldReady && homeData.suppliersWithProducts.length > 0 && (
           <PremiumSuppliersSection suppliers={homeData.suppliersWithProducts} />
         )}
 
-        <VerticalProductSection
-          title={t("newArrivals.homeGridTitle")}
-          subtitle={t("newArrivals.homeGridSubtitle")}
-          products={homeData.newArrivals}
-          onProductPress={handleProductPress}
-          onSeeAll={() => router.push('/new-arrivals')}
-          loading={loadingSections}
-          uiLanguage={i18n.language}
-          currencyCode={currency.code}
-        />
+        {belowFoldReady ? (
+          <VerticalProductSection
+            title={t("newArrivals.homeGridTitle")}
+            subtitle={t("newArrivals.homeGridSubtitle")}
+            products={homeData.newArrivals}
+            onProductPress={handleProductPress}
+            onSeeAll={() => router.push('/new-arrivals')}
+            loading={loadingSections}
+            uiLanguage={i18n.language}
+            currencyCode={currency.code}
+          />
+        ) : null}
 
         <View style={styles.sectionTitleContainer}>
           <Text style={styles.sectionTitle}>{t("app.premium.moreToExplore")}</Text>
@@ -1995,6 +1711,8 @@ export default function PremiumHomeScreen() {
       homeData.industrialMachines,
       translatedCategories,
       homeData.suppliersWithProducts,
+      homeCategories,
+      belowFoldReady,
       freeProductsDisplayed,
       loadingSections,
       handleProductPress,

@@ -1,7 +1,7 @@
 // apps/mobile/src/utils/authPatch.ts
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/config/firebase';
-import { Timestamp } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '@/config/firebase';
+import { resolveAuthorizedRole } from '@/utils/resolveAuthRole';
 
 /**
  * 🔥 PATCH URGENT : Forcer la lecture du rôle sans écrire
@@ -10,22 +10,27 @@ import { Timestamp } from 'firebase/firestore';
 export const forceLoadUserRole = async (userId: string): Promise<string> => {
   try {
     console.log(`🔍 Force load role for user: ${userId}`);
-    
+
+    if (auth.currentUser && auth.currentUser.uid === userId) {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      const firestoreRole = userDoc.exists() ? userDoc.data()?.role : undefined;
+      return resolveAuthorizedRole(auth.currentUser, firestoreRole);
+    }
+
     const userRef = doc(db, 'users', userId);
     const userDoc = await getDoc(userRef);
-    
+
     if (userDoc.exists()) {
       const data = userDoc.data();
-      const role = data.role || 'customer';
-      
-      console.log(`✅ Rôle lu depuis Firestore: ${role}`);
-      console.log(`📊 Données complètes:`, data);
-      
-      return role;
-    } else {
-      console.warn(`⚠️ Aucun document pour l'utilisateur: ${userId}`);
-      return 'customer';
+      console.warn('[auth-role] custom claim absent (pas de session), fallback Firestore', {
+        uid: userId,
+        firestoreRole: data.role,
+      });
+      return data.role || 'customer';
     }
+
+    console.warn(`⚠️ Aucun document pour l'utilisateur: ${userId}`);
+    return 'customer';
   } catch (error) {
     console.error('❌ Erreur forceLoadUserRole:', error);
     return 'customer';

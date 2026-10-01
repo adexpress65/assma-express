@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth'; //  ¿ SUPPRIMER (Auth centralisÈ) //  ¿ SUPPRIMER (Auth centralisÈ)
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import { resolveAuthorizedRole } from '@/utils/resolveAuthRole';
 
 export type UserRole = 'super-admin' | 'admin' | 'seller' | 'customer' | null;
 
@@ -11,22 +12,17 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
         try {
-          // R√©cup√©rer le r√¥le depuis Firestore
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            setUser(user);
-            setUserRole(userData.role || 'customer');
-          } else {
-            setUser(user);
-            setUserRole('customer');
-          }
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const firestoreRole = userDoc.exists() ? userDoc.data()?.role : undefined;
+          const role = await resolveAuthorizedRole(firebaseUser, firestoreRole);
+          setUser(firebaseUser);
+          setUserRole(role);
         } catch (error) {
-          console.error('Erreur chargement r√¥le:', error);
-          setUser(user);
+          console.error('Erreur chargement rÙle:', error);
+          setUser(firebaseUser);
           setUserRole('customer');
         }
       } else {

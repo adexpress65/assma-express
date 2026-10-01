@@ -24,6 +24,28 @@ export interface PaymentPayload {
   items: OrderItem[];
   summary: CartSummary;
   shippingAddress?: ShippingAddress;
+  /** Dernier kilomètre : retrait entrepôt ou domicile. */
+  deliveryMode?: 'pickup' | 'home';
+  /** Mode de transport (Vol Express, Cargo, Maritime…) */
+  shippingMethod?: string;
+  shippingMethodName?: string;
+  shippingMethodDelay?: string;
+  shippingEstimatedDays?: string;
+  shippingMethodType?: string;
+  /** Objet imbriqué conservé pour compat */
+  shipping?: {
+    method: string;
+    option?: {
+      id?: string;
+      name?: string;
+      deliveryTime?: string;
+      type?: string;
+      price?: number;
+      details?: string;
+    };
+    cost?: number;
+    details?: string;
+  };
 }
 
 // ─── Réponse du backend paiement ───────────────────────────────────────────

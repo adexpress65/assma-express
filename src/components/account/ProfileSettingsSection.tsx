@@ -20,6 +20,7 @@ import { updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { storage, auth, db } from '@/config/firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
+import { getUserDisplayLabel, hasUsableEmail, isPhoneAuthUser } from '@/utils/userIdentity';
 
 // 🔗 URLs légales (modifiables facilement)
 const CGU_URL = "https://docs.google.com/document/d/e/2PACX-1vRFJn4M-1DAObgWzCFKXznYxnfUeDWaJCRZO8VZTw90iG7u-07rwZKhC1e7urah0LQuOlYGJLalgqh8/pub";
@@ -40,7 +41,7 @@ type GeoTarget = 'address' | 'shop';
 
 export function ProfileSettingsSection({ variant = 'card' }: { variant?: 'card' | 'screen' }) {
   const router = useRouter();
-  const { user, userProfile, updateUserProfile, refreshUserProfile, isSeller, isCustomer, userRole, isLoading } = useAuth();
+  const { user, userProfile, updateUserProfile, refreshUserProfile, isSeller, isCustomer, userRole, isLoading, isPhoneProvider } = useAuth();
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -101,7 +102,13 @@ export function ProfileSettingsSection({ variant = 'card' }: { variant?: 'card' 
     );
   }
 
-  const email = user.email || userProfile.email || '';
+  const email = hasUsableEmail(user.email)
+    ? String(user.email)
+    : hasUsableEmail(userProfile.email)
+      ? String(userProfile.email)
+      : '';
+  const phoneLabel = user.phoneNumber || userProfile.phoneNumber || '';
+  const canResetPasswordByEmail = Boolean(email) && !isPhoneProvider && !isPhoneAuthUser(user, userProfile);
 
   const pickImage = async () => {
     if (!editing) setEditing(true);
@@ -132,7 +139,12 @@ export function ProfileSettingsSection({ variant = 'card' }: { variant?: 'card' 
   };
 
   const handlePasswordReset = async () => {
-    if (!email) return Alert.alert('Erreur', 'Aucun e-mail associé.');
+    if (!canResetPasswordByEmail) {
+      return Alert.alert(
+        'Indisponible',
+        'La réinitialisation par e-mail n’est pas disponible pour un compte connecté par téléphone.',
+      );
+    }
     try {
       await sendPasswordResetEmail(auth, email);
       Alert.alert('E-mail envoyé', `Lien de réinitialisation envoyé à : ${email}`);
@@ -319,7 +331,13 @@ const handleSave = async () => {
           <View style={styles.editBadge}><Ionicons name="camera" size={16} color="#FFF" /></View>
         </TouchableOpacity>
         <View style={styles.avatarMeta}>
-          <Text style={styles.metaName}>{form.displayName || email.split('@')[0]}</Text>
+          <Text style={styles.metaName}>
+            {getUserDisplayLabel({
+              displayName: form.displayName,
+              email,
+              phoneNumber: phoneLabel,
+            })}
+          </Text>
           <View style={styles.rolePill}><Text style={styles.rolePillText}>{userRole}</Text></View>
         </View>
       </View>
@@ -328,8 +346,10 @@ const handleSave = async () => {
 
       <View style={styles.field}>
         <Text style={styles.label}>E-mail</Text>
-        <Text style={styles.readonlyValue}>{email}</Text>
-        {email ? (
+        <Text style={styles.readonlyValue}>
+          {email || (isPhoneProvider || phoneLabel ? 'Aucun e-mail (connexion téléphone)' : '—')}
+        </Text>
+        {canResetPasswordByEmail ? (
           <TouchableOpacity style={styles.resetPasswordRow} onPress={handlePasswordReset}>
             <Ionicons name="key-outline" size={18} color="#FF6B00" />
             <Text style={styles.resetPasswordText}>Réinitialiser le mot de passe par e-mail</Text>

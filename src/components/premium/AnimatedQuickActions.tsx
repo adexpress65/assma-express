@@ -109,11 +109,11 @@ const QUICK_ACTIONS = [
   },
 ];
 
-export default function AnimatedQuickActions() {
+function AnimatedQuickActions() {
   const { t } = useTranslation();
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
-  const { userData } = useAuth();
+  const { userRole, userProfile } = useAuth();
   const [activeButton, setActiveButton] = useState<string | null>(null);
   const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
 
@@ -122,25 +122,23 @@ export default function AnimatedQuickActions() {
 
   // ✅ FILTRAGE CORRIGÉ : super-admin, admin, vendeur ou Company
   const filteredActions = useMemo(() => {
-    const role = userData?.role;
+    const role = userRole;
     
-    // Log pour debug en développement
     if (__DEV__) {
-      console.log("A2Express Auth Debug - Rôle:", role, "CompanyId:", userData?.companyId);
+      console.log("A2Express Auth Debug - Rôle:", role, "CompanyId:", userProfile?.companyId);
     }
 
     const isPrivileged = 
       role === 'super-admin' || 
-      role === 'superadmin' || 
       role === 'admin' || 
-      role === 'vendeur' ||
-      !!userData?.companyId; // Si possède un ID de société
+      role === 'seller' ||
+      !!userProfile?.companyId;
 
     return QUICK_ACTIONS.filter(action => {
       if (action.isAdminOnly && !isPrivileged) return false;
       return true;
     });
-  }, [userData]);
+  }, [userRole, userProfile]);
 
   const handleActionPress = (action: any) => {
     setActiveButton(action.id);
@@ -222,6 +220,8 @@ export default function AnimatedQuickActions() {
     </View>
   );
 }
+
+export default React.memo(AnimatedQuickActions);
 
 const styles = StyleSheet.create({
   container: {

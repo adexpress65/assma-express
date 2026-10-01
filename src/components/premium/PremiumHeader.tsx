@@ -141,7 +141,7 @@ function useLanguageHelpers() {
   return { t, i18n, getLanguageName, getNativeLanguageName, getFlag };
 }
 
-export function PremiumHeaderTopBar() {
+function PremiumHeaderTopBarBase() {
   const router = useRouter();
   const {
     t,
@@ -224,7 +224,7 @@ export function PremiumHeaderTopBar() {
   );
 }
 
-export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
+function PremiumHeader({ onSearch }: PremiumHeaderProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<SearchResultItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -571,7 +571,7 @@ export default function PremiumHeader({ onSearch }: PremiumHeaderProps) {
   );
 }
 
-export function PremiumHeaderStats() {
+function PremiumHeaderStatsBase() {
   const { t } = useTranslation();
 
   return (
@@ -593,6 +593,10 @@ export function PremiumHeaderStats() {
     </View>
   );
 }
+
+export const PremiumHeaderTopBar = React.memo(PremiumHeaderTopBarBase);
+export const PremiumHeaderStats = React.memo(PremiumHeaderStatsBase);
+export default React.memo(PremiumHeader);
 
 const styles = StyleSheet.create({
   keyboardAvoidingView: {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MAX_ORDER_QUANTITY } from '../constants/order';
 
 interface Step {
   min: number;
@@ -18,13 +19,14 @@ interface Props {
 export default function QuantityIncrementalSelector({
   quantity,
   minQuantity = 1,
-  stock = 999999,
+  stock = MAX_ORDER_QUANTITY,
   priceSteps = [],
   onChange,
 }: Props) {
+  const maxQty = MAX_ORDER_QUANTITY;
 
   const handleIncrement = () => {
-    if (quantity < stock) {
+    if (quantity < maxQty) {
       onChange(quantity + 1);
     }
   };
@@ -39,7 +41,7 @@ export default function QuantityIncrementalSelector({
     const val = parseInt(txt);
     if (isNaN(val)) return;
     if (val < minQuantity) return onChange(minQuantity);
-    if (val > stock) return onChange(stock);
+    if (val > maxQty) return onChange(maxQty);
     onChange(val);
   };
 
@@ -48,7 +50,7 @@ export default function QuantityIncrementalSelector({
       <View style={styles.header}>
         <Text style={styles.title}>Quantité</Text>
         <Text style={styles.stockStatus}>
-          {stock > 0 ? `${stock} pièces disponibles` : "Rupture de stock"}
+          {stock > 0 ? 'En stock' : 'Rupture de stock'}
         </Text>
       </View>
 
@@ -66,7 +68,7 @@ export default function QuantityIncrementalSelector({
           />
 
           <TouchableOpacity onPress={handleIncrement} style={styles.btn}>
-            <Ionicons name="add" size={20} color={quantity >= stock ? "#CCC" : "#333"} />
+            <Ionicons name="add" size={20} color={quantity >= maxQty ? "#CCC" : "#333"} />
           </TouchableOpacity>
         </View>
 

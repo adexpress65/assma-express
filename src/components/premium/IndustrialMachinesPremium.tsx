@@ -149,13 +149,16 @@ export default function IndustrialMachinesPremium() {
         
         const productsQuery = query(
           collection(db, "products"),
+          where("isActive", "==", true),
           where("categoryName", ">=", "Machine"),
           where("categoryName", "<", "Machinez"),
           limit(10)
         );
 
         const unsubscribe = onSnapshot(productsQuery, (snapshot) => {
-          const firestoreProducts = snapshot.docs.map((doc) => {
+          const firestoreProducts = snapshot.docs
+            .filter((doc) => doc.data()?.isActive === true)
+            .map((doc) => {
             const data = doc.data();
             console.log('🏭 Produit Firestore trouvé:', data.name);
             return {

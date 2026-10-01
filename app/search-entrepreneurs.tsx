@@ -16,7 +16,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/contexts/AuthContext';
-import { useMessages } from '../src/contexts/MessagesContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '../src/config/firebase';
@@ -25,7 +24,6 @@ import { db } from '../src/config/firebase';
 export default function SearchEntrepreneursScreen() {
   const router = useRouter();
   const { user } = useAuth();
-  const { createConversation } = useMessages();
   const insets = useSafeAreaInsets();
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -183,47 +181,39 @@ export default function SearchEntrepreneursScreen() {
   };
 
   // app/search-entrepreneurs.tsx - CORRECTION
-const startConversation = async (company: any) => {
-  if (!user) {
+const startConversation = (company: any) => {
+  if (!user?.uid) {
     Alert.alert('Connexion requise', 'Veuillez vous connecter');
     return;
   }
 
-  try {
-    setLoading(true);
-    
-    // ✅ UTILISER company.uid (le propriétaire) PAS company.id
-    const ownerId = company.uid;
-    
-    if (!ownerId) {
-      Alert.alert('Erreur', 'Cette entreprise n\'a pas de propriétaire associé');
-      return;
-    }
-    
-    console.log('📞 Contact entrepreneur:', {
-      companyName: company.name,
-      companyId: company.id,
-      ownerId: ownerId
-    });
-    
-    const conversationId = await createConversation({
-      companyId: company.id,
-      participants: [ownerId],
-      type: 'entrepreneur',
-      title: company.name || 'Entrepreneur',
-    });
-    
-    // ✅ Message de bienvenue immédiat
-    setTimeout(() => {
-      router.push(`/conversation/${conversationId}`);
-    }, 300);
-    
-  } catch (error) {
-    console.error('❌ Erreur:', error);
-    Alert.alert('Erreur', 'Impossible de démarrer la conversation');
-  } finally {
-    setLoading(false);
+  // ✅ UTILISER company.uid (le propriétaire) PAS company.id
+  const ownerId = company?.uid || company?.ownerId || company?.sellerUid;
+
+  if (!ownerId) {
+    Alert.alert('Erreur', 'Cette entreprise n\'a pas de propriétaire associé');
+    return;
   }
+
+  if (!company?.id) {
+    Alert.alert('Erreur', 'Cette entreprise est introuvable');
+    return;
+  }
+
+  const storeName = company.name || 'Entrepreneur';
+
+  router.push({
+    pathname: '/conversation/[id]',
+    params: {
+      // Identifiant déterministe partagé avec la fiche produit et la fiche boutique.
+      id: `${company.id}_${user.uid}`,
+      companyId: company.id,
+      sellerId: String(ownerId),
+      sellerName: storeName,
+      companyName: storeName,
+      sellerLogo: company.logo || '',
+    },
+  });
 };
 
   // ✅ Composant Avatar sans fichier local

@@ -34,7 +34,9 @@
     "uncategorized": "Uncategorized"
   },
   "productDetail": {
-    "colorsAvailable": "Available colours:",
+    "colorsAvailable": "Choose a colour",
+    "sizesAvailable": "Available sizes",
+    "sizesForColor": "Sizes — {{color}}",
     "inStockCount": "{{count}} in stock",
     "sizeStandard": "Standard",
     "stockLabel": "Stock: {{count}}"
@@ -351,6 +353,43 @@
       "cta": "SHOP NOW",
       "later": "Later"
     },
+    "authGuard": {
+      "title": "Account required",
+      "defaultMessage": "Create an account or sign in to continue.",
+      "signIn": "Sign in",
+      "register": "Create an account",
+      "later": "Keep exploring",
+      "reasons": {
+        "buy_now": {
+          "title": "Complete your order",
+          "message": "Create an account or sign in to complete your order."
+        },
+        "add_to_cart": {
+          "title": "Add to cart",
+          "message": "Create an account or sign in to add items to your cart."
+        },
+        "contact_seller": {
+          "title": "Contact the supplier",
+          "message": "Sign in to message the store or supplier."
+        },
+        "messages": {
+          "title": "Your messages",
+          "message": "Sign in to access your conversations and support."
+        },
+        "account": {
+          "title": "Your account",
+          "message": "Create an account or sign in to manage your profile and orders."
+        },
+        "checkout": {
+          "title": "Secure checkout",
+          "message": "Create an account or sign in to complete your order."
+        },
+        "generic": {
+          "title": "Account required",
+          "message": "Create an account or sign in to continue."
+        }
+      }
+    },
     "cart": {
       "emptyTitle": "Your cart is empty",
       "emptySubtitle": "Discover our products and find what you love",
@@ -615,7 +654,24 @@
         "emptyCatalog": "Your catalog is empty.",
         "addFirstProduct": "Add first product",
         "stockAndSold": "Stock: {{stock}} | {{sold}} sold",
-        "topSelling": "Top selling"
+        "topSelling": "Top selling",
+        "viewStock": "Stock by product"
+      },
+      "stockView": {
+        "title": "My products",
+        "adminTitle": "Stock by product",
+        "stock": "Stock",
+        "inStock": "In stock",
+        "lowStock": "Low stock",
+        "outOfStock": "Out of stock",
+        "threshold": "Low-stock threshold",
+        "filterCompany": "Filter by supplier…",
+        "companyUnknown": "Unknown supplier",
+        "searchPlaceholder": "Search a product…",
+        "all": "All",
+        "empty": "No products to display",
+        "criticalFirst": "Default sort: stock ascending (most critical first)",
+        "unlimitedStock": "Unlimited stock"
       },
       "store": {
         "loadStoreError": "Unable to load store.",

@@ -12,7 +12,6 @@ import {
   query,
   where,
   limit,
-  getCountFromServer,
 } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { db, auth } from '../../src/config/firebase';
@@ -62,10 +61,7 @@ export default function SuppliersScreen() {
 const loadSuppliers = async () => {
   try {
     setLoading(true);
-    /**
-     * Avant : `getDocs` sur **tous** les produits par entreprise → lecture énorme (minutes si gros catalogue).
-     * Maintenant : `getCountFromServer` (agrégat) + plafond d’entreprises listées.
-     */
+    /** Une seule requête Firestore — compteur lu depuis le doc entreprise (pas de N+1). */
     const MAX_SUPPLIERS_LIST = 80;
     const q = query(
       collection(db, 'companies'),
@@ -74,44 +70,24 @@ const loadSuppliers = async () => {
     );
     const snapshot = await getDocs(q);
 
-    const list = await Promise.all(
-      snapshot.docs.map(async (docSnap) => {
-        const data = docSnap.data();
-        const fromStats =
-          typeof data.stats?.productCount === 'number' ? data.stats.productCount : null;
+    const list = snapshot.docs.map((docSnap) => {
+      const data = docSnap.data();
+      const fromStats =
+        typeof data.stats?.productCount === 'number'
+          ? data.stats.productCount
+          : typeof data.productCount === 'number'
+            ? data.productCount
+            : 0;
 
-        let realCount = fromStats ?? 0;
-        if (fromStats == null) {
-          try {
-            const byCompany = query(
-              collection(db, 'products'),
-              where('companyId', '==', docSnap.id),
-            );
-            const c1 = await getCountFromServer(byCompany);
-            realCount = c1.data().count;
-            if (realCount === 0) {
-              const bySupplier = query(
-                collection(db, 'products'),
-                where('supplierId', '==', docSnap.id),
-              );
-              const c2 = await getCountFromServer(bySupplier);
-              realCount = c2.data().count;
-            }
-          } catch {
-            realCount = 0;
-          }
-        }
-
-        return {
-          id: docSnap.id,
-          ...data,
-          stats: {
-            ...data.stats,
-            productCount: realCount,
-          },
-        } as Supplier;
-      }),
-    );
+      return {
+        id: docSnap.id,
+        ...data,
+        stats: {
+          ...data.stats,
+          productCount: fromStats,
+        },
+      } as Supplier;
+    });
 
     setSuppliers(list);
   } catch (error) {
@@ -212,7 +188,13 @@ const loadSuppliers = async () => {
             <FlatList
               data={suppliers}
               keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
+              initialNumToRender={10}
+              maxToRenderPerBatch={8}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === 'android'}
+              renderItem={({ item }) => {
+                const productCount = item.stats?.productCount ?? 0;
+                return (
                 <View style={styles.card}>
                   <View style={styles.cardHeader}>
                     <View style={styles.companyLogo}>
@@ -223,11 +205,20 @@ const loadSuppliers = async () => {
                       <Text style={styles.email}>{item.email || t('app.supplier.index.missingEmail')}</Text>
                     </View>
                   </View>
-                  <View style={styles.cardStats}>
-                    <View style={styles.statItem}>
-                      <Ionicons name="cube-outline" size={16} color="#FF6B00" />
-                      <Text style={styles.count}>{t('app.supplier.index.productsCount', { count: item.stats?.productCount ?? 0 })}</Text>
-                    </View>
+                  <View
+                    style={[
+                      styles.cardStats,
+                      productCount <= 0 && styles.cardStatsBadgeOnly,
+                    ]}
+                  >
+                    {productCount > 0 ? (
+                      <View style={styles.statItem}>
+                        <Ionicons name="cube-outline" size={16} color="#FF6B00" />
+                        <Text style={styles.count}>
+                          {t('app.supplier.index.productsCount', { count: productCount })}
+                        </Text>
+                      </View>
+                    ) : null}
                     <View style={[styles.statusBadge, item.isActive ? styles.statusActive : styles.statusInactive]}>
                       <Ionicons name={item.isActive ? "checkmark-circle" : "close-circle"} size={12} color="#fff" />
                       <Text style={styles.statusText}>{item.isActive ? t('app.supplier.index.active') : t('app.supplier.index.inactive')}</Text>
@@ -246,7 +237,8 @@ const loadSuppliers = async () => {
                     <Ionicons name="arrow-forward" size={16} color="#fff" />
                   </TouchableOpacity>
                 </View>
-              )}
+              );
+              }}
               contentContainerStyle={styles.list}
             />
           )}
@@ -531,6 +523,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  cardStatsBadgeOnly: {
+    justifyContent: 'flex-end',
   },
   statItem: {
     flexDirection: 'row',

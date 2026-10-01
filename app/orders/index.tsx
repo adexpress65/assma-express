@@ -22,7 +22,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 // IMPORTATION DES CONSTANTES CENTRALISÉES
 import { COLORS } from '../../src/constants/Theme';
-import { ORDER_STATUS_CONFIG, APP_CONFIG } from '../../src/constants/Config';
+import {
+  ORDER_STATUS_CONFIG,
+  APP_CONFIG,
+  resolveFulfillmentStatus,
+  isReviewFulfillmentStatus,
+  type FulfillmentStatus,
+} from '../../src/constants/Config';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -41,10 +47,15 @@ const formatOrderDate = (dateData: any) => {
 
 // --- COMPOSANT : Carte de commande individuelle ---
 const OrderCard = ({ order, onPress, onDelete }: any) => {
-  const statusInfo = ORDER_STATUS_CONFIG[order.status as keyof typeof ORDER_STATUS_CONFIG] || ORDER_STATUS_CONFIG.pending;
+  const fulfillment = resolveFulfillmentStatus(order);
+  const statusInfo =
+    (fulfillment && ORDER_STATUS_CONFIG[fulfillment]) || ORDER_STATUS_CONFIG.prise_en_charge;
+  const hasReview = !!(order.customerReview && Number(order.customerReview.rating) > 0);
   
   // Autoriser la suppression pour les commandes terminées ou annulées
-  const canDelete = ['delivered', 'cancelled', 'failed'].includes(order.status?.toLowerCase());
+  const canDelete =
+    isReviewFulfillmentStatus(fulfillment) ||
+    ['delivered', 'cancelled', 'failed'].includes(order.status?.toLowerCase());
 
   if (!order.items || order.items.length === 0) return null;
 
@@ -119,6 +130,18 @@ const OrderCard = ({ order, onPress, onDelete }: any) => {
                 <Ionicons name={statusInfo.icon} size={12} color={statusInfo.color} />
                 <Text style={[styles.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
               </View>
+              {isReviewFulfillmentStatus(fulfillment) && (
+                <View style={[styles.reviewChip, hasReview ? styles.reviewChipDone : styles.reviewChipTodo]}>
+                  <Ionicons
+                    name={hasReview ? 'star' : 'star-outline'}
+                    size={12}
+                    color={hasReview ? '#B45309' : '#7C3AED'}
+                  />
+                  <Text style={[styles.reviewChipText, hasReview ? styles.reviewChipTextDone : styles.reviewChipTextTodo]}>
+                    {hasReview ? 'Avis déposé' : 'Laisser un avis'}
+                  </Text>
+                </View>
+              )}
             </View>
             <Feather name="chevron-right" size={20} color={COLORS.border} />
           </View>
@@ -132,7 +155,7 @@ const OrderCard = ({ order, onPress, onDelete }: any) => {
 export default function OrdersScreen() {
   const router = useRouter();
   const { orders, loading, refreshOrders, deleteOrder } = useOrders() as any;
-  const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<FulfillmentStatus | 'avis' | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   // 🟢 CONDITION STRICTE : Statut valide (ex: confirmed, processing, delivered) ET paymentStatus à "paid"
@@ -153,11 +176,16 @@ export default function OrdersScreen() {
     });
   }, [orders]);
 
-  // 🟢 Filtrer selon l'onglet sélectionné parmi les commandes valides uniquement
+  // 🟢 Filtrer selon l'onglet logistique (fulfillmentStatus) parmi les commandes valides
   const filteredOrders = useMemo(() => {
     if (!selectedStatus) return validOrders;
-    return validOrders.filter((o: any) => 
-      o.status?.toLowerCase().trim() === selectedStatus.toLowerCase().trim()
+    if (selectedStatus === 'avis') {
+      return validOrders.filter((o: any) =>
+        isReviewFulfillmentStatus(resolveFulfillmentStatus(o)),
+      );
+    }
+    return validOrders.filter(
+      (o: any) => resolveFulfillmentStatus(o) === selectedStatus,
     );
   }, [validOrders, selectedStatus]);
 
@@ -188,7 +216,9 @@ export default function OrdersScreen() {
 
   // 🟢 Calcul des statistiques sur les commandes valides uniquement
   const stats = useMemo(() => {
-    const delivered = validOrders.filter((o: any) => o.status?.toLowerCase() === 'delivered');
+    const delivered = validOrders.filter((o: any) =>
+      isReviewFulfillmentStatus(resolveFulfillmentStatus(o)),
+    );
     const totalAmount = delivered.reduce((sum: number, o: any) => sum + (Number(o.total) || 0), 0);
     
     return {
@@ -234,17 +264,36 @@ export default function OrdersScreen() {
               count={validOrders.length} 
               onPress={() => setSelectedStatus(null)} 
             />
-            {Object.entries(ORDER_STATUS_CONFIG)
-              .filter(([key]) => key.toLowerCase() !== 'pending') // Masque l'onglet "En attente"
-              .map(([key, cfg]) => (
+            {([
+              'prise_en_charge',
+              'preparation',
+              'route_entrepot',
+              'transit_international',
+              'arrivee_entrepot',
+              'pret_retrait',
+              'en_livraison',
+            ] as FulfillmentStatus[]).map((key) => {
+                const cfg = ORDER_STATUS_CONFIG[key];
+                return (
                 <FilterChip 
                   key={key} 
                   active={selectedStatus === key} 
                   label={cfg.label} 
-                  count={validOrders.filter((o: any) => o.status?.toLowerCase() === key.toLowerCase()).length}
+                  count={validOrders.filter(
+                    (o: any) => resolveFulfillmentStatus(o) === key,
+                  ).length}
                   onPress={() => setSelectedStatus(key)} 
                 />
-              ))}
+              );
+              })}
+            <FilterChip
+              active={selectedStatus === 'avis'}
+              label="Avis"
+              count={validOrders.filter((o: any) =>
+                isReviewFulfillmentStatus(resolveFulfillmentStatus(o)),
+              ).length}
+              onPress={() => setSelectedStatus('avis')}
+            />
           </ScrollView>
         </View>
       </View>
@@ -337,5 +386,20 @@ const styles = StyleSheet.create({
   productName: { fontSize: 15, fontWeight: '800', color: COLORS.text, marginBottom: 2 },
   totalPrice: { fontSize: 17, fontWeight: '900', color: COLORS.primary },
   emptyContainer: { alignItems: 'center', marginTop: 100, opacity: 0.5 },
-  emptyText: { marginTop: 10, fontSize: 16, color: COLORS.textLight, fontWeight: '600' }
+  emptyText: { marginTop: 10, fontSize: 16, color: COLORS.textLight, fontWeight: '600' },
+  reviewChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  reviewChipDone: { backgroundColor: 'rgba(180, 83, 9, 0.1)' },
+  reviewChipTodo: { backgroundColor: 'rgba(124, 58, 237, 0.1)' },
+  reviewChipText: { fontSize: 10, fontWeight: '700' },
+  reviewChipTextDone: { color: '#B45309' },
+  reviewChipTextTodo: { color: '#7C3AED' },
 });

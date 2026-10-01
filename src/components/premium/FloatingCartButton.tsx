@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
-export default function FloatingAIButton() {
+function FloatingAIButton() {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
   const bounceAnim = useRef(new Animated.Value(1)).current;
@@ -128,6 +128,8 @@ export default function FloatingAIButton() {
     </View>
   );
 }
+
+export default React.memo(FloatingAIButton);
 
 const styles = StyleSheet.create({
   container: {

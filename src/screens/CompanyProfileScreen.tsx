@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../contexts/AuthContext";
-import { useMessages } from "../contexts/MessagesContext";
 import { db } from "../config/firebase";
 import { Company, getCompanyById } from "../services/firebase/companyService";
 import {
@@ -131,7 +130,6 @@ export default function CompanyProfileScreen() {
   const insets = useSafeAreaInsets();
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
-  const { createConversation, sendMessage } = useMessages();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const companyId = useMemo(
     () => (Array.isArray(params.id) ? params.id[0] : params.id) || "",
@@ -178,46 +176,53 @@ export default function CompanyProfileScreen() {
           getCompanyById(companyId),
           getProductsByCompanyFirstPage(companyId, PAGE_SIZE),
         ]);
-        const similarSuppliersQuery = query(
-          collection(db, "companies"),
-          where("isActive", "==", true),
-          limit(12),
-        );
-        const similarSnapshot = await getDocs(similarSuppliersQuery);
-        const similarList = similarSnapshot.docs
-          .map((docSnap) => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              name:
-                pickLocalizedField(data, "name", language) ||
-                String(data.name || t("app.supplier.store.storeFallbackTitle")),
-              logo: typeof data.logo === "string" ? data.logo : undefined,
-              location:
-                pickLocalizedField(data, "location", language) ||
-                (typeof data.location === "string" ? data.location : undefined),
-              businessType:
-                pickLocalizedField(data, "businessType", language) ||
-                (typeof data.businessType === "string" ? data.businessType : undefined),
-              rating:
-                typeof data.rating === "number"
-                  ? data.rating
-                  : typeof data.stats?.rating === "number"
-                    ? data.stats.rating
-                    : 0,
-            } as SimilarSupplier;
-          })
-          .filter((item) => item.id !== companyId)
-          .slice(0, SIMILAR_SUPPLIERS_LIMIT);
 
         setCompany(companyData);
         setProducts(firstProducts.products);
         setProductsLastDoc(firstProducts.lastDoc);
         setProductsHasMore(firstProducts.hasMore);
         setProductsSource(firstProducts.source);
-        setSimilarSuppliers(similarList);
         setHomeDescriptionExpanded(false);
         setProfileDescriptionExpanded(false);
+
+        void (async () => {
+          try {
+            const similarSuppliersQuery = query(
+              collection(db, "companies"),
+              where("isActive", "==", true),
+              limit(12),
+            );
+            const similarSnapshot = await getDocs(similarSuppliersQuery);
+            const similarList = similarSnapshot.docs
+              .map((docSnap) => {
+                const data = docSnap.data();
+                return {
+                  id: docSnap.id,
+                  name:
+                    pickLocalizedField(data, "name", language) ||
+                    String(data.name || t("app.supplier.store.storeFallbackTitle")),
+                  logo: typeof data.logo === "string" ? data.logo : undefined,
+                  location:
+                    pickLocalizedField(data, "location", language) ||
+                    (typeof data.location === "string" ? data.location : undefined),
+                  businessType:
+                    pickLocalizedField(data, "businessType", language) ||
+                    (typeof data.businessType === "string" ? data.businessType : undefined),
+                  rating:
+                    typeof data.rating === "number"
+                      ? data.rating
+                      : typeof data.stats?.rating === "number"
+                        ? data.stats.rating
+                        : 0,
+                } as SimilarSupplier;
+              })
+              .filter((item) => item.id !== companyId)
+              .slice(0, SIMILAR_SUPPLIERS_LIMIT);
+            setSimilarSuppliers(similarList);
+          } catch (similarError) {
+            console.warn("[CompanyProfileScreen] similar suppliers", similarError);
+          }
+        })();
       } catch (error) {
         console.error("Erreur dashboard Alibaba-like:", error);
         Alert.alert(t("app.account.errorTitle"), t("app.supplier.store.loadStoreError"));
@@ -263,37 +268,62 @@ export default function CompanyProfileScreen() {
     }
   }, [companyId, loadingMoreProducts, productsHasMore, productsLastDoc, productsSource]);
 
+  // Selon la source Firestore, le propriétaire de la boutique est stocké sous
+  // des clés différentes ; on retient le premier identifiant exploitable.
+  const supplierOwnerId = useMemo(() => {
+    const source = asObject(company);
+    if (!source) return "";
+    const ownerKeys = ["uid", "ownerId", "ownerUid", "sellerUid", "userId", "createdBy"];
+    for (const key of ownerKeys) {
+      const value = asNonEmptyString(source[key]);
+      if (value) return value;
+    }
+    return asNonEmptyString(source.id) || "";
+  }, [company]);
+
+  const supplierParticipants = useMemo<string[]>(
+    () => (supplierOwnerId && supplierOwnerId !== user?.uid ? [supplierOwnerId] : []),
+    [supplierOwnerId, user?.uid],
+  );
+
   const startConversationWithSupplier = useCallback(
-    async (initialMessage?: string) => {
+    (initialMessage?: string) => {
       if (!company) return;
       if (!user?.uid) {
         Alert.alert(t("app.account.accessLimitedTitle"), t("app.supplier.store.loginRequiredToContact"));
         return;
       }
-      try {
-        const conversationId = await createConversation({
-          companyId: company.id,
-          participants: [company.uid],
-          type: "entrepreneur",
-          title:
-            pickLocalizedField(company as unknown, "name", language) ||
-            company.name ||
-            t("app.supplier.store.storeFallbackTitle"),
-        });
-        if (initialMessage?.trim()) {
-          await sendMessage(conversationId, initialMessage.trim(), { type: "text" });
-        }
-        router.push(`/conversation/${conversationId}`);
-      } catch (error) {
-        console.error("Erreur ouverture conversation:", error);
+      if (supplierParticipants.length === 0) {
         Alert.alert(t("app.account.errorTitle"), t("app.supplier.store.openConversationError"));
+        return;
       }
+
+      const storeTitle =
+        pickLocalizedField(company as unknown, "name", language) ||
+        company.name ||
+        t("app.supplier.store.storeFallbackTitle");
+      const trimmedMessage = initialMessage?.trim();
+
+      router.push({
+        pathname: "/conversation/[id]",
+        params: {
+          // Même identifiant déterministe que la fiche produit, afin de retomber
+          // sur un unique fil par boutique et par client.
+          id: `${company.id}_${user.uid}`,
+          companyId: company.id,
+          sellerId: supplierParticipants[0],
+          sellerName: storeTitle,
+          companyName: storeTitle,
+          sellerLogo: company.logo || "",
+          ...(trimmedMessage ? { message: trimmedMessage } : {}),
+        },
+      });
     },
-    [company, createConversation, language, router, sendMessage, t, user?.uid],
+    [company, language, router, supplierParticipants, t, user?.uid],
   );
 
   const handleInquiryRequest = useCallback(() => {
-    void startConversationWithSupplier(
+    startConversationWithSupplier(
       t("app.supplier.store.inquiryTemplate", {
         name:
           pickLocalizedField(company as unknown, "name", language) ||
@@ -449,7 +479,7 @@ export default function CompanyProfileScreen() {
             <TouchableOpacity style={styles.heartBtn}>
               <Ionicons name="heart-outline" size={19} color="#111827" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.chatBtn} onPress={() => void startConversationWithSupplier()}>
+            <TouchableOpacity style={styles.chatBtn} onPress={() => startConversationWithSupplier()}>
               <Text style={styles.chatBtnText}>{t("app.supplier.store.chatNow")}</Text>
             </TouchableOpacity>
           </View>
@@ -531,6 +561,10 @@ export default function CompanyProfileScreen() {
           data={products}
           keyExtractor={(item) => item.id}
           numColumns={PRODUCT_GRID_COLUMNS}
+          initialNumToRender={8}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
           contentContainerStyle={[styles.content, { paddingBottom: 150 + Math.max(insets.bottom, 12) }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadData(true)} tintColor="#FF6A00" />}
           ListHeaderComponent={
@@ -712,7 +746,7 @@ export default function CompanyProfileScreen() {
         <TouchableOpacity style={styles.bottomGhost} onPress={handleInquiryRequest}>
           <Text style={styles.bottomGhostText}>{t("app.supplier.store.sendInquiry")}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.bottomPrimary} onPress={() => void startConversationWithSupplier()}>
+        <TouchableOpacity style={styles.bottomPrimary} onPress={() => startConversationWithSupplier()}>
           <Text style={styles.bottomPrimaryText}>{t("app.supplier.store.chatNow")}</Text>
         </TouchableOpacity>
       </View>

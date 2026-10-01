@@ -516,6 +516,12 @@ export default function SuperAdminDashboard() {
       count: stats.totalProducts,
       color: "#2196F3"
     },
+    {
+      label: "Stock produits",
+      icon: "layers",
+      href: "/super-admin/stock",
+      color: "#00897B"
+    },
 { 
   label: "Commandes", 
   icon: "cart", 
@@ -537,6 +543,13 @@ export default function SuperAdminDashboard() {
       color: "#E91E63",
       isAction: true,
     },
+    {
+      label: "Utilisateurs / rôles",
+      icon: "people",
+      href: "/super-admin/user-roles",
+      color: "#2563EB",
+      isAction: true,
+    },
     { 
       label: "Support", 
       icon: "headset", 
@@ -556,13 +569,6 @@ export default function SuperAdminDashboard() {
       href: "/super-admin/settings",
       color: "#607D8B"
     },
-	{ 
-    label: "Import Alibaba", 
-    icon: "cloud-download", // Icone de téléchargement
-    href: "/super-admin/import-alibaba", // On va créer cette page
-    color: "#FF6600", // Couleur officielle Alibaba
-    isAction: true 
-  },
   ];
 
   useEffect(() => {

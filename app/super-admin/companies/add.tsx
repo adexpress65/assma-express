@@ -6,9 +6,11 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useOperationalStaffAccess } from '@/hooks/useOperationalStaffAccess';
 
 export default function AddCompanyScreen() {
   const router = useRouter();
+  const { allowed, isLoading: accessLoading } = useOperationalStaffAccess();
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -80,6 +82,14 @@ export default function AddCompanyScreen() {
       setLoading(false);
     }
   };
+
+  if (accessLoading || !allowed) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#2563EB" />
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container}>

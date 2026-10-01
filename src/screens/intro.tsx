@@ -21,8 +21,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import LoginModal from '../../src/components/account/LoginModal';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { useRequireAuth } from '../../src/contexts/AuthGuardContext';
 import { db } from '@/config/firebase';
 import { COLORS } from '@/constants/Theme';
+import { INTRO_SEEN_KEY } from '@/constants/storageKeys';
+import SplashLogo, { SPLASH_MIN_DISPLAY_MS } from '@/components/SplashLogo';
 
 const { width, height } = Dimensions.get('window');
 
@@ -53,14 +56,21 @@ const SPLASH_TAGLINES = [
   'Votre marketplace pro',
 ];
 
-function SplashLoadingScreen() {
+function SplashLoadingScreen({
+  onBrandAnimationComplete,
+}: {
+  onBrandAnimationComplete?: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState(FALLBACK_SHOWCASE);
   const [slideIndex, setSlideIndex] = useState(0);
   const [taglineIndex, setTaglineIndex] = useState(0);
+  const [logoDone, setLogoDone] = useState(false);
   const fade = useRef(new Animated.Value(1)).current;
   const kenBurns = useRef(new Animated.Value(1)).current;
   const logoScale = useRef(new Animated.Value(0.92)).current;
+  const logoOpacity = useRef(new Animated.Value(1)).current;
+  const carouselOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -98,15 +108,17 @@ function SplashLoadingScreen() {
   }, []);
 
   useEffect(() => {
+    if (!logoDone) return;
     Animated.spring(logoScale, {
       toValue: 1,
       friction: 6,
       tension: 80,
       useNativeDriver: true,
     }).start();
-  }, [logoScale]);
+  }, [logoDone, logoScale]);
 
   useEffect(() => {
+    if (!logoDone) return;
     const kb = Animated.loop(
       Animated.sequence([
         Animated.timing(kenBurns, {
@@ -119,10 +131,10 @@ function SplashLoadingScreen() {
     );
     kb.start();
     return () => kb.stop();
-  }, [kenBurns]);
+  }, [kenBurns, logoDone]);
 
   useEffect(() => {
-    if (items.length === 0) return;
+    if (!logoDone || items.length === 0) return;
     const id = setInterval(() => {
       Animated.timing(fade, {
         toValue: 0,
@@ -139,13 +151,38 @@ function SplashLoadingScreen() {
       });
     }, 3800);
     return () => clearInterval(id);
-  }, [fade, items.length]);
+  }, [fade, items.length, logoDone]);
+
+  const handleLogoComplete = () => {
+    onBrandAnimationComplete?.();
+    setLogoDone(true);
+    Animated.parallel([
+      Animated.timing(logoOpacity, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(carouselOpacity, {
+        toValue: 1,
+        duration: 480,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   const current = items[slideIndex % Math.max(items.length, 1)] ?? items[0];
 
   return (
-    <View style={splashStyles.root}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+    <View style={splashStyles.phaseRoot}>
+      <StatusBar
+        barStyle={logoDone ? 'light-content' : 'dark-content'}
+        translucent
+        backgroundColor="transparent"
+      />
+      <Animated.View
+        style={[splashStyles.root, { opacity: carouselOpacity }]}
+        pointerEvents={logoDone ? 'auto' : 'none'}
+      >
       <Animated.View
         style={[
           splashStyles.imageWrap,
@@ -225,13 +262,24 @@ function SplashLoadingScreen() {
           </View>
         ))}
       </ScrollView>
+      </Animated.View>
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { opacity: logoOpacity }]}
+        pointerEvents={logoDone ? 'none' : 'auto'}
+      >
+        <SplashLogo onAnimationComplete={handleLogoComplete} />
+      </Animated.View>
     </View>
   );
 }
 
 const splashStyles = StyleSheet.create({
-  root: {
+  phaseRoot: {
     flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  root: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#0f172a',
     overflow: 'hidden',
   },
@@ -342,7 +390,6 @@ const splashStyles = StyleSheet.create({
   },
 });
 const SWIPE_THRESHOLD = 50;
-const INTRO_SEEN_KEY = '@a2express_intro_seen';
 
 // Données des slides
 const introSlides = [
@@ -383,8 +430,12 @@ export default function IntroScreen() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const [isChecking, setIsChecking] = useState(true); // Reste true par défaut
-  
+  const [minDisplayElapsed, setMinDisplayElapsed] = useState(false);
+  const [splashBrandDone, setSplashBrandDone] = useState(false);
+  const [shouldRedirectToTabs, setShouldRedirectToTabs] = useState(false);
+
   const { user, isLoading } = useAuth();
+  const { enterGuestMode } = useRequireAuth();
   const router = useRouter();
   
   const slideAnimation = useRef(new Animated.Value(0)).current;
@@ -501,34 +552,37 @@ export default function IntroScreen() {
     }
   }, [currentSlide]);
 
-  // LOGIQUE ANTI-RÉPÉTITION CORRIGÉE
+  useEffect(() => {
+    const timerId = setTimeout(() => setMinDisplayElapsed(true), SPLASH_MIN_DISPLAY_MS);
+    return () => clearTimeout(timerId);
+  }, []);
+
+  // LOGIQUE ANTI-RÉPÉTITION — résolution auth sans navigation prématurée
   useEffect(() => {
     const checkIntroStatus = async () => {
-      // Attendre que le chargement de l'auth soit terminé
       if (!isLoading) {
         try {
-          // Vérifier si l'intro a déjà été vue
           const introSeen = await AsyncStorage.getItem(INTRO_SEEN_KEY);
-          
-          // Condition de redirection : utilisateur connecté OU intro déjà vue
+
           if (user || introSeen === 'true') {
-            console.log('⏩ Redirection immédiate vers (tabs)');
-            // Redirection sans délai pour éviter le flash
-            router.replace('/(tabs)');
+            setShouldRedirectToTabs(true);
           } else {
-            // Aucune condition remplie, on affiche l'intro
             setIsChecking(false);
           }
         } catch (error) {
           console.error('Erreur lors de la vérification AsyncStorage:', error);
-          // En cas d'erreur, on affiche l'intro par sécurité
           setIsChecking(false);
         }
       }
     };
 
     checkIntroStatus();
-  }, [isLoading, user]); // Dépendances correctes
+  }, [isLoading, user]);
+
+  useEffect(() => {
+    if (!minDisplayElapsed || !splashBrandDone || !shouldRedirectToTabs) return;
+    router.replace('/(tabs)');
+  }, [minDisplayElapsed, splashBrandDone, shouldRedirectToTabs, router]);
 
   const slide = introSlides[currentSlide] || introSlides[0];
 
@@ -701,6 +755,15 @@ export default function IntroScreen() {
     }
   };
 
+  const handleExploreAsGuest = async () => {
+    try {
+      await enterGuestMode();
+    } catch (error) {
+      console.error('Erreur lors du mode invité:', error);
+      router.replace('/(tabs)');
+    }
+  };
+
   const handleLoginSuccess = () => {
     setShowLoginModal(false);
     router.replace('/(tabs)');
@@ -785,9 +848,17 @@ export default function IntroScreen() {
     });
   };
 
-  // Écran de chargement pendant la vérification
-  if (isChecking || isLoading) {
-    return <SplashLoadingScreen />;
+  // Phase A : écran marque + carrousel — plancher temps + fin animation obligatoires
+  if (
+    isChecking ||
+    isLoading ||
+    !minDisplayElapsed ||
+    !splashBrandDone ||
+    shouldRedirectToTabs
+  ) {
+    return (
+      <SplashLoadingScreen onBrandAnimationComplete={() => setSplashBrandDone(true)} />
+    );
   }
 
   // Si on arrive ici, c'est qu'on doit afficher l'intro
@@ -942,24 +1013,45 @@ export default function IntroScreen() {
         </View>
 
         {currentSlide === introSlides.length - 1 && (
-          <TouchableOpacity 
-            style={styles.startButton} 
-            onPress={handleStart}
-            activeOpacity={0.9}
-          >
-            <LinearGradient
-              colors={['#fff', '#f8f9fa']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.startButtonGradient}
+          <>
+            <TouchableOpacity 
+              style={styles.startButton} 
+              onPress={handleStart}
+              activeOpacity={0.9}
             >
-              <Text style={styles.startButtonText}>
-                {user ? 'Accéder à l\'app' : 'Démarrer avec A2Express'}
-              </Text>
-              <View style={styles.startButtonIcon}>
-                <Ionicons name="rocket" size={18} color="#fff" />
-              </View>
-            </LinearGradient>
+              <LinearGradient
+                colors={['#fff', '#f8f9fa']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.startButtonGradient}
+              >
+                <Text style={styles.startButtonText}>
+                  {user ? 'Accéder à l\'app' : 'Démarrer avec A2Express'}
+                </Text>
+                <View style={styles.startButtonIcon}>
+                  <Ionicons name="rocket" size={18} color="#fff" />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+            {!user && (
+              <TouchableOpacity
+                style={styles.guestButton}
+                onPress={handleExploreAsGuest}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="compass-outline" size={20} color="#fff" />
+                <Text style={styles.guestButtonText}>Explorer en tant qu'invité</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+        {currentSlide < introSlides.length - 1 && !user && (
+          <TouchableOpacity
+            style={styles.guestLink}
+            onPress={handleExploreAsGuest}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.guestLinkText}>Continuer sans compte</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -1133,7 +1225,7 @@ const styles = StyleSheet.create({
   },
   bottomSection: {
     position: 'absolute',
-    bottom: 60,
+    bottom: 36,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -1143,7 +1235,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 24,
   },
   dot: {
     width: 10,
@@ -1193,6 +1285,36 @@ const styles = StyleSheet.create({
     backgroundColor: '#667eea',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  guestButton: {
+    marginTop: 14,
+    width: width * 0.85,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.75)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  guestButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  guestLink: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  guestLinkText: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 14,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   progressContainer: {
     position: 'absolute',

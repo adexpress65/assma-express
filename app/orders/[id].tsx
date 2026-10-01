@@ -19,7 +19,14 @@ import { useOrders, Order } from '../../src/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/config/firebase';
-import { APP_CONFIG } from '@/constants/Config';
+import { APP_CONFIG, ORDER_STATUS_CONFIG, DELIVERY_MODE_UNCONFIRMED_MESSAGE, deliveryModeLabel, fulfillmentAdvanceLabel, getFulfillmentUi, isReviewFulfillmentStatus, nextFulfillmentStatus, resolveFulfillmentStatus, shouldConfirmDeliveryMode, type FulfillmentStatus } from '@/constants/Config';
+import { resolveOrderShippingMethod, shippingMethodIcon } from '@/utils/orderShipping';
+import {
+  formatVariantQuantityLine,
+  getOrderItemVariantLines,
+  getOrderLineStableKey,
+  hasVisibleVariantAttrs,
+} from '@/utils/orderItemVariants';
 
 const COLORS = {
   primary: '#FF6A00',
@@ -41,36 +48,18 @@ const COLORS = {
   }
 };
 
-const statusConfig = {
+const paymentStatusConfig = {
   pending: { 
     label: 'En attente', 
     color: COLORS.warning, 
     icon: 'time-outline' as const,
     bgColor: 'rgba(255, 193, 7, 0.1)'
   },
-  confirmed: { 
-    label: 'Confirmée', 
-    color: COLORS.primary, 
-    icon: 'checkmark-circle-outline' as const,
-    bgColor: 'rgba(255, 106, 0, 0.1)'
-  },
-  shipped: { 
-    label: 'Expédiée', 
-    color: COLORS.success, 
-    icon: 'car-outline' as const,
-    bgColor: 'rgba(40, 167, 69, 0.1)'
-  },
-  delivered: { 
-    label: 'Livrée', 
-    color: COLORS.success, 
-    icon: 'checkmark-done-outline' as const,
-    bgColor: 'rgba(40, 167, 69, 0.1)'
-  },
   cancelled: { 
-    label: 'Avis', 
-    color: '#7C3AED', 
-    icon: 'star-outline' as const,
-    bgColor: 'rgba(124, 58, 237, 0.12)'
+    label: 'Annulée', 
+    color: COLORS.danger, 
+    icon: 'close-circle-outline' as const,
+    bgColor: 'rgba(220, 53, 69, 0.12)'
   },
   failed: {
     label: 'Échouée',
@@ -86,7 +75,7 @@ export default function OrderDetailScreen() {
   const { user, isSuperAdmin, isAdmin } = useAuth();
   /** Seuls les comptes internes peuvent faire avancer le workflow logistique sur cet écran (les acheteurs B2B passent par fournisseurs / support). */
   const canManageFulfillment = isSuperAdmin || isAdmin;
-  const { getOrderById, updateOrderStatus, loading: contextLoading, orders } = useOrders();
+  const { getOrderById, updateOrderStatus, updateFulfillmentStatus, loading: contextLoading, orders } = useOrders();
   const [order, setOrder] = useState<Order | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -112,16 +101,27 @@ export default function OrderDetailScreen() {
   }, [loadOrder]);
 
   // Mémoïsation des valeurs dérivées
+  const fulfillment = useMemo(
+    () => (order ? resolveFulfillmentStatus(order) : undefined),
+    [order],
+  );
+  const nextFulfillment = useMemo(
+    () => nextFulfillmentStatus(fulfillment, order?.deliveryMode),
+    [fulfillment, order],
+  );
   const statusInfo = useMemo(() => {
-    if (!order) return statusConfig.pending;
-    const k = order.status as keyof typeof statusConfig;
-    return statusConfig[k] || statusConfig.pending;
-  }, [order]);
+    if (!order) return paymentStatusConfig.pending;
+    const payKey = String(order.status || '').toLowerCase();
+    if (payKey === 'cancelled' || payKey === 'failed' || (payKey === 'pending' && !fulfillment)) {
+      return paymentStatusConfig[payKey as keyof typeof paymentStatusConfig] || paymentStatusConfig.pending;
+    }
+    return getFulfillmentUi(fulfillment);
+  }, [order, fulfillment]);
 
   const canLeaveReview =
     !!user &&
     !!order &&
-    (order.status === 'delivered' || order.status === 'cancelled');
+    isReviewFulfillmentStatus(fulfillment);
 
   const submitReview = useCallback(async () => {
     if (!order || !id || !user || reviewRating < 1) {
@@ -150,14 +150,56 @@ export default function OrderDetailScreen() {
     }
   }, [order, id, user, reviewRating, reviewComment]);
 
-  const shipping = useMemo(() => 
-    order?.shipping || {
-      method: 'Standard',
-      cost: 0,
-      deliveryTime: '5-7 jours',
-      trackingNumber: undefined
-    }, [order]
-  );
+  const shipping = useMemo(() => {
+    const raw = order as Record<string, unknown> | null | undefined;
+    const summary = (raw?.summary && typeof raw.summary === 'object')
+      ? (raw.summary as Record<string, unknown>)
+      : null;
+    const shippingObj = (raw?.shipping && typeof raw.shipping === 'object')
+      ? (raw.shipping as Record<string, unknown>)
+      : null;
+
+    const fromSummary = Number(summary?.shipping);
+    const fromFee = Number(raw?.shippingFee);
+    const fromObject = shippingObj != null && shippingObj.cost != null
+      ? Number(shippingObj.cost)
+      : NaN;
+
+    let cost = 0;
+    if (Number.isFinite(fromSummary) && fromSummary > 0) {
+      cost = fromSummary;
+    } else if (Number.isFinite(fromFee) && fromFee > 0) {
+      cost = fromFee;
+    } else if (Number.isFinite(fromObject)) {
+      cost = fromObject;
+    } else if (Number.isFinite(fromSummary)) {
+      cost = fromSummary;
+    }
+
+    const methodInfo = resolveOrderShippingMethod(raw);
+    return {
+      method: methodInfo.name,
+      cost,
+      deliveryTime: methodInfo.delay,
+      type: methodInfo.type,
+      trackingNumber: shippingObj?.trackingNumber as string | undefined,
+    };
+  }, [order]);
+
+  const subtotal = useMemo(() => {
+    const raw = order as Record<string, unknown> | null | undefined;
+    const summary = (raw?.summary && typeof raw.summary === 'object')
+      ? (raw.summary as Record<string, unknown>)
+      : null;
+    const fromSummary = Number(summary?.subtotal);
+    if (Number.isFinite(fromSummary) && fromSummary > 0) return fromSummary;
+    const fromField = Number(raw?.subtotal);
+    if (Number.isFinite(fromField) && fromField > 0) return fromField;
+    const total = Number(raw?.total) || 0;
+    const ship = shipping.cost;
+    if (ship > 0 && total > ship) return total - ship;
+    return total;
+  }, [order, shipping.cost]);
 
   // Correction : lecture prioritaire de shippingAddress (Firestore)
   const address = useMemo(() => {
@@ -173,6 +215,7 @@ export default function OrderDetailScreen() {
       country: raw?.country || 'Non spécifié',
       phone: raw?.phone || 'Non spécifié',
       companyName: raw?.companyName || '',
+      deliveryNote: raw?.deliveryNote || '',
     };
   }, [order]);
 
@@ -183,45 +226,76 @@ export default function OrderDetailScreen() {
     }, [order]
   );
 
-  const subtotal = useMemo(() => 
-    order?.subtotal || order?.total || 0, [order]
-  );
-
   const tax = useMemo(() => 
     order?.tax || 0, [order]
   );
 
-  const itemCount = useMemo(() => 
-    order?.items?.length || 0, [order]
-  );
+  const itemCount = useMemo(() => {
+    if (!order?.items?.length) return 0;
+    return order.items.reduce((total, item) => {
+      const lines = getOrderItemVariantLines(item as Record<string, unknown>);
+      return total + Math.max(lines.length, 1);
+    }, 0);
+  }, [order]);
 
-  // Callbacks mémoïsés
-  const handleUpdateStatus = useCallback(async (newStatus: Order['status']) => {
+  const handleUpdateFulfillment = useCallback(async (newStatus: FulfillmentStatus) => {
     if (!order || !id || !canManageFulfillment) return;
-    const cfg = statusConfig[newStatus as keyof typeof statusConfig];
+    const cfg = ORDER_STATUS_CONFIG[newStatus];
     if (!cfg) return;
 
     Alert.alert(
-      'Modifier le statut',
-      `Voulez-vous vraiment changer le statut en "${cfg.label}" ?`,
+      'Modifier le suivi logistique',
+      `Voulez-vous vraiment passer au statut « ${cfg.label} » ?`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Confirmer',
+          onPress: async () => {
+            try {
+              setIsUpdating(true);
+              await updateFulfillmentStatus(id as string, newStatus);
+              setOrder(prev => prev ? { 
+                ...prev, 
+                fulfillmentStatus: newStatus, 
+                updatedAt: new Date() 
+              } : null);
+              Alert.alert('Succès', 'Suivi logistique mis à jour');
+            } catch (error) {
+              console.error('Erreur:', error);
+              Alert.alert('Erreur', 'Impossible de mettre à jour le suivi');
+            } finally {
+              setIsUpdating(false);
+            }
+          }
+        }
+      ]
+    );
+  }, [order, id, updateFulfillmentStatus, canManageFulfillment]);
+
+  const handleCancelOrder = useCallback(async () => {
+    if (!order || !id || !canManageFulfillment) return;
+
+    Alert.alert(
+      'Annuler la commande',
+      'Voulez-vous vraiment annuler cette commande ? (statut de paiement → cancelled)',
+      [
+        { text: 'Retour', style: 'cancel' },
+        {
+          text: 'Annuler la commande',
           style: 'destructive',
           onPress: async () => {
             try {
               setIsUpdating(true);
-              await updateOrderStatus(id as string, newStatus);
+              await updateOrderStatus(id as string, 'cancelled');
               setOrder(prev => prev ? { 
                 ...prev, 
-                status: newStatus, 
+                status: 'cancelled', 
                 updatedAt: new Date() 
               } : null);
-              Alert.alert('Succès', 'Statut mis à jour avec succès');
+              Alert.alert('Succès', 'Commande annulée');
             } catch (error) {
               console.error('Erreur:', error);
-              Alert.alert('Erreur', 'Impossible de mettre à jour le statut');
+              Alert.alert('Erreur', 'Impossible d’annuler la commande');
             } finally {
               setIsUpdating(false);
             }
@@ -413,6 +487,9 @@ export default function OrderDetailScreen() {
             {address.postalCode ? `${address.postalCode} ` : ''}{address.city}
           </Text>
           <Text style={styles.addressText}>{address.country}</Text>
+          {!!address.deliveryNote && (
+            <Text style={styles.addressText}>Note livreur : {address.deliveryNote}</Text>
+          )}
           <View style={styles.phoneContainer}>
             <Ionicons name="call-outline" size={16} color={COLORS.primary} />
             <Text style={styles.phoneText}>{address.phone}</Text>
@@ -420,23 +497,31 @@ export default function OrderDetailScreen() {
         </View>
       </View>
 
-      {/* Informations de livraison */}
+      {/* Mode de transport */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.cardIconContainer}>
-            <Ionicons name="cube-outline" size={20} color={COLORS.primary} />
+            <Ionicons name="airplane-outline" size={20} color={COLORS.primary} />
           </View>
-          <Text style={styles.cardTitle}>Livraison</Text>
+          <Text style={styles.cardTitle}>Mode de transport</Text>
         </View>
         <View style={styles.cardContent}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Méthode:</Text>
-            <Text style={styles.infoValue}>{shipping.method}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Délai:</Text>
-            <Text style={styles.infoValue}>{shipping.deliveryTime}</Text>
-          </View>
+          <Text style={styles.transportHeadline}>
+            {shippingMethodIcon(shipping.type)} {shipping.method}
+          </Text>
+          {shouldConfirmDeliveryMode(order) ? (
+            <View style={styles.deliveryModeWarn}>
+              <Ionicons name="alert-circle-outline" size={18} color="#B45309" />
+              <Text style={styles.deliveryModeWarnText}>
+                {DELIVERY_MODE_UNCONFIRMED_MESSAGE}
+              </Text>
+            </View>
+          ) : !!deliveryModeLabel(order.deliveryMode) ? (
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Dernier km:</Text>
+              <Text style={styles.infoValue}>{deliveryModeLabel(order.deliveryMode)}</Text>
+            </View>
+          ) : null}
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Coût:</Text>
             <Text style={styles.infoValue}>{formatPrice(shipping.cost)}</Text>
@@ -447,7 +532,7 @@ export default function OrderDetailScreen() {
               <Text style={styles.infoValue}>{shipping.trackingNumber}</Text>
             </View>
           )}
-          {order.status === 'shipped' && (
+          {!!fulfillment && fulfillment !== 'prise_en_charge' && fulfillment !== 'preparation' && fulfillment !== 'termine' && fulfillment !== 'recupere' && fulfillment !== 'livre' && (
             <TouchableOpacity 
               style={styles.trackButton} 
               onPress={handleTrackShipping}
@@ -473,24 +558,37 @@ export default function OrderDetailScreen() {
           </View>
           <Text style={styles.cardTitle}>Articles ({itemCount})</Text>
         </View>
-        {order.items?.map((item, index) => (
+        {order.items?.map((item, index) => {
+          const rec = item as Record<string, unknown>;
+          const variantLines = getOrderItemVariantLines(rec);
+          const productName = String(item.name || 'Produit');
+          const grouped = variantLines.length > 1;
+          return (
           <View
-            key={`${String((item as any).productId ?? (item as any).id ?? '')}-${String((item as any).name)}-${index}`}
+            key={getOrderLineStableKey(rec, index)}
             style={styles.itemRow}
           >
             <View style={styles.itemInfo}>
-              <Text style={styles.itemName}>{item.name}</Text>
+              <Text style={styles.itemName}>{productName}</Text>
+              {hasVisibleVariantAttrs(variantLines)
+                ? variantLines.map((line, lineIndex) => (
+                    <Text key={`${line.color}-${line.size}-${lineIndex}`} style={styles.itemDetails}>
+                      {formatVariantQuantityLine(productName, line, {
+                        includeName: !grouped,
+                      })}
+                    </Text>
+                  ))
+                : null}
               <Text style={styles.itemDetails}>
                 {item.quantity || 1} × {formatPrice(item.price)}
-                {item.color && ` • ${item.color}`}
-                {item.size && ` • Taille: ${item.size}`}
               </Text>
             </View>
             <Text style={styles.itemTotal}>
               {formatPrice(item.price * (item.quantity || 1))}
             </Text>
           </View>
-        ))}
+          );
+        })}
       </View>
 
       {/* Résumé du paiement */}
@@ -561,7 +659,7 @@ export default function OrderDetailScreen() {
             </View>
           ) : (
             <View style={styles.cardContent}>
-              <Text style={styles.reviewHint}>Notez votre expérience (commande livrée ou annulée).</Text>
+              <Text style={styles.reviewHint}>Notez votre expérience une fois la commande terminée.</Text>
               <View style={styles.starsRow}>
                 {[1, 2, 3, 4, 5].map((n) => (
                   <TouchableOpacity key={n} onPress={() => setReviewRating(n)} hitSlop={8}>
@@ -598,31 +696,33 @@ export default function OrderDetailScreen() {
 
       {/* Actions : workflow logistique réservé aux comptes internes ; acheteurs B2B : suivi + support */}
       <View style={styles.actionsContainer}>
-        {canManageFulfillment && order.status === 'pending' && (
-          <>
-            <TouchableOpacity
-              style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
-              onPress={() => handleUpdateStatus('confirmed')}
-              disabled={isUpdating}
-              activeOpacity={0.8}
+        {canManageFulfillment && nextFulfillment && order.status !== 'cancelled' && order.status !== 'failed' && (
+          <TouchableOpacity
+            style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
+            onPress={() => handleUpdateFulfillment(nextFulfillment)}
+            disabled={isUpdating}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={COLORS.primaryGradient}
+              style={styles.actionButtonGradient}
             >
-              <LinearGradient
-                colors={COLORS.primaryGradient}
-                style={styles.actionButtonGradient}
-              >
-                <Text style={styles.actionButtonText}>Confirmer la commande</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+              <Text style={styles.actionButtonText}>
+                {fulfillmentAdvanceLabel(fulfillment, nextFulfillment)}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
 
-            <TouchableOpacity
-              style={[styles.actionButton, styles.cancelButton, isUpdating && { opacity: 0.65 }]}
-              onPress={() => handleUpdateStatus('cancelled')}
-              disabled={isUpdating}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.cancelButtonText}>Annuler la commande</Text>
-            </TouchableOpacity>
-          </>
+        {canManageFulfillment && order.status === 'pending' && (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.cancelButton, isUpdating && { opacity: 0.65 }]}
+            onPress={handleCancelOrder}
+            disabled={isUpdating}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.cancelButtonText}>Annuler la commande</Text>
+          </TouchableOpacity>
         )}
 
         {!canManageFulfillment && order.status === 'pending' && (
@@ -643,38 +743,6 @@ export default function OrderDetailScreen() {
               <Text style={styles.buyerHelpButtonText}>Demander une modification par e-mail</Text>
             </TouchableOpacity>
           </View>
-        )}
-
-        {canManageFulfillment && order.status === 'confirmed' && (
-          <TouchableOpacity
-            style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
-            onPress={() => handleUpdateStatus('shipped')}
-            disabled={isUpdating}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={['#34C759', '#30D158']}
-              style={styles.actionButtonGradient}
-            >
-              <Text style={styles.actionButtonText}>Marquer comme expédiée</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        )}
-
-        {canManageFulfillment && order.status === 'shipped' && (
-          <TouchableOpacity
-            style={[styles.actionButton, isUpdating && { opacity: 0.65 }]}
-            onPress={() => handleUpdateStatus('delivered')}
-            disabled={isUpdating}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={['#30D158', '#34C759']}
-              style={styles.actionButtonGradient}
-            >
-              <Text style={styles.actionButtonText}>Marquer comme livrée</Text>
-            </LinearGradient>
-          </TouchableOpacity>
         )}
 
         <TouchableOpacity
@@ -893,6 +961,22 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  deliveryModeWarn: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(217, 119, 6, 0.12)',
+  },
+  deliveryModeWarnText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#92400E',
+    fontWeight: '600',
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -948,6 +1032,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  transportHeadline: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  transportDelay: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: COLORS.textLight,
+    marginBottom: 12,
+  },
   infoLabel: {
     fontSize: 14,
     color: COLORS.textLight,
@@ -995,6 +1091,8 @@ const styles = StyleSheet.create({
   itemDetails: {
     fontSize: 13,
     color: COLORS.textLight,
+    lineHeight: 18,
+    marginBottom: 2,
   },
   itemTotal: {
     fontSize: 14,

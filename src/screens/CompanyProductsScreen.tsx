@@ -1,5 +1,5 @@
 // screens/CompanyProductsScreen.tsx - VERSION PROPRE ET CORRIGÉE
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { getLocalizedProductText } from "../utils/productLocale";
 import {
@@ -8,7 +8,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   Dimensions,
   ScrollView,
@@ -16,6 +15,7 @@ import {
   TextInput,
   Alert,
 } from "react-native";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { QueryDocumentSnapshot } from "firebase/firestore";
 import {
@@ -28,7 +28,12 @@ import {
 import { getCompanyById, Company } from "../services/firebase/companyService";
 import { Ionicons } from "@expo/vector-icons";
 import { useCart } from '../contexts/CartContext';
+import { useRequireAuth } from '../contexts/AuthGuardContext';
 import { isZeroDollarsProduct } from '../utils/zeroDollarsShop';
+import {
+  isZeroFcfaCatalogPrice,
+  ZERO_FCFA_UNAVAILABLE_MESSAGE,
+} from '../utils/warehouseFee';
 
 const { width } = Dimensions.get("window");
 const SHOP_PAGE_SIZE = 28;
@@ -71,8 +76,7 @@ export default function CompanyProductsScreen() {
    */
   const [company, setCompany] = useState<Company | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingProducts, setLoadingProducts] = useState(true);
   const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [productsLastDoc, setProductsLastDoc] = useState<QueryDocumentSnapshot | null>(null);
   const [productsHasMore, setProductsHasMore] = useState(false);
@@ -85,7 +89,55 @@ export default function CompanyProductsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("newest");
   const [searchQuery, setSearchQuery] = useState("");
-  const [categories, setCategories] = useState<string[]>(["all"]);
+  
+  const categories = useMemo(
+    () => [
+      "all",
+      ...new Set(
+        products
+          .map((p) => String(p.categoryName || "").trim())
+          .filter(Boolean),
+      ),
+    ] as string[],
+    [products],
+  );
+
+  const filteredProducts = useMemo(() => {
+    let result = [...products];
+
+    if (selectedCategory !== "all") {
+      result = result.filter((p) => p.categoryName === selectedCategory);
+    }
+
+    if (searchQuery.trim() !== "") {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.description?.toLowerCase().includes(q),
+      );
+    }
+
+    result.sort((a, b) => {
+      switch (sortBy) {
+        case "price-asc":
+          return (a.price || 0) - (b.price || 0);
+        case "price-desc":
+          return (b.price || 0) - (a.price || 0);
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "newest":
+          return (
+            new Date(b.createdAt || 0).getTime() -
+            new Date(a.createdAt || 0).getTime()
+          );
+        default:
+          return 0;
+      }
+    });
+
+    return result;
+  }, [products, selectedCategory, sortBy, searchQuery]);
   
   /**
    * 🧠 STATES PANIER
@@ -99,22 +151,26 @@ export default function CompanyProductsScreen() {
    * 🛒 CONTEXTE PANIER
    */
   const { addToCart: addToCartContext, cartItems } = useCart();
+  const { requireAuth } = useRequireAuth();
 
   /**
    * 📦 FONCTION UNIQUE DE CHARGEMENT
    */
   const loadCompanyAndProducts = async () => {
     try {
-      setLoading(true);
+      setLoadingProducts(true);
       loadMoreGuard.current = false;
       setProductsLastDoc(null);
       setProductsHasMore(false);
       setProductsSource(null);
 
-      const companyData = await getCompanyById(companyId);
+      const [companyData, first] = await Promise.all([
+        getCompanyById(companyId),
+        getProductsByCompanyFirstPage(companyId, SHOP_PAGE_SIZE),
+      ]);
+
       setCompany(companyData);
 
-      const first = await getProductsByCompanyFirstPage(companyId, SHOP_PAGE_SIZE);
       let list = first.products;
       setProductsLastDoc(first.lastDoc);
       setProductsHasMore(first.hasMore);
@@ -146,7 +202,7 @@ export default function CompanyProductsScreen() {
       console.error("❌ Erreur chargement entreprise/produits:", error);
       Alert.alert("Erreur", "Impossible de charger les produits de la boutique");
     } finally {
-      setLoading(false);
+      setLoadingProducts(false);
     }
   };
 
@@ -202,62 +258,12 @@ export default function CompanyProductsScreen() {
     loadCompanyAndProducts();
   }, [companyId]);
 
-  useEffect(() => {
-    const uniqueCategories = [
-      "all",
-      ...new Set(
-        products
-          .map((p) => String(p.categoryName || "").trim())
-          .filter(Boolean),
-      ),
-    ];
-    setCategories(uniqueCategories as string[]);
-  }, [products]);
-
-  /**
-   * 🔎 EFFECT FILTRAGE
-   */
-  useEffect(() => {
-    let result = [...products];
-
-    // Filtre catégorie
-    if (selectedCategory !== "all") {
-      result = result.filter(p => p.categoryName === selectedCategory);
-    }
-
-    // Filtre recherche
-    if (searchQuery.trim() !== "") {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(p => 
-        p.name.toLowerCase().includes(query) || 
-        p.description?.toLowerCase().includes(query)
-      );
-    }
-
-    // Tri
-    result.sort((a, b) => {
-      switch (sortBy) {
-        case "price-asc":
-          return (a.price || 0) - (b.price || 0);
-        case "price-desc":
-          return (b.price || 0) - (a.price || 0);
-        case "name":
-          return a.name.localeCompare(b.name);
-        case "newest":
-          return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-        default:
-          return 0;
-      }
-    });
-
-    setFilteredProducts(result);
-  }, [products, selectedCategory, sortBy, searchQuery]);
-
   /**
    * 🛒 FONCTION UNIQUE D'AJOUT AU PANIER
    */
   const handleAddToCart = async () => {
     if (!selectedProduct) return;
+    if (!requireAuth({ reason: 'add_to_cart', onAuthorized: () => { void handleAddToCart(); } })) return;
 
     setAddToCartLoading(true);
     try {
@@ -272,6 +278,14 @@ export default function CompanyProductsScreen() {
         name: selectedProduct.name,
       }) ? 0 : rawPrice;
 
+      const originWarehouseId = selectedProduct.originWarehouseId ?? null;
+      const originWarehouseLabel = selectedProduct.originWarehouseLabel ?? null;
+
+      if (isZeroFcfaCatalogPrice(price) && !originWarehouseId) {
+        Alert.alert("Indisponible", ZERO_FCFA_UNAVAILABLE_MESSAGE);
+        return;
+      }
+
       const cartProduct = {
         id: selectedProduct.id,
         name: selectedProduct.name,
@@ -284,6 +298,8 @@ export default function CompanyProductsScreen() {
         inStock: (selectedProduct.stockQuantity || 0) > 0,
         companyId: companyId,
         companyName: companyName,
+        originWarehouseId,
+        originWarehouseLabel,
       };
 
       await addToCartContext(cartProduct);
@@ -305,7 +321,11 @@ export default function CompanyProductsScreen() {
       
     } catch (error) {
       console.error("❌ Erreur ajout panier:", error);
-      Alert.alert("Erreur", "Impossible d'ajouter au panier");
+      const msg =
+        error instanceof Error && error.message
+          ? error.message
+          : "Impossible d'ajouter au panier";
+      Alert.alert("Erreur", msg);
     } finally {
       setAddToCartLoading(false);
     }
@@ -316,6 +336,7 @@ export default function CompanyProductsScreen() {
    */
   const handleBuyNow = async () => {
     if (!selectedProduct) return;
+    if (!requireAuth({ reason: 'buy_now', onAuthorized: () => { void handleBuyNow(); } })) return;
 
     setAddToCartLoading(true);
     try {
@@ -327,6 +348,14 @@ export default function CompanyProductsScreen() {
         seller: companyName || undefined,
         name: selectedProduct.name,
       }) ? 0 : rawPrice;
+
+      const originWarehouseId = selectedProduct.originWarehouseId ?? null;
+      const originWarehouseLabel = selectedProduct.originWarehouseLabel ?? null;
+
+      if (isZeroFcfaCatalogPrice(price) && !originWarehouseId) {
+        Alert.alert("Indisponible", ZERO_FCFA_UNAVAILABLE_MESSAGE);
+        return;
+      }
 
       const cartProduct = {
         id: selectedProduct.id,
@@ -340,6 +369,8 @@ export default function CompanyProductsScreen() {
         inStock: (selectedProduct.stockQuantity || 0) > 0,
         companyId: companyId,
         companyName: companyName,
+        originWarehouseId,
+        originWarehouseLabel,
       };
 
       await addToCartContext(cartProduct);
@@ -349,7 +380,11 @@ export default function CompanyProductsScreen() {
       
     } catch (error) {
       console.error("Erreur achat immédiat:", error);
-      Alert.alert("Erreur", "Impossible de procéder à l'achat");
+      const msg =
+        error instanceof Error && error.message
+          ? error.message
+          : "Impossible de procéder à l'achat";
+      Alert.alert("Erreur", msg);
     } finally {
       setAddToCartLoading(false);
     }
@@ -377,20 +412,10 @@ export default function CompanyProductsScreen() {
   };
 
   /**
-   * 🌀 LOADER
-   */
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ff6a00" />
-        <Text style={styles.loadingText}>Chargement de la boutique...</Text>
-      </View>
-    );
-  }
-
-  /**
    * 🖥️ RENDU PRINCIPAL
    */
+  const displayCompanyName = company?.name || companyName;
+
   return (
     <View style={styles.container}>
       {/* En-tête */}
@@ -401,7 +426,7 @@ export default function CompanyProductsScreen() {
         
         <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            🏪 {companyName}
+            🏪 {displayCompanyName}
           </Text>
           {company?.location && (
             <Text style={styles.companyLocation}>
@@ -420,6 +445,13 @@ export default function CompanyProductsScreen() {
         </TouchableOpacity>
       </View>
 
+      {loadingProducts ? (
+        <View style={styles.loadingProducts}>
+          <ActivityIndicator size="large" color="#ff6a00" />
+          <Text style={styles.loadingText}>Chargement des produits…</Text>
+        </View>
+      ) : (
+        <>
       {/* Produit sélectionné */}
       {selectedProduct && (
         <TouchableOpacity 
@@ -483,6 +515,10 @@ export default function CompanyProductsScreen() {
           numColumns={2}
           columnWrapperStyle={styles.productsRow}
           contentContainerStyle={styles.productsGrid}
+          initialNumToRender={8}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
           onEndReachedThreshold={0.35}
           onEndReached={() => {
             void loadMoreProducts();
@@ -503,6 +539,9 @@ export default function CompanyProductsScreen() {
               <Image
                 source={{ uri: item.imageUrl || 'https://via.placeholder.com/150' }}
                 style={styles.productImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={100}
               />
               <View style={styles.productInfo}>
                 <Text style={styles.productName} numberOfLines={2}>
@@ -519,6 +558,9 @@ export default function CompanyProductsScreen() {
             </TouchableOpacity>
           )}
         />
+      )}
+
+        </>
       )}
 
       {/* Modal panier */}
@@ -617,6 +659,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  loadingProducts: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 48,
   },
   loadingText: {
     marginTop: 12,

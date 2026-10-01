@@ -165,7 +165,8 @@ export default function SuperAdminOrdersScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ userId?: string | string[] }>();
   const filterUserId = paramUserId(params.userId);
-  const { user, isSuperAdmin } = useAuth();
+  const { user, isSuperAdmin, isAdmin } = useAuth();
+  const isOperationalStaff = isSuperAdmin || isAdmin;
   const [rows, setRows] = useState<AdminOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -174,7 +175,7 @@ export default function SuperAdminOrdersScreen() {
   const [bulkValidating, setBulkValidating] = useState(false);
 
   useEffect(() => {
-    if (!user || !isSuperAdmin) {
+    if (!user || !isOperationalStaff) {
       setRows([]);
       setLoading(false);
       return;
@@ -240,18 +241,18 @@ export default function SuperAdminOrdersScreen() {
     );
 
     return () => unsub();
-  }, [user, isSuperAdmin]);
+  }, [user, isOperationalStaff]);
 
   useEffect(() => {
     if (!user) {
       router.replace("/(tabs)/account");
       return;
     }
-    if (!isSuperAdmin) {
-      Alert.alert("Accès refusé", "Cet espace est réservé aux super-administrateurs.");
+    if (!isOperationalStaff) {
+      Alert.alert("Accès refusé", "Cet espace est réservé aux administrateurs.");
       router.back();
     }
-  }, [user, isSuperAdmin, router]);
+  }, [user, isOperationalStaff, router]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -477,7 +478,7 @@ export default function SuperAdminOrdersScreen() {
     [router],
   );
 
-  if (!isSuperAdmin) {
+  if (!isOperationalStaff) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color="#EA580C" />

@@ -34,7 +34,9 @@
     "uncategorized": "Non catégorisé"
   },
   "productDetail": {
-    "colorsAvailable": "Couleurs disponibles :",
+    "colorsAvailable": "Choisir une couleur",
+    "sizesAvailable": "Tailles disponibles",
+    "sizesForColor": "Tailles — {{color}}",
     "inStockCount": "{{count}} en stock",
     "sizeStandard": "Standard",
     "stockLabel": "Stock : {{count}}"
@@ -351,6 +353,43 @@
       "cta": "EN PROFITER",
       "later": "Plus tard"
     },
+    "authGuard": {
+      "title": "Compte requis",
+      "defaultMessage": "Créez un compte ou connectez-vous pour continuer.",
+      "signIn": "Se connecter",
+      "register": "Créer un compte",
+      "later": "Continuer à explorer",
+      "reasons": {
+        "buy_now": {
+          "title": "Finaliser votre commande",
+          "message": "Créez un compte ou connectez-vous pour finaliser votre commande."
+        },
+        "add_to_cart": {
+          "title": "Ajouter au panier",
+          "message": "Créez un compte ou connectez-vous pour ajouter des articles au panier."
+        },
+        "contact_seller": {
+          "title": "Contacter le fournisseur",
+          "message": "Connectez-vous pour écrire à la boutique ou au fournisseur."
+        },
+        "messages": {
+          "title": "Vos messages",
+          "message": "Connectez-vous pour accéder à vos conversations et au support."
+        },
+        "account": {
+          "title": "Votre espace",
+          "message": "Créez un compte ou connectez-vous pour gérer votre profil et vos commandes."
+        },
+        "checkout": {
+          "title": "Paiement sécurisé",
+          "message": "Créez un compte ou connectez-vous pour finaliser votre commande."
+        },
+        "generic": {
+          "title": "Compte requis",
+          "message": "Créez un compte ou connectez-vous pour continuer."
+        }
+      }
+    },
     "cart": {
       "emptyTitle": "Votre panier est vide",
       "emptySubtitle": "Découvrez nos produits et trouvez votre bonheur",
@@ -615,7 +654,24 @@
         "emptyCatalog": "Votre catalogue est vide.",
         "addFirstProduct": "Ajouter le premier produit",
         "stockAndSold": "Stock: {{stock}} | {{sold}} vendus",
-        "topSelling": "Top vente"
+        "topSelling": "Top vente",
+        "viewStock": "Stock par produit"
+      },
+      "stockView": {
+        "title": "Mes produits",
+        "adminTitle": "Stock par produit",
+        "stock": "Stock",
+        "inStock": "En stock",
+        "lowStock": "Stock faible",
+        "outOfStock": "Rupture",
+        "threshold": "Seuil stock faible",
+        "filterCompany": "Filtrer par fournisseur…",
+        "companyUnknown": "Fournisseur inconnu",
+        "searchPlaceholder": "Rechercher un produit…",
+        "all": "Tous",
+        "empty": "Aucun produit à afficher",
+        "criticalFirst": "Tri par défaut : stock croissant (plus critiques en premier)",
+        "unlimitedStock": "Stock illimité"
       },
       "store": {
         "loadStoreError": "Impossible de charger la boutique.",

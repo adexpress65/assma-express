@@ -59,6 +59,10 @@ export type AdminShipping = {
   city?: string;
   postalCode?: string;
   country?: string;
+  apartment?: string;
+  building?: string;
+  floor?: string;
+  deliveryNote?: string;
 };
 
 function tryPickShipping(o: unknown): AdminShipping | null {
@@ -73,8 +77,28 @@ function tryPickShipping(o: unknown): AdminShipping | null {
   const city = String(r.city || "").trim() || undefined;
   const postalCode = String(r.postalCode || r.zip || "").trim() || undefined;
   const country = String(r.country || "").trim() || undefined;
+  const apartment =
+    String(r.apartment || r.apt || r.unit || "").trim() || undefined;
+  const building =
+    String(r.building || r.immeuble || "").trim() || undefined;
+  const floor = String(r.floor || r.etage || "").trim() || undefined;
+  const deliveryNote =
+    String(
+      r.deliveryNote || r.deliveryNotes || r.notes || r.instructions || "",
+    ).trim() || undefined;
   if (fullName || phone || street) {
-    return { fullName, phone, street, city, postalCode, country };
+    return {
+      fullName,
+      phone,
+      street,
+      city,
+      postalCode,
+      country,
+      apartment,
+      building,
+      floor,
+      deliveryNote,
+    };
   }
   return null;
 }

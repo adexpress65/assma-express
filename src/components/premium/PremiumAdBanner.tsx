@@ -7,8 +7,8 @@ import {
   StyleSheet, 
   Animated, 
   Dimensions,
-  ImageBackground
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -133,11 +133,14 @@ export default function PremiumAdBanner() {
           activeOpacity={0.9}
           onPress={() => router.push(currentAd.route)}
         >
-          <ImageBackground
-            source={{ uri: currentAd.bgImage }}
-            style={styles.backgroundImage}
-            imageStyle={styles.backgroundImageStyle}
-          >
+          <View style={styles.backgroundImage}>
+            <Image
+              source={{ uri: currentAd.bgImage }}
+              style={[StyleSheet.absoluteFillObject, styles.backgroundImageStyle]}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={`ad-${currentAd.id}`}
+            />
             <LinearGradient
               colors={['rgba(0,0,0,0.2)', 'rgba(0,0,0,0.8)']}
               style={styles.overlayGradient}
@@ -192,7 +195,7 @@ export default function PremiumAdBanner() {
                 </View>
               </View>
             </LinearGradient>
-          </ImageBackground>
+          </View>
         </TouchableOpacity>
       </Animated.View>
 
@@ -211,7 +214,7 @@ const styles = StyleSheet.create({
   container: { marginHorizontal: 20, marginVertical: 16 },
   bannerContainer: { borderRadius: 24, overflow: 'hidden', elevation: 8, backgroundColor: '#eee' },
   bannerTouchable: { borderRadius: 24, overflow: 'hidden' },
-  backgroundImage: { width: '100%', height: 180 },
+  backgroundImage: { width: '100%', height: 180, overflow: 'hidden', borderRadius: 24 },
   backgroundImageStyle: { borderRadius: 24 },
   overlayGradient: { flex: 1, padding: 20, justifyContent: 'space-between' },
   bannerContent: { flex: 1, flexDirection: 'row', justifyContent: 'space-between' },

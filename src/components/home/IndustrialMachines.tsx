@@ -24,11 +24,14 @@ export default function IndustrialMachines() {
   useEffect(() => {
     const q = query(
       collection(db, "products"),
+      where("isActive", "==", true),
       where("category", "==", "machines_industrielles")
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetched: Product[] = snapshot.docs.map((doc) => ({
+      const fetched: Product[] = snapshot.docs
+        .filter((doc) => doc.data()?.isActive === true)
+        .map((doc) => ({
         id: doc.id,
         name: doc.data().name || "Produit sans nom",
         price: doc.data().price || 0,
