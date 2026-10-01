@@ -279,10 +279,10 @@ function AppInitializer({ children }: { children: ReactNode }) {
 
 /** Composant intermédiaire pour injecter l'utilisateur connecté dans MessagesProvider */
 function AuthenticatedProviders({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, userRole } = useAuth();
 
   return (
-    <MessagesProvider user={user}>
+    <MessagesProvider user={user} userRole={userRole}>
       <LiveProvider>
         <WebRTCProvider>
           {children}

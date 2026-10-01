@@ -260,7 +260,7 @@ export default function SellerDashboard() {
           query(
             collection(db, "conversations"),
             where("participants", "array-contains", user.uid),
-            orderBy("lastMessageTimestamp", "desc"),
+            orderBy("updatedAt", "desc"),
             limit(5)
           )
         ),

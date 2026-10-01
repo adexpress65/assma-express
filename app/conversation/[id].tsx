@@ -52,6 +52,10 @@ import { PAYMENT_ENDPOINTS } from "../../src/config/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ConversationProfileModal from "../../src/components/ConversationProfileModal";
 import { pickCompanyNameFromFirestoreData } from "../../src/utils/companyDisplayName";
+import {
+  bootstrapStoreConversation,
+  MessagingRoutingError,
+} from "../../src/services/conversationRouting";
 
 function isHttpUrl(s: unknown): s is string {
   return (
@@ -929,9 +933,7 @@ useEffect(() => {
       bootstrapInFlight.current = true;
 
       try {
-        const convRef = doc(db, "conversations", conversationId);
-
-        // 1. Détermination du nom et avatar client
+        // Destinataire boutique : conversationRouting (sellerId produit, jamais le support).
         const currentUserName = getUserDisplayLabel(
           {
             displayName: user.displayName || (user as any).name || (user as any).fullName,
@@ -959,130 +961,32 @@ useEffect(() => {
           parsedClientUid ||
           (isOpeningAsClient ? user.uid : null);
 
-        const fallbackCompanyName = normalizeRouteParam(params.sellerName) || "Boutique";
-        const fallbackCompanyLogo = normalizeRouteParam(params.sellerLogo) || null;
-
-        let ownerUid: string | null = null;
-        let realName = fallbackCompanyName;
-        let realLogo = fallbackCompanyLogo;
         try {
-          const companySnap = await getDoc(doc(db, "companies", normalizedCompanyId));
-          if (companySnap.exists()) {
-            const companyData = companySnap.data() as Record<string, unknown>;
-            ownerUid = companyOwnerUidFromData(companyData);
-            const fromName =
-              (typeof companyData.name === "string" && companyData.name.trim()) ||
-              (typeof companyData.companyName === "string" &&
-                String(companyData.companyName).trim()) ||
-              "";
-            if (fromName) realName = fromName;
-            const fromLogo =
-              (typeof companyData.logo === "string" && companyData.logo) ||
-              (typeof companyData.companyLogo === "string" &&
-                String(companyData.companyLogo)) ||
-              "";
-            if (fromLogo) realLogo = fromLogo;
+          await bootstrapStoreConversation({
+            conversationId,
+            companyId: normalizedCompanyId,
+            viewerUid: user.uid,
+            productSellerUid: normalizedSellerId,
+            clientUid,
+            companyName: normalizeRouteParam(params.sellerName),
+            companyLogo: normalizeRouteParam(params.sellerLogo),
+            clientName: isOpeningAsClient ? currentUserName : null,
+            clientAvatar: isOpeningAsClient ? currentUserAvatar : null,
+            debug: typeof __DEV__ !== "undefined" && __DEV__,
+          });
+        } catch (e) {
+          console.warn("conversation bootstrap error", e);
+          if (!cancelled) {
+            const message =
+              e instanceof MessagingRoutingError
+                ? e.message
+                : "Impossible d’ouvrir la discussion avec cette boutique.";
+            Alert.alert("Contact indisponible", message);
           }
-        } catch {
-          // Owner lu plus tard si la boutique n'est pas encore disponible.
+          return;
         }
 
-        const sellerUid = ownerUid;
-        const participantIds = [
-          user.uid,
-          sellerUid,
-          normalizedCompanyId,
-          clientUid,
-        ].filter((id): id is string => Boolean(id));
-
-        // 2. ÉCRITURE INSTANTANÉE (Non-bloquante pour affichage immédiat)
-        await setDoc(
-          convRef,
-          {
-            id: conversationId,
-            companyId: normalizedCompanyId,
-            companyName: realName,
-            companyLogo: realLogo,
-            title: realName,
-            type: "seller",
-            ...(sellerUid ? { sellerUid } : {}),
-            participants: arrayUnion(...participantIds),
-            [`participantNames.${user.uid}`]: currentUserName,
-            [`participantNames.${normalizedCompanyId}`]: realName,
-            ...(sellerUid
-              ? { [`participantNames.${sellerUid}`]: realName }
-              : {}),
-            ...(clientUid && isOpeningAsClient
-              ? { [`participantNames.${clientUid}`]: currentUserName }
-              : {}),
-            [`participantAvatars.${user.uid}`]: currentUserAvatar,
-            [`participantAvatars.${normalizedCompanyId}`]: realLogo || "",
-            ...(sellerUid && realLogo
-              ? { [`participantAvatars.${sellerUid}`]: realLogo }
-              : {}),
-            ...(clientUid ? { clientUid } : {}),
-            ...(clientUid && isOpeningAsClient
-              ? {
-                  clientName: currentUserName,
-                  clientAvatar: currentUserAvatar,
-                  userName: currentUserName,
-                  userAvatar: currentUserAvatar,
-                  customerName: currentUserName,
-                  senderName: currentUserName,
-                  createdBy: user.uid,
-                }
-              : {}),
-            admins: arrayUnion(user.uid),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
         if (cancelled) return;
-
-        // 3. ENRICHISSEMENT EN ARRIÈRE-PLAN
-        getDoc(doc(db, "companies", normalizedCompanyId))
-          .then((companySnap) => {
-            if (cancelled || !companySnap.exists()) return;
-            const companyData = companySnap.data() as Record<string, any>;
-
-            const realName =
-              (typeof companyData?.name === "string" && companyData.name.trim()) ||
-              (typeof companyData?.companyName === "string" && companyData.companyName.trim()) ||
-              fallbackCompanyName;
-
-            const realLogo =
-              (typeof companyData?.logo === "string" && companyData.logo) ||
-              (typeof companyData?.companyLogo === "string" && companyData.companyLogo) ||
-              fallbackCompanyLogo;
-
-            const ownerUid = companyOwnerUidFromData(companyData);
-            const enrichmentParticipantIds = [
-              user.uid,
-              ownerUid,
-              normalizedCompanyId,
-              clientUid,
-            ].filter((id): id is string => Boolean(id));
-
-            setDoc(
-              convRef,
-              {
-                companyName: realName,
-                companyLogo: realLogo,
-                title: realName,
-                ...(ownerUid ? { sellerUid: ownerUid } : {}),
-                participants: arrayUnion(...enrichmentParticipantIds),
-                [`participantNames.${normalizedCompanyId}`]: realName,
-                ...(ownerUid ? { [`participantNames.${ownerUid}`]: realName } : {}),
-                [`participantAvatars.${normalizedCompanyId}`]: realLogo || "",
-                ...(ownerUid && realLogo
-                  ? { [`participantAvatars.${ownerUid}`]: realLogo }
-                  : {}),
-              },
-              { merge: true }
-            ).catch(() => {});
-          })
-          .catch(() => {});
       } catch (e) {
         console.warn("conversation bootstrap error", e);
       } finally {

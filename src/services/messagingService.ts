@@ -435,39 +435,15 @@ export class MessagingService {
   // Gérer les conversations de commande
   static async createOrderConversation(orderData: any, userId: string) {
     try {
-      const conversationData = {
-        title: `Commande #${orderData.orderNumber}`,
-        type: 'order',
-        participants: [userId, 'biU1QvlrGtZeqTLdbLONLGbyVQ92'],
-        participantNames: {
-          [userId]: 'Client',
-          'biU1QvlrGtZeqTLdbLONLGbyVQ92': 'Support Assma Express'
-        },
-        participantAvatars: {
-          [userId]: '👤',
-          'biU1QvlrGtZeqTLdbLONLGbyVQ92': '🛒',
-        },
-        orderData: {
-          orderId: orderData.id,
-          orderNumber: orderData.orderNumber,
-          status: orderData.status,
-          totalAmount: `${orderData.total}€`,
-          productName: orderData.items?.[0]?.name,
-          productImage: orderData.items?.[0]?.image
-        },
-        metadata: {
-          orderId: orderData.id
-        }
-      };
-
-      const conversationId = await this.createConversation(conversationData);
-      
-      // Envoyer un message initial
+      const { bootstrapSupportConversation } = await import('./conversationRouting');
+      const conversationId = await bootstrapSupportConversation({
+        clientUid: userId,
+        clientName: 'Client',
+      });
       await this.sendMessage(conversationId, {
         text: `Votre commande #${orderData.orderNumber} a été confirmée. Nous vous tiendrons informé de son statut.`,
         type: 'order_update'
       });
-
       return conversationId;
     } catch (error) {
       console.error('Error creating order conversation:', error);

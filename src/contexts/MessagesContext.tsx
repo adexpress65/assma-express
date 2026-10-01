@@ -6,6 +6,12 @@ import {
 } from 'firebase/firestore';
 import { Alert } from 'react-native';
 import { db } from '../config/firebase'; // Ajustez selon votre chemin d'import firebase
+import {
+  SUPPORT_INBOX_UID,
+  bootstrapStoreConversation,
+  canonicalStoreConversationId,
+  MessagingRoutingError,
+} from '../services/conversationRouting';
 
 // ================================
 // 🔥 TYPES & INTERFACES (À adapter si besoin)
@@ -163,7 +169,11 @@ interface MessagesContextType {
 
 const MessagesContext = createContext<MessagesContextType | undefined>(undefined);
 
-export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: string; displayName?: string } | null }> = ({ children, user }) => {
+export const MessagesProvider: React.FC<{
+  children: ReactNode;
+  user: { uid: string; displayName?: string } | null;
+  userRole?: string | null;
+}> = ({ children, user, userRole = null }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -176,17 +186,31 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
   const typingTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
   const participantConversations = useRef<Conversation[]>([]);
   const clientUidConversations = useRef<Conversation[]>([]);
+  const sellerUidConversations = useRef<Conversation[]>([]);
+  const supportConversations = useRef<Conversation[]>([]);
   const recoveredConversations = useRef<Conversation[]>([]);
   const repairedCanonical = useRef<Set<string>>(new Set());
 
   const publishConversations = () => {
-    setConversations(
-      mergeConversationLists([
-        participantConversations.current,
-        clientUidConversations.current,
-        recoveredConversations.current,
-      ]),
-    );
+    const merged = mergeConversationLists([
+      participantConversations.current,
+      clientUidConversations.current,
+      sellerUidConversations.current,
+      supportConversations.current,
+      recoveredConversations.current,
+    ]);
+    if (userRole === 'super-admin' || userRole === 'admin') {
+      setConversations(
+        merged.filter(
+          (conv) =>
+            conv.type === 'support' ||
+            (conv as { conversationKind?: string }).conversationKind === 'customer_to_support',
+        ),
+      );
+      return;
+    }
+    setConversations(merged);
+  };
   };
 
   const repairMissingClientParticipant = (conv: Conversation, actorUid: string) => {
@@ -231,6 +255,8 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
     if (!user?.uid) {
       participantConversations.current = [];
       clientUidConversations.current = [];
+      sellerUidConversations.current = [];
+      supportConversations.current = [];
       recoveredConversations.current = [];
       setConversations([]);
       setLoading(false);
@@ -281,6 +307,40 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
       },
     );
 
+    const unsubscribeSellerUid = onSnapshot(
+      query(
+        collection(db, 'conversations'),
+        where('sellerUid', '==', uid),
+        limit(40),
+      ),
+      (snapshot) => {
+        sellerUidConversations.current = mapConversationDocs(snapshot.docs);
+        publishConversations();
+      },
+      (error) => {
+        console.warn('Écoute conversations sellerUid:', error);
+      },
+    );
+
+    const unsubscribeSupportKind = onSnapshot(
+      query(
+        collection(db, 'conversations'),
+        where('conversationKind', '==', 'customer_to_support'),
+        limit(40),
+      ),
+      (snapshot) => {
+        if (userRole !== 'super-admin' && userRole !== 'admin') {
+          supportConversations.current = [];
+          return;
+        }
+        supportConversations.current = mapConversationDocs(snapshot.docs);
+        publishConversations();
+      },
+      (error) => {
+        console.warn('Écoute conversations support:', error);
+      },
+    );
+
     let cancelled = false;
     const recoverFromOrders = async () => {
       try {
@@ -323,8 +383,10 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
       cancelled = true;
       unsubscribeParticipants();
       unsubscribeClientUid();
+      unsubscribeSellerUid();
+      unsubscribeSupportKind();
     };
-  }, [user?.uid]);
+  }, [user?.uid, userRole]);
 
   // ================================
   // 🛠️ FONCTIONS UTILITAIRES & GESTION CONVERSATIONS
@@ -335,10 +397,6 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
     return (otherId && conv.participantNames?.[otherId]) || 'Conversation';
   };
 
-  const ensureEntrepreneurHasUser = async (companyFirestoreId: string): Promise<string> => {
-    return companyFirestoreId; 
-  };
-
   const createConversation = async (
     participantsOrOptions: string[] | string | CreateConversationOptions,
     title?: string,
@@ -347,8 +405,6 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
   ): Promise<string> => {
     if (!user?.uid) throw new Error('Utilisateur non connecté');
 
-    // Deux formes d'appel coexistent dans l'app : positionnelle (tableau d'ids)
-    // et objet ({ participants, title, companyId, ... }).
     const isOptionsObject =
       !!participantsOrOptions &&
       typeof participantsOrOptions === 'object' &&
@@ -361,33 +417,26 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
       ...optionExtra
     } = (isOptionsObject ? participantsOrOptions : {}) as CreateConversationOptions;
 
-    const participantIds = toParticipantIds(isOptionsObject ? optionParticipants : participantsOrOptions);
-    const finalTitle = optionTitle || title;
     const companyId = optionCompanyId || companyFirestoreId;
-
-    let finalParticipants = Array.isArray(participantIds) ? [...participantIds] : [participantIds];
-
-    if (!isOptionsObject && companyFirestoreId) {
-      const realUserId = await ensureEntrepreneurHasUser(companyFirestoreId);
-      finalParticipants = finalParticipants.map(id => (id === companyFirestoreId || id === finalParticipants[0]) ? realUserId : id);
-      if (!finalParticipants.includes(realUserId)) finalParticipants.push(realUserId);
+    if (!companyId) {
+      throw new MessagingRoutingError(
+        'MISSING_COMPANY',
+        'Toute conversation boutique doit passer par storeId. Aucun fallback support.',
+      );
     }
 
-    const uniqueParticipants = Array.from(new Set([user.uid, ...finalParticipants]));
-
-    const newConvRef = await addDoc(collection(db, 'conversations'), {
-      title: finalTitle || 'Discussion',
-      participants: uniqueParticipants,
-      admins: [user.uid],
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      messageCount: 0,
-      ...(companyId ? { companyId } : {}),
-      ...optionExtra,
-      ...extraData
+    const conversationId = canonicalStoreConversationId(companyId, user.uid);
+    await bootstrapStoreConversation({
+      conversationId,
+      companyId,
+      viewerUid: user.uid,
+      productSellerUid:
+        typeof optionExtra.sellerUid === 'string' ? optionExtra.sellerUid : null,
+      clientUid: user.uid,
+      companyName: optionTitle || title,
+      clientName: user.displayName || 'Client',
     });
-
-    return newConvRef.id;
+    return conversationId;
   };
 
   const deleteConversation = async (conversationId: string): Promise<void> => {
@@ -513,32 +562,27 @@ export const MessagesProvider: React.FC<{ children: ReactNode; user: { uid: stri
           ? conversationId.slice(0, conversationId.length - parsedClientUid.length - 1)
           : null);
 
-      const participantIds = [
-        user.uid,
-        parsedClientUid,
-        parsedCompanyId,
-        sellerUidFromCache,
-      ].filter(
+      const kind =
+        (typeof convLive?.conversationKind === 'string' && convLive.conversationKind) ||
+        (convLive?.type === 'support' ? 'customer_to_support' : 'customer_to_store');
+
+      const routingParticipants =
+        kind === 'customer_to_support'
+          ? [parsedClientUid, SUPPORT_INBOX_UID]
+          : [parsedClientUid, sellerUidFromCache];
+
+      const participantIds = routingParticipants.filter(
         (id, i, arr): id is string => Boolean(id) && arr.indexOf(id) === i,
       );
 
-      const senderLooksLikeSeller =
-        user.uid === parsedCompanyId ||
-        user.uid === conversation?.companyId ||
-        user.uid === sellerUidFromCache;
+      const senderLooksLikeSeller = user.uid === sellerUidFromCache;
       const clientUidToPersist =
         parsedClientUid && (!senderLooksLikeSeller || parsedClientUid !== user.uid)
           ? parsedClientUid
           : null;
 
       const unreadTargets = new Set(
-        [
-          ...(Array.isArray(conversation?.participants) ? conversation.participants : []),
-          ...(Array.isArray(convLive?.participants) ? convLive.participants : []),
-          parsedClientUid,
-          parsedCompanyId,
-          sellerUidFromCache,
-        ].filter((id): id is string => Boolean(id) && id !== user.uid),
+        participantIds.filter((id) => id !== user.uid),
       );
 
       const updateData: Record<string, any> = {
