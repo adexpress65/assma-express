@@ -1,18 +1,21 @@
 ---
 description: Interdit de créer une conversation hors du service de routage central.
-globs: "**/*.{ts,tsx,js}"
+globs: "**/*.{ts,tsx,js,mjs}"
 alwaysApply: false
 ---
 
 # Messagerie — service central obligatoire
 
-Ne jamais créer, fusionner ou réassigner une conversation Firestore en dehors de `apps/mobile/src/services/conversationRouting.ts` (`bootstrapStoreConversation`, `bootstrapSupportConversation`, `createOrGet` via MessagesContext).
+Ne jamais créer une conversation Firestore en dehors de `apps/mobile/src/services/conversationRouting.ts` (`bootstrapStoreConversation`, `bootstrapSupportConversation`, `bootstrapSellerToCustomerConversation`).
 
 Interdit :
 
-- `addDoc(collection(db, 'conversations'), …)` pour un fil client/boutique
-- `arrayUnion(user.uid)` sur une conversation boutique si l’utilisateur n’est ni `clientUid` ni `sellerUid`
-- tout fallback vers un UID super-admin / support pour un fil boutique
-- mettre `companyId` dans `participants` (c’est un champ, pas un destinataire)
+- `addDoc` / `setDoc` / `batch.set` / `.set()` sur le document `conversations/{id}` ailleurs que dans ce service
+- `setDoc` merge qui crée un fil sans `conversationKind`
+- `arrayUnion` pour ajouter un viewer qui n’est ni `clientUid` ni `sellerUid`
+- mettre `companyId` dans `participants`
+- utiliser l’UID support / super-admin comme destinataire d’un fil boutique
 
-Le destinataire boutique se calcule uniquement à partir du type `customer_to_store` et du `storeId` / `sellerUid` produit, jamais d’un rôle `admin`.
+Les scripts `apps/mobile/scripts/seedConversations.ts` et `seedMessages.ts` sont les seules autres écritures tolérées, et seulement avec `FIRESTORE_EMULATOR_HOST` et `MESSAGING_SEED_OK=1`. Ils ne doivent jamais mettre le super-admin comme destinataire.
+
+Le test `apps/mobile/scripts/test-no-direct-conversation-write.mjs` échoue si une écriture réapparaît. Les règles Firestore (`firestore.rules`) refusent les créations invalides, y compris client → boutique vers le super-admin.

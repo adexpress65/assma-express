@@ -12,7 +12,8 @@
     "firestore:backfill-companies": "node scripts/firestore-backfill-company-links.mjs",
     "firestore:backfill-companies:dry": "node scripts/firestore-backfill-company-links.mjs --dry-run",
     "firestore:deploy-indexes": "firebase deploy --only firestore:indexes",
-    "firestore:delete-test-orders": "node scripts/delete-test-orders.mjs"
+    "firestore:delete-test-orders": "node scripts/delete-test-orders.mjs",
+    "test:messaging-rules": "firebase emulators:exec --only firestore --project demo-a2express-messaging \"node scripts/test-firestore-messaging-rules.mjs\""
   },
   "dependencies": {
     "expo": "^55.0.8",

@@ -170,39 +170,86 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
-    // ── conversations : lecture/écriture réservées aux participants légitimes ─
+    // ── conversations : création seulement si le routage est valide ────────
     match /conversations/{conversationId} {
-      function convKind() {
-        return resource.data.conversationKind;
-      }
-      function createKind() {
-        return request.resource.data.conversationKind;
-      }
-      function isSupportThread() {
-        return convKind() == 'customer_to_support' || resource.data.type == 'support';
-      }
-      function createParticipantsOk() {
-        return request.resource.data.clientUid is string
-          && request.resource.data.sellerUid is string
-          && request.auth.uid in request.resource.data.participants
-          && request.resource.data.clientUid in request.resource.data.participants
-          && request.resource.data.sellerUid in request.resource.data.participants
-          && request.auth.uid in [request.resource.data.clientUid, request.resource.data.sellerUid];
+      function supportInboxUid() {
+        return 'biU1QvlrGtZeqTLdbLONLGbyVQ92';
       }
 
-      allow read, update: if isSignedIn()
-        && request.auth.uid in resource.data.participants;
-      allow create: if isSignedIn()
-        && createKind() in ['customer_to_store', 'customer_to_support', 'seller_to_customer']
-        && createParticipantsOk();
+      function participantListOk() {
+        let parts = request.resource.data.participants;
+        let client = request.resource.data.clientUid;
+        let seller = request.resource.data.sellerUid;
+        return parts is list
+          && client is string
+          && seller is string
+          && client.size() > 0
+          && seller.size() > 0
+          && client in parts
+          && seller in parts
+          && request.auth.uid in parts
+          && (request.auth.uid == client || request.auth.uid == seller)
+          && (
+            (client == seller && parts.size() == 1)
+            || (client != seller && parts.size() == 2)
+          );
+      }
+
+      function storeOwnerOk() {
+        let company = get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data;
+        let seller = request.resource.data.sellerUid;
+        return request.resource.data.companyId is string
+          && request.resource.data.companyId.size() > 0
+          && seller != supportInboxUid()
+          && (
+            ('ownerUid' in company && company.ownerUid == seller)
+            || ('ownerId' in company && company.ownerId == seller)
+            || ('sellerUid' in company && company.sellerUid == seller)
+            || ('uid' in company && company.uid == seller)
+          );
+      }
+
+      function supportCreateOk() {
+        return request.resource.data.sellerUid == supportInboxUid()
+          && request.resource.data.clientUid != supportInboxUid()
+          && participantListOk();
+      }
+
+      function storeCreateOk() {
+        return storeOwnerOk() && participantListOk();
+      }
+
+      function routingUnchanged() {
+        return request.resource.data.conversationKind == resource.data.conversationKind
+          && request.resource.data.clientUid == resource.data.clientUid
+          && request.resource.data.sellerUid == resource.data.sellerUid
+          && request.resource.data.participants == resource.data.participants
+          && request.resource.data.companyId == resource.data.companyId;
+      }
+
+      function isThreadParticipant() {
+        return isSignedIn() && request.auth.uid in resource.data.participants;
+      }
+
+      allow read: if isThreadParticipant();
+      allow create: if isSignedIn() && (
+        (request.resource.data.conversationKind == 'customer_to_support' && supportCreateOk())
+        || (request.resource.data.conversationKind == 'customer_to_store' && storeCreateOk())
+        || (request.resource.data.conversationKind == 'seller_to_customer' && storeCreateOk())
+      );
+      allow update: if isThreadParticipant() && routingUnchanged();
       allow delete: if isStaff();
 
       match /messages/{messageId} {
-        allow read, create: if isSignedIn()
-          && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
-        allow update, delete: if isStaff()
-          || (isSignedIn()
-              && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants);
+        function inThread() {
+          return isSignedIn()
+            && request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
+        }
+
+        allow read: if inThread();
+        allow create: if inThread()
+          && request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if inThread();
       }
 
       match /typing/{uid} {

@@ -1,34 +1,28 @@
 # Messagerie A2Express
 
-## Règle de routage
-
-Toute création / récupération de conversation passe par
-`apps/mobile/src/services/conversationRouting.ts`.
+Toute création de `conversations/{id}` passe par `apps/mobile/src/services/conversationRouting.ts`.
 
 | Type | Destinataire | Participants |
 |---|---|---|
-| `customer_to_store` | owner boutique (`product.sellerUid` puis `ownerUid` / `ownerId` / `sellerUid` / `uid`, en ignorant l’UID support) | `[clientUid, sellerUid]` |
-| `customer_to_support` | `SUPPORT_INBOX_UID` uniquement | `[clientUid, SUPPORT_INBOX_UID]` |
-| `seller_to_customer` | client | `[clientUid, sellerUid]` |
+| `customer_to_store` | propriétaire société (`ownerUid`, `ownerId`, `sellerUid`, `uid`), jamais le support. Un sellerId produit n’est pris que s’il est l’un de ces propriétaires. | `[clientUid, sellerUid]` |
+| `seller_to_customer` | même propriétaire (colis / commande) | `[clientUid, sellerUid]` |
+| `customer_to_support` | `SUPPORT_INBOX_UID` | `[clientUid, SUPPORT_INBOX_UID]` |
 
-Interdit : fallback silencieux vers le super-admin, `arrayUnion` du viewer s’il n’est ni client ni vendeur, coller `companyId` dans `participants`.
+Un fil déjà créé n’est pas réécrit par le client. `sendMessage` fait `updateDoc` (pas de `setDoc` merge). Les règles Firestore refusent une création sans `conversationKind` valide, avec des participants incorrects, si l’auteur n’est pas participant, ou si un fil boutique n’a pas le propriétaire de la société (le super-admin n’est jamais destinataire boutique).
 
-Si le propriétaire boutique est introuvable → erreur UI, pas d’écriture.
-
-## Vues
-
-- Client : `participants` / `clientUid`
-- Vendeur : `participants` / `sellerUid`
-- Super-admin : fils `customer_to_support` uniquement
+Les anciens écrans `/messages`, `/chat` et `/product-chat` redirigent vers l’onglet Messages. Les seeds (`seedConversations.ts`, `seedMessages.ts`) s’arrêtent sans `FIRESTORE_EMULATOR_HOST` et `MESSAGING_SEED_OK=1`.
 
 ## Tests
 
 ```
 cd apps/mobile
 npm run test:critical
+
+cd ../..
+npm run test:messaging-rules
 ```
 
-Cas couverts : client→boutique pas chez le super-admin ; client→support chez le super-admin ; owner manquant = erreur.
+Le test des règles lance l’émulateur Firestore. Il faut `firebase-tools` et un JDK 21 (la CLI récente refuse Java 17).
 
 ## Migration (dry-run d’abord)
 
@@ -38,4 +32,4 @@ npx tsx migrate-conversation-routing.ts
 npx tsx migrate-conversation-routing.ts --execute
 ```
 
-Sauvegarde : branches `backup/messagerie-avant-audit` (app) et `backup/monorepo-messagerie-avant-audit`.
+Puis déployer les règles : `firebase deploy --only firestore:rules`. Les Cloud Functions de messagerie n’ont pas changé de contrat. Fusionner `fix/messagerie-routage` (app) et `fix/messagerie-routage-monorepo` dans `principal` seulement après la migration réelle, puis publier une nouvelle version de l’app.
