@@ -50,13 +50,15 @@ interface Product {
 
 type NormalizedRole = 'super-admin' | 'admin' | 'seller' | 'customer' | 'visitor';
 
-const normalizeRole = (role: unknown): NormalizedRole => {
+const normalizeRole = (role: unknown, ownsCompany = false): NormalizedRole => {
   const raw = String(role ?? '').trim().toLowerCase();
   if (['super-admin', 'super_admin', 'superadmin', 'super admin'].includes(raw)) return 'super-admin';
   if (raw === 'admin') return 'admin';
   if (raw === 'seller') return 'seller';
-  if (raw === 'customer' || raw === 'client' || raw === 'user') return 'customer';
-  return 'visitor';
+  if (raw === 'customer' || raw === 'client' || raw === 'user') {
+    return ownsCompany ? 'seller' : 'customer';
+  }
+  return ownsCompany ? 'seller' : 'visitor';
 };
 
 export default function AccountScreen() {
@@ -119,7 +121,7 @@ export default function AccountScreen() {
 
   // Évaluation unifiée et absolue des privilèges
   const rawRole = userProfile?.role || userRole;
-  const normalizedRole = normalizeRole(rawRole);
+  const normalizedRole = normalizeRole(rawRole, companyAccountAvailable);
   
   const isSuperAdminRole = isSuperAdmin || normalizedRole === 'super-admin';
   const isAdminRole = isAdmin || isSuperAdminRole || normalizedRole === 'admin';

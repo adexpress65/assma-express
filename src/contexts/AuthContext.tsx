@@ -19,6 +19,7 @@ import { doc, getDoc, setDoc, updateDoc, Timestamp, collection, query, where, ge
 import { auth, db } from '@/config/firebase';
 import { setSentryUser } from '@/config/sentry';
 import { resolveAuthorizedRole } from '@/utils/resolveAuthRole';
+import { resolveOwnerAwareRole } from '@/utils/resolveOwnerAwareRole';
 import {
   getUserDisplayLabel,
   isPhoneAuthUser,
@@ -470,11 +471,23 @@ const loadUserProfile = useCallback(async (
         firebaseUser,
         existingData.role,
       );
+      // Propriétaire = document companies/{uid} (pas un simple companyId pointant ailleurs).
+      const companySnap = await getDoc(doc(db, 'companies', firebaseUser.uid));
+      const ownsCompanyDoc = companySnap.exists();
+      const effectiveRole = resolveOwnerAwareRole(authorizedRole, ownsCompanyDoc);
 
       const updates: Record<string, any> = {
         lastLogin: Timestamp.now(),
         updatedAt: Timestamp.now(),
       };
+      // Répare seulement un rôle manquant / visitor pour un vrai propriétaire.
+      if (
+        ownsCompanyDoc &&
+        effectiveRole === 'seller' &&
+        (!existingData.role || existingData.role === 'visitor')
+      ) {
+        updates.role = 'seller';
+      }
 
       if (resolvedProvider) {
         updates.providerId = resolvedProvider;
@@ -506,7 +519,7 @@ const loadUserProfile = useCallback(async (
         email: existingData.email || firebaseUser.email || '',
         displayName: resolvedName,
         name: String(updates.name || existingData.name || resolvedName || '').trim() || undefined,
-        role: authorizedRole,
+        role: effectiveRole,
         createdAt: existingData.createdAt || Timestamp.now(),
         updatedAt: updates.updatedAt,
         isActive: existingData.isActive !== false,

@@ -459,13 +459,14 @@ const pickImage = async (type: 'logo' | 'cover') => {
           email: user.email,
           displayName: form.name,
           userType: 'seller',
+          role: 'seller',
           companyId: user.uid,
           companyName: form.name,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         
-        await setDoc(doc(db, 'users', user.uid), userData);
+        await setDoc(doc(db, 'users', user.uid), userData, { merge: true });
 
         Alert.alert(
           '✅ Succès',
