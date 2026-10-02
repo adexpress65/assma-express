@@ -12,6 +12,7 @@ import {
   canonicalStoreConversationId,
   MessagingRoutingError,
   repairMissingConversationKind,
+  staffInboxVisible,
 } from '../services/conversationRouting';
 
 // ================================
@@ -187,12 +188,9 @@ export const MessagesProvider: React.FC<{
       recoveredConversations.current,
     ]);
     if (userRole === 'super-admin' || userRole === 'admin') {
+      const uid = user?.uid;
       setConversations(
-        merged.filter(
-          (conv) =>
-            conv.type === 'support' ||
-            (conv as { conversationKind?: string }).conversationKind === 'customer_to_support',
-        ),
+        merged.filter((conv) => staffInboxVisible(conv, uid || '')),
       );
       return;
     }

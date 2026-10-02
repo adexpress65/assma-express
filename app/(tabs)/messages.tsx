@@ -699,7 +699,15 @@ const renderItem = useCallback(
     // 🛑 On ignore l'URL si elle a déjà échoué au chargement (image cassée/supprimée)
     const showImage = Boolean(avatarUrl) && failedAvatars[item.id] !== avatarUrl;
     const unread = item.unreadCount?.[user?.uid || ""] || 0;
-    const conversationKind = item.type || item.lastMessageType || 'direct';
+    const laneLabel =
+      item.conversationKind === "customer_to_support" || item.type === "support"
+        ? "Support"
+        : (item.conversationKind === "customer_to_store" ||
+            item.conversationKind === "seller_to_customer") &&
+          item.sellerUid === user?.uid
+          ? "Ma boutique"
+          : null;
+    const conversationKind = item.type || item.lastMessageType || "direct";
     const typeLabel =
       item.lastMessageType === 'image'
         ? t('app.messages.types.image', { defaultValue: 'Photo du colis' })
@@ -789,7 +797,7 @@ const renderItem = useCallback(
                 size={12}
                 color="#C2410C"
               />
-              <Text style={styles.typeChipText}>{typeLabel}</Text>
+              <Text style={styles.typeChipText}>{laneLabel || typeLabel}</Text>
             </View>
             {unread > 0 ? (
               <View style={styles.badge}>

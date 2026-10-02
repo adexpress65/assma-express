@@ -49,33 +49,40 @@ export function nonEmptyId(value: unknown): string | null {
 
 export function companyOwnerCandidates(
   data: Record<string, unknown> | null | undefined,
+  options?: { companyId?: string | null; companyIdIsAccount?: boolean },
 ): string[] {
-  if (!data) return [];
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const key of ["ownerUid", "ownerId", "sellerUid", "uid"] as const) {
-    const id = nonEmptyId(data[key]);
-    if (id && !seen.has(id)) {
-      seen.add(id);
-      out.push(id);
-    }
+  const push = (value: unknown) => {
+    const id = nonEmptyId(value);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+  if (data) {
+    for (const key of ["ownerUid", "ownerId", "sellerUid"] as const) push(data[key]);
   }
+  const hasExplicitOwner = out.length > 0;
+  if (!hasExplicitOwner && options?.companyIdIsAccount) push(options.companyId);
+  if (data) push(data.uid);
   return out;
 }
 
 /**
- * Propriétaires société (ownerUid, ownerId, sellerUid, uid), hors support.
- * Le sellerId produit n’est retenu que s’il fait partie de ces propriétaires :
- * un UID arbitraire, y compris le super-admin, n’est jamais destinataire.
+ * Propriétaires société (ownerUid, ownerId, sellerUid, compte de la boutique, uid).
+ * Le compte support n’est destinataire boutique que s’il EST le compte de cette boutique.
+ * Un sellerId produit, ou le super-admin, n’est jamais un repli pour une autre boutique.
  */
 export function pickStoreOwnerUid(input: {
   productSellerUid?: string | null;
   companyCandidates: string[];
   supportInboxUid?: string | null;
+  shopAccountUid?: string | null;
 }): string {
   const blocked = new Set<string>();
   const support = nonEmptyId(input.supportInboxUid ?? SUPPORT_INBOX_UID);
-  if (support) blocked.add(support);
+  const shopAccount = nonEmptyId(input.shopAccountUid);
+  if (support && support !== shopAccount) blocked.add(support);
 
   const candidates: string[] = [];
   const seen = new Set<string>();
@@ -87,6 +94,7 @@ export function pickStoreOwnerUid(input: {
   }
 
   const productSeller = nonEmptyId(input.productSellerUid);
+  if (shopAccount && candidates[0] === shopAccount) return shopAccount;
   if (productSeller && seen.has(productSeller)) return productSeller;
 
   if (candidates.length === 0) {
@@ -131,12 +139,6 @@ export function buildKindParticipants(
       "sellerUid manquant pour un fil boutique.",
     );
   }
-  if (sellerUid === SUPPORT_INBOX_UID) {
-    throw new MessagingRoutingError(
-      "STAFF_AS_STORE_OWNER",
-      "Le destinataire boutique ne peut pas être le compte support.",
-    );
-  }
   return [clientUid, sellerUid];
 }
 
@@ -145,6 +147,26 @@ export function viewerMayJoinStoreThread(
   participants: string[],
 ): boolean {
   return participants.includes(viewerUid);
+}
+
+/** Boîte staff : support, ou un fil où ce compte est vraiment client ou vendeur. */
+export function staffInboxVisible(
+  conv: {
+    conversationKind?: string | null;
+    type?: string | null;
+    participants?: string[] | null;
+    sellerUid?: string | null;
+    clientUid?: string | null;
+  },
+  staffUid: string,
+): boolean {
+  if (conv.type === "support" || conv.conversationKind === "customer_to_support") {
+    return true;
+  }
+  const uid = nonEmptyId(staffUid);
+  if (!uid) return false;
+  const participants = Array.isArray(conv.participants) ? conv.participants : [];
+  return participants.includes(uid) || conv.sellerUid === uid || conv.clientUid === uid;
 }
 
 type StoreBootstrapInput = {
@@ -181,9 +203,15 @@ export async function resolveStoreOwnerUid(input: {
     );
   }
 
+  const accountSnap = await getDoc(doc(db, "users", companyId));
+  const companyIdIsAccount = accountSnap.exists();
   const sellerUid = pickStoreOwnerUid({
     productSellerUid: input.productSellerUid,
-    companyCandidates: companyOwnerCandidates(companyData),
+    companyCandidates: companyOwnerCandidates(companyData, {
+      companyId,
+      companyIdIsAccount,
+    }),
+    shopAccountUid: companyIdIsAccount ? companyId : null,
   });
 
   const companyName =
@@ -199,7 +227,10 @@ export async function resolveStoreOwnerUid(input: {
     console.log("[messagerie] destinataire boutique", {
       companyId,
       productSellerUid: input.productSellerUid ?? null,
-      candidates: companyOwnerCandidates(companyData),
+      candidates: companyOwnerCandidates(companyData, {
+        companyId,
+        companyIdIsAccount,
+      }),
       sellerUid,
     });
   }
@@ -272,13 +303,24 @@ export async function repairMissingConversationKind(input: {
     const expected = buildKindParticipants("customer_to_support", { clientUid });
     if (!participantsMatch(participants, expected)) return false;
     kind = "customer_to_support";
-  } else if (companyId && sellerUid !== SUPPORT_INBOX_UID) {
+  } else if (companyId) {
     const companySnap = await getDoc(doc(db, "companies", companyId));
     if (!companySnap.exists()) return false;
-    const candidates = companyOwnerCandidates(
-      companySnap.data() as Record<string, unknown>,
-    );
-    if (!candidates.includes(sellerUid)) return false;
+    const accountSnap = await getDoc(doc(db, "users", companyId));
+    const companyIdIsAccount = accountSnap.exists();
+    let owner: string;
+    try {
+      owner = pickStoreOwnerUid({
+        companyCandidates: companyOwnerCandidates(
+          companySnap.data() as Record<string, unknown>,
+          { companyId, companyIdIsAccount },
+        ),
+        shopAccountUid: companyIdIsAccount ? companyId : null,
+      });
+    } catch {
+      return false;
+    }
+    if (owner !== sellerUid) return false;
     const expected = buildKindParticipants("customer_to_store", { clientUid, sellerUid });
     if (!participantsMatch(participants, expected)) return false;
     kind = "customer_to_store";
