@@ -198,15 +198,22 @@ service cloud.firestore {
       function storeOwnerOk() {
         let company = get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data;
         let seller = request.resource.data.sellerUid;
-        return request.resource.data.companyId is string
-          && request.resource.data.companyId.size() > 0
-          && seller != supportInboxUid()
-          && (
-            ('ownerUid' in company && company.ownerUid == seller)
-            || ('ownerId' in company && company.ownerId == seller)
-            || ('sellerUid' in company && company.sellerUid == seller)
-            || ('uid' in company && company.uid == seller)
-          );
+        let companyId = request.resource.data.companyId;
+        let explicitOwner = ('ownerUid' in company && company.ownerUid == seller)
+          || ('ownerId' in company && company.ownerId == seller)
+          || ('sellerUid' in company && company.sellerUid == seller);
+        let noExplicitOwner = !('ownerUid' in company)
+          && !('ownerId' in company)
+          && !('sellerUid' in company);
+        let companyDocIsAccount = exists(/databases/$(database)/documents/users/$(companyId));
+        let shopAccount = noExplicitOwner && companyDocIsAccount && seller == companyId;
+        let uidWhenDocIsNotAccount = noExplicitOwner
+          && !companyDocIsAccount
+          && ('uid' in company && company.uid == seller);
+        return companyId is string
+          && companyId.size() > 0
+          && (explicitOwner || shopAccount || uidWhenDocIsNotAccount)
+          && (seller != supportInboxUid() || seller == companyId);
       }
 
       function supportCreateOk() {

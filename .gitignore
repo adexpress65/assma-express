@@ -75,6 +75,8 @@ scripts/migrate-conversation-routing.dry-run.json
 scripts/migrate-conversation-routing.execute.json
 scripts/migrate-conversation-routing.journal.json
 scripts/migrate-conversation-routing.rollback.json
+scripts/repair-store-account-owner.backup.json
+scripts/repair-store-account-owner.plan.json
 
 # Sentry (upload de source maps — ne jamais commiter de token)
 sentry.properties

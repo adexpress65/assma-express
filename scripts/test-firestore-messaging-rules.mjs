@@ -312,6 +312,110 @@ test("un fil boutique ne peut pas être créé ni marqué vers le super-admin", 
   );
 });
 
+test("client vers la boutique du super-admin arrive chez ce compte", async () => {
+  const shop = "super_shop";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "companies", shop), {
+      name: "Boutique du super-admin",
+      uid: "client_lie",
+    });
+    await setDoc(doc(ctx.firestore(), "users", shop), { role: "super-admin" });
+  });
+  const id = `${shop}_client_1`;
+  await assertSucceeds(
+    setDoc(
+      doc(db("client_1"), "conversations", id),
+      storePayload({
+        sellerUid: shop,
+        companyId: shop,
+        participants: ["client_1", shop],
+      }),
+    ),
+  );
+  await assertFails(
+    setDoc(
+      doc(db("client_1"), "conversations", "super_shop_mauvais_uid"),
+      storePayload({
+        sellerUid: "client_lie",
+        companyId: shop,
+        participants: ["client_1", "client_lie"],
+      }),
+    ),
+  );
+  await assertSucceeds(
+    addDoc(collection(db(shop), "conversations", id, "messages"), {
+      senderId: shop,
+      text: "réponse boutique",
+    }),
+  );
+  await assertFails(
+    addDoc(collection(db(SUPPORT), "conversations", id, "messages"), {
+      senderId: SUPPORT,
+      text: "le support n’est pas ce fil",
+    }),
+  );
+  await assertFails(getDoc(doc(db("seller_real"), "conversations", id)));
+});
+
+test("une boutique dont l’id n’est pas un compte utilise encore uid", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "companies", "legacy_shop"), {
+      name: "Ancienne boutique",
+      uid: "seller_real",
+    });
+  });
+  await assertSucceeds(
+    setDoc(
+      doc(db("client_1"), "conversations", "legacy_shop_client_1"),
+      storePayload({
+        sellerUid: "seller_real",
+        companyId: "legacy_shop",
+        participants: ["client_1", "seller_real"],
+      }),
+    ),
+  );
+  await assertFails(
+    setDoc(
+      doc(db("client_1"), "conversations", "legacy_shop_mauvais"),
+      storePayload({
+        sellerUid: "legacy_shop",
+        companyId: "legacy_shop",
+        participants: ["client_1", "legacy_shop"],
+      }),
+    ),
+  );
+});
+
+test("client vers une autre boutique n’arrive pas chez le super-admin", async () => {
+  await assertSucceeds(
+    setDoc(doc(db("client_1"), "conversations", "shop1_client_1"), storePayload()),
+  );
+  await assertFails(getDoc(doc(db(SUPPORT), "conversations", "shop1_client_1")));
+  await assertFails(
+    setDoc(
+      doc(db("client_1"), "conversations", "shop1_vers_support"),
+      storePayload({
+        sellerUid: SUPPORT,
+        participants: ["client_1", SUPPORT],
+      }),
+    ),
+  );
+});
+
+test("client vers le support arrive chez le compte support", async () => {
+  const id = "support_client_1_ok";
+  await assertSucceeds(
+    setDoc(doc(db("client_1"), "conversations", id), {
+      conversationKind: "customer_to_support",
+      clientUid: "client_1",
+      sellerUid: SUPPORT,
+      participants: ["client_1", SUPPORT],
+    }),
+  );
+  await assertSucceeds(getDoc(doc(db(SUPPORT), "conversations", id)));
+  await assertFails(getDoc(doc(db("seller_real"), "conversations", id)));
+});
+
 test("un participant ne peut pas changer le destinataire", async () => {
   await assertSucceeds(
     setDoc(doc(db("client_1"), "conversations", "shop1_client_1"), storePayload()),
