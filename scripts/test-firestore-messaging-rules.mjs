@@ -12,6 +12,7 @@ import {
   collection,
   doc,
   getDoc,
+  increment,
   setDoc,
   updateDoc,
 } from "firebase/firestore";
@@ -197,6 +198,117 @@ test("messages lisibles et écrivables seulement par les participants", async ()
       senderId: "client_1",
       text: "usurpation",
     }),
+  );
+});
+
+test("un participant d’une ancienne conversation sans conversationKind peut envoyer", async () => {
+  const id = "old_extra_client_1";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "conversations", id), {
+      clientUid: "client_1",
+      sellerUid: "seller_real",
+      companyId: "shop1",
+      participants: ["client_1", "seller_real", "extra_person"],
+      lastMessage: "ancien",
+    });
+  });
+  await assertSucceeds(
+    addDoc(collection(db("client_1"), "conversations", id, "messages"), {
+      senderId: "client_1",
+      text: "bonjour",
+    }),
+  );
+  await assertSucceeds(
+    updateDoc(doc(db("client_1"), "conversations", id), {
+      lastMessage: "bonjour",
+      lastMessageType: "text",
+      [`unreadCount.client_1`]: 0,
+      messageCount: increment(1),
+    }),
+  );
+  await assertFails(
+    updateDoc(doc(db("client_1"), "conversations", id), {
+      conversationKind: "customer_to_store",
+    }),
+  );
+});
+
+test("un non-participant est refusé sur une ancienne conversation", async () => {
+  const id = "old_closed";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "conversations", id), {
+      clientUid: "client_1",
+      sellerUid: "seller_real",
+      companyId: "shop1",
+      participants: ["client_1", "seller_real"],
+    });
+  });
+  await assertFails(getDoc(doc(db("stranger"), "conversations", id)));
+  await assertFails(
+    addDoc(collection(db("stranger"), "conversations", id, "messages"), {
+      senderId: "stranger",
+      text: "non",
+    }),
+  );
+  await assertFails(
+    updateDoc(doc(db("stranger"), "conversations", id), { lastMessage: "non" }),
+  );
+});
+
+test("on peut ajouter conversationKind sans changer le vendeur", async () => {
+  const id = "old_repair";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "conversations", id), {
+      clientUid: "client_1",
+      sellerUid: "seller_real",
+      companyId: "shop1",
+      participants: ["client_1", "seller_real"],
+    });
+  });
+  await assertSucceeds(
+    updateDoc(doc(db("client_1"), "conversations", id), {
+      conversationKind: "customer_to_store",
+    }),
+  );
+  await assertFails(
+    updateDoc(doc(db("client_1"), "conversations", id), {
+      sellerUid: SUPPORT,
+    }),
+  );
+});
+
+test("un fil boutique ne peut pas être créé ni marqué vers le super-admin", async () => {
+  await assertFails(
+    setDoc(
+      doc(db("client_1"), "conversations", "create_admin"),
+      storePayload({
+        sellerUid: SUPPORT,
+        participants: ["client_1", SUPPORT],
+      }),
+    ),
+  );
+  const id = "old_admin_seller";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "conversations", id), {
+      clientUid: "client_1",
+      sellerUid: SUPPORT,
+      companyId: "shop_admin_only",
+      participants: ["client_1", SUPPORT],
+    });
+  });
+  await assertFails(
+    updateDoc(doc(db("client_1"), "conversations", id), {
+      conversationKind: "customer_to_store",
+    }),
+  );
+  await assertSucceeds(
+    addDoc(collection(db("client_1"), "conversations", id, "messages"), {
+      senderId: "client_1",
+      text: "ancien fil",
+    }),
+  );
+  await assertSucceeds(
+    updateDoc(doc(db("client_1"), "conversations", id), { lastMessage: "ancien fil" }),
   );
 });
 
