@@ -386,6 +386,37 @@ test("une boutique dont l’id n’est pas un compte utilise encore uid", async 
   );
 });
 
+test("un compte client n’est pas propriétaire même si son id est celui de la société", async () => {
+  const shop = "shop_client";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "companies", shop), {
+      name: "Mauvais compte",
+      uid: "seller_real",
+    });
+    await setDoc(doc(ctx.firestore(), "users", shop), { role: "customer" });
+  });
+  await assertFails(
+    setDoc(
+      doc(db("client_1"), "conversations", "shop_client_comme_vendeur"),
+      storePayload({
+        sellerUid: shop,
+        companyId: shop,
+        participants: ["client_1", shop],
+      }),
+    ),
+  );
+  await assertSucceeds(
+    setDoc(
+      doc(db("client_1"), "conversations", "shop_client_uid"),
+      storePayload({
+        sellerUid: "seller_real",
+        companyId: shop,
+        participants: ["client_1", "seller_real"],
+      }),
+    ),
+  );
+});
+
 test("client vers une autre boutique n’arrive pas chez le super-admin", async () => {
   await assertSucceeds(
     setDoc(doc(db("client_1"), "conversations", "shop1_client_1"), storePayload()),

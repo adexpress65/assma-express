@@ -205,10 +205,16 @@ service cloud.firestore {
         let noExplicitOwner = !('ownerUid' in company)
           && !('ownerId' in company)
           && !('sellerUid' in company);
-        let companyDocIsAccount = exists(/databases/$(database)/documents/users/$(companyId));
-        let shopAccount = noExplicitOwner && companyDocIsAccount && seller == companyId;
+        let accountPath = /databases/$(database)/documents/users/$(companyId);
+        let verifiedOwner = exists(accountPath) && (
+          get(accountPath).data.role == 'seller'
+          || get(accountPath).data.role == 'admin'
+          || get(accountPath).data.role == 'super-admin'
+          || get(accountPath).data.role == 'super_admin'
+        );
+        let shopAccount = noExplicitOwner && verifiedOwner && seller == companyId;
         let uidWhenDocIsNotAccount = noExplicitOwner
-          && !companyDocIsAccount
+          && !verifiedOwner
           && ('uid' in company && company.uid == seller);
         return companyId is string
           && companyId.size() > 0

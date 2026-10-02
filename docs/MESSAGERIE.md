@@ -4,7 +4,7 @@ Toute création de `conversations/{id}` passe par `apps/mobile/src/services/conv
 
 | Type | Destinataire | Participants |
 |---|---|---|
-| `customer_to_store` | propriétaire société : `ownerUid`, `ownerId` ou `sellerUid` s’il existe ; sinon le compte dont l’id est l’id du document boutique (même si `uid` a été écrasé) ; sinon `uid` seulement s’il est ce compte. Le compte support n’est destinataire boutique que s’il est lui-même ce compte. Un sellerId produit n’est pris que s’il est ce propriétaire. | `[clientUid, sellerUid]` |
+| `customer_to_store` | propriétaire société : `ownerUid`, `ownerId` ou `sellerUid` s’il existe ; sinon le compte `users/{id du document}` seulement si son rôle est `seller`, `admin` ou `super-admin` (un simple `customer` ne suffit pas) ; sinon `uid`. Le compte support n’est destinataire boutique que s’il est lui-même ce compte. | `[clientUid, sellerUid]` |
 | `seller_to_customer` | même propriétaire (colis / commande) | `[clientUid, sellerUid]` |
 | `customer_to_support` | `SUPPORT_INBOX_UID` | `[clientUid, SUPPORT_INBOX_UID]` |
 
@@ -52,4 +52,5 @@ cd c:\Dev\assma
 npx tsx scripts/repair-store-account-owner.ts --backup
 npx tsx scripts/repair-store-account-owner.ts
 npx tsx scripts/repair-store-account-owner.ts --execute
+npx tsx scripts/repair-store-account-owner.ts --rollback
 ```
