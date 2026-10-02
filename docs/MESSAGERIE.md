@@ -10,6 +10,8 @@ Toute création de `conversations/{id}` passe par `apps/mobile/src/services/conv
 
 Un fil déjà créé n’est pas réécrit par le client. `sendMessage` fait `updateDoc` (pas de `setDoc` merge). Les règles Firestore refusent une création sans `conversationKind` valide, avec des participants incorrects, si l’auteur n’est pas participant, ou si un fil boutique n’a pas le propriétaire de la société (le super-admin n’est jamais destinataire boutique).
 
+Une ancienne conversation, même sans `conversationKind`, reste utilisable : un participant peut y envoyer un message et mettre à jour le document (dernier message, non-lus). Les champs de routage déjà présents ne peuvent pas changer. Si `conversationKind` manque et que le vendeur déjà enregistré est le vrai propriétaire, l’envoi peut ajouter seulement ce champ. La création d’un nouveau fil reste stricte.
+
 Les anciens écrans `/messages`, `/chat` et `/product-chat` redirigent vers l’onglet Messages. Les seeds (`seedConversations.ts`, `seedMessages.ts`) s’arrêtent sans `FIRESTORE_EMULATOR_HOST` et `MESSAGING_SEED_OK=1`.
 
 ## Tests
@@ -41,4 +43,4 @@ npx tsx migrate-conversation-routing.ts --execute
 npx tsx migrate-conversation-routing.ts --rollback
 ```
 
-`--execute` refuse de tourner sans la sauvegarde. `--rollback` remet l’état noté dans le journal. Les 6 fils sans propriétaire et les 2 fils où le super-admin est le client ne sont pas un cas particulier à trancher à la main : les 6 restent tels quels, les 2 sont migrés comme les autres (il reste le client, le vendeur est le propriétaire).
+`--execute` refuse de tourner sans la sauvegarde. `--rollback` remet l’état noté dans le journal. La migration a déjà été exécutée : 51 fils corrigés, 6 laissés tels quels faute de propriétaire. Les 2 fils où le super-admin est le client ont été migrés avec les autres (il reste le client).

@@ -19,3 +19,5 @@ Interdit :
 Les scripts `apps/mobile/scripts/seedConversations.ts` et `seedMessages.ts` sont les seules autres écritures tolérées, et seulement avec `FIRESTORE_EMULATOR_HOST` et `MESSAGING_SEED_OK=1`. Ils ne doivent jamais mettre le super-admin comme destinataire.
 
 Le test `apps/mobile/scripts/test-no-direct-conversation-write.mjs` échoue si une écriture réapparaît. Les règles Firestore (`firestore.rules`) refusent les créations invalides, y compris client → boutique vers le super-admin.
+
+Une conversation déjà ouverte peut être mise à jour par un participant même si `conversationKind` est absent. On ne change pas `sellerUid`, `clientUid`, `participants` ni `companyId`. On peut seulement ajouter `conversationKind` quand il manquait et que le destinataire est déjà le propriétaire. Créer un fil reste interdit hors du service central.
