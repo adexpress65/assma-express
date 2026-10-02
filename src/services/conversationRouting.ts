@@ -47,6 +47,13 @@ export function nonEmptyId(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const SHOP_OWNER_ROLES = new Set(["seller", "admin", "super-admin", "super_admin"]);
+
+/** Le document users/{id société} est le propriétaire seulement si son rôle gère une boutique. */
+export function isVerifiedShopAccount(role: unknown): boolean {
+  return typeof role === "string" && SHOP_OWNER_ROLES.has(role.trim());
+}
+
 export function companyOwnerCandidates(
   data: Record<string, unknown> | null | undefined,
   options?: { companyId?: string | null; companyIdIsAccount?: boolean },
@@ -204,7 +211,8 @@ export async function resolveStoreOwnerUid(input: {
   }
 
   const accountSnap = await getDoc(doc(db, "users", companyId));
-  const companyIdIsAccount = accountSnap.exists();
+  const companyIdIsAccount =
+    accountSnap.exists() && isVerifiedShopAccount(accountSnap.data()?.role);
   const sellerUid = pickStoreOwnerUid({
     productSellerUid: input.productSellerUid,
     companyCandidates: companyOwnerCandidates(companyData, {
@@ -307,7 +315,8 @@ export async function repairMissingConversationKind(input: {
     const companySnap = await getDoc(doc(db, "companies", companyId));
     if (!companySnap.exists()) return false;
     const accountSnap = await getDoc(doc(db, "users", companyId));
-    const companyIdIsAccount = accountSnap.exists();
+    const companyIdIsAccount =
+      accountSnap.exists() && isVerifiedShopAccount(accountSnap.data()?.role);
     let owner: string;
     try {
       owner = pickStoreOwnerUid({

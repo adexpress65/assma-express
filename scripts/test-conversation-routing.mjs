@@ -13,6 +13,12 @@ function nonEmptyId(value) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const SHOP_OWNER_ROLES = new Set(["seller", "admin", "super-admin", "super_admin"]);
+
+function isVerifiedShopAccount(role) {
+  return typeof role === "string" && SHOP_OWNER_ROLES.has(role.trim());
+}
+
 function companyOwnerCandidates(data, options) {
   const out = [];
   const seen = new Set();
@@ -131,6 +137,42 @@ test("la boutique du super-admin arrive chez son compte, pas chez un uid écras�
   assert.deepEqual(parts, ["client_1", superAdmin]);
   assert.equal(parts.includes(strayCustomer), false);
   assert.equal(parts.includes(SUPPORT_INBOX_UID), false);
+});
+
+test("USINE A2EXPRESS : le super-admin est le propriétaire, pas le client du champ uid", () => {
+  const shop = "yxlcK76I8KWWl3aZjIiZPxGDbdH2";
+  const strayCustomer = "EHhsm0tVmxOjLpX3ejKivuBjoT62";
+  assert.equal(isVerifiedShopAccount("super-admin"), true);
+  assert.equal(isVerifiedShopAccount("customer"), false);
+  const candidates = companyOwnerCandidates(
+    { uid: strayCustomer },
+    { companyId: shop, companyIdIsAccount: isVerifiedShopAccount("super-admin") },
+  );
+  const seller = pickStoreOwnerUid({
+    companyCandidates: candidates,
+    shopAccountUid: shop,
+    productSellerUid: strayCustomer,
+  });
+  assert.equal(seller, shop);
+  const parts = buildKindParticipants("customer_to_store", {
+    clientUid: "FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+    sellerUid: seller,
+  });
+  assert.deepEqual(parts, ["FRqFg7E7qYZxFPvbtH9Ir5XcImu1", shop]);
+  assert.equal(parts.includes(strayCustomer), false);
+  assert.equal(parts.includes(SUPPORT_INBOX_UID), false);
+});
+
+test("un simple client qui a le même id que la société n’en est pas le propriétaire", () => {
+  const candidates = companyOwnerCandidates(
+    { uid: "seller_real" },
+    { companyId: "compte_client", companyIdIsAccount: isVerifiedShopAccount("customer") },
+  );
+  assert.deepEqual(candidates, ["seller_real"]);
+  assert.equal(
+    pickStoreOwnerUid({ companyCandidates: candidates }),
+    "seller_real",
+  );
 });
 
 test("une autre boutique n’est pas envoyée au compte support", () => {
