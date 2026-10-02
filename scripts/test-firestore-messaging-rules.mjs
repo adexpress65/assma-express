@@ -417,6 +417,57 @@ test("un compte client n’est pas propriétaire même si son id est celui de la
   );
 });
 
+test("Zero Dollars : le fil arrive chez le propriétaire et chez personne d’autre", async () => {
+  const shop = "ZcxPuoYOjZVsTX634Cyr2jkt59A3";
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "companies", shop), {
+      name: "Zéro Dollars",
+      uid: shop,
+    });
+    await setDoc(doc(ctx.firestore(), "users", shop), { role: "seller" });
+    await setDoc(doc(ctx.firestore(), "conversations", `${shop}_dBEI`), {
+      conversationKind: "customer_to_store",
+      companyId: shop,
+      sellerUid: shop,
+      clientUid: "dBEI_client",
+      participants: ["dBEI_client", shop],
+    });
+  });
+  await assertSucceeds(getDoc(doc(db(shop), "conversations", `${shop}_dBEI`)));
+  await assertFails(getDoc(doc(db(SUPPORT), "conversations", `${shop}_dBEI`)));
+  await assertFails(getDoc(doc(db("seller_real"), "conversations", `${shop}_dBEI`)));
+  await assertSucceeds(
+    addDoc(collection(db(shop), "conversations", `${shop}_dBEI`, "messages"), {
+      senderId: shop,
+      text: "réponse vendeur",
+    }),
+  );
+});
+
+test("non-régression : produits commandes utilisateurs gardent leurs règles", async () => {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "products", "p1"), {
+      name: "Produit",
+      sellerId: "seller_real",
+    });
+    await setDoc(doc(ctx.firestore(), "orders", "o1"), {
+      userId: "client_1",
+      sellerId: "seller_real",
+    });
+    await setDoc(doc(ctx.firestore(), "users", "client_1"), {
+      role: "customer",
+      email: "c@test.com",
+    });
+  });
+  await assertSucceeds(getDoc(doc(db("stranger"), "products", "p1")));
+  await assertSucceeds(getDoc(doc(db("client_1"), "orders", "o1")));
+  await assertFails(getDoc(doc(db("stranger"), "orders", "o1")));
+  await assertSucceeds(getDoc(doc(db("client_1"), "users", "client_1")));
+  await assertFails(
+    updateDoc(doc(db("client_1"), "users", "client_1"), { role: "admin" }),
+  );
+});
+
 test("client vers une autre boutique n’arrive pas chez le super-admin", async () => {
   await assertSucceeds(
     setDoc(doc(db("client_1"), "conversations", "shop1_client_1"), storePayload()),

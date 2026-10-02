@@ -1,29 +1,30 @@
 /**
- * Répare les fils boutique envoyés au mauvais compte,
- * quand l’id du document société est un vendeur, un admin ou le super-admin,
- * et qu’aucun ownerUid / ownerId / sellerUid n’est renseigné.
- * Propose aussi de remettre le champ uid de cette société sur ce compte.
+ * Réparation ciblée messagerie / boutique (strictement limitée).
  *
- * Ne touche pas un fil où le super-admin est seulement le client d’une autre personne.
+ * Modes :
+ *   npx tsx scripts/repair-store-account-owner.ts --backup
+ *   npx tsx scripts/repair-store-account-owner.ts
+ *   npx tsx scripts/repair-store-account-owner.ts --execute   (ne pas lancer sans ordre)
+ *   npx tsx scripts/repair-store-account-owner.ts --rollback
  *
- * 1. Sauvegarde (ne modifie rien) :
- *    npx tsx scripts/repair-store-account-owner.ts --backup
- * 2. Aperçu :
- *    npx tsx scripts/repair-store-account-owner.ts
- * 3. Écriture, seulement après une sauvegarde non vide :
- *    npx tsx scripts/repair-store-account-owner.ts --execute
- * 4. Annulation, d’après la sauvegarde :
- *    npx tsx scripts/repair-store-account-owner.ts --rollback
+ * Touche seulement :
+ * - fils USINE A2EXPRESS mal envoyés (seller = uid écrasé)
+ * - uid de la société USINE si écrasé
+ * - fil Zero Dollars ZcxP…_dBEI… (rattachement companyId/sellerUid/clientUid/kind)
+ * - archivage IdwD… (Guangzhou, boutique absente) via archived=true
+ * - rôles visitor/absents UNIQUEMENT si companies/{uid} existe
+ *
+ * Ne touche PAS : tL2V…_yxlc…, WIOk…_yxlc… (super-admin = client), F0bk…_zc94…
  */
 import { existsSync, readFileSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import admin from "firebase-admin";
-import type { DocumentData, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { DocumentData } from "firebase-admin/firestore";
 import { initAdmin } from "./lib/firebaseAdmin";
 
 const argv = process.argv.slice(2);
-const flags = ["--backup", "--execute", "--rollback"].filter((flag) => argv.includes(flag));
+const flags = ["--backup", "--execute", "--rollback"].filter((f) => argv.includes(f));
 if (flags.length > 1) {
   console.error("Un seul mode à la fois : --backup, --execute ou --rollback.");
   process.exit(1);
@@ -32,16 +33,26 @@ const mode = flags[0] ?? "--dry-run";
 const here = dirname(fileURLToPath(import.meta.url));
 const BACKUP_FILE = join(here, "repair-store-account-owner.backup.json");
 const PLAN_FILE = join(here, "repair-store-account-owner.plan.json");
-const SHOP_OWNER_ROLES = new Set(["seller", "admin", "super-admin", "super_admin"]);
-const NOT_USINE_THREAD_IDS = [
+
+const USINE = "yxlcK76I8KWWl3aZjIiZPxGDbdH2";
+const ZERO = "ZcxPuoYOjZVsTX634Cyr2jkt59A3";
+const ZERO_THREAD = "ZcxPuoYOjZVsTX634Cyr2jkt59A3_dBEI7KtAboQP1UsKEgNfx2hoTGn1";
+const ZERO_CLIENT = "dBEI7KtAboQP1UsKEgNfx2hoTGn1";
+const ARCHIVE_THREADS = [
+  "IdwDQQOSjdMRL4YiClg0hiHlfkF2_ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+  "IdwDQQOSjdMRL4YiClg0hiHlfkF2_tL2VAkCxqhZUU01qazUN6YOMMFh2",
+];
+const LEAVE_ALONE = [
   "tL2VAkCxqhZUU01qazUN6YOMMFh2_yxlcK76I8KWWl3aZjIiZPxGDbdH2",
   "WIOk6LDphYPdAzcfS33wAGcHYzF2_yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+  "F0bkRlYMPUVBauzV7m0XVQmYIt83_zc94oBEXpEXEzGD2DgqmpjGVuMv2",
 ];
+const SHOP_OWNER_ROLES = new Set(["seller", "admin", "super-admin", "super_admin"]);
 
 function nonEmpty(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  const t = value.trim();
+  return t.length > 0 ? t : null;
 }
 
 function hasExplicitOwner(company: DocumentData): boolean {
@@ -50,177 +61,188 @@ function hasExplicitOwner(company: DocumentData): boolean {
   );
 }
 
-function isVerifiedRole(role: unknown): boolean {
-  return typeof role === "string" && SHOP_OWNER_ROLES.has(role.trim());
-}
-
-type PlanRow = {
+type Change = {
+  type: "thread_owner" | "thread_attach" | "thread_archive" | "company_uid" | "user_role";
   id: string;
-  companyId: string;
-  companyName: string | null;
-  clientUid: string;
-  sellerBefore: string;
-  sellerAfter: string;
-  participantsBefore: string[];
-  participantsAfter: string[];
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  note?: string;
 };
 
-type CompanyRow = {
-  id: string;
-  name: string | null;
-  uidBefore: string;
-  uidAfter: string;
-};
-
-type LeftRow = {
-  id: string;
-  reason: string;
-  clientUid: string | null;
-  otherUid: string | null;
-  lastMessage: string | null;
-};
-
-async function findMisrouted(db: admin.firestore.Firestore): Promise<{
-  plan: PlanRow[];
-  companies: CompanyRow[];
-  left: LeftRow[];
-  skipped: { id: string; reason: string }[];
+async function buildPlan(db: admin.firestore.Firestore): Promise<{
+  changes: Change[];
+  leftAlone: { id: string; reason: string }[];
 }> {
-  const plan: PlanRow[] = [];
-  const companies: CompanyRow[] = [];
-  const left: LeftRow[] = [];
-  const skipped: { id: string; reason: string }[] = [];
-  const roleCache = new Map<string, string | null>();
+  const changes: Change[] = [];
+  const leftAlone: { id: string; reason: string }[] = [];
 
-  const roleOf = async (uid: string) => {
-    if (!roleCache.has(uid)) {
-      const userSnap = await db.collection("users").doc(uid).get();
-      roleCache.set(uid, userSnap.exists ? nonEmpty(userSnap.data()?.role) : null);
+  for (const id of LEAVE_ALONE) {
+    const snap = await db.collection("conversations").doc(id).get();
+    if (!snap.exists) {
+      leftAlone.push({ id, reason: "introuvable" });
+      continue;
     }
-    return roleCache.get(uid) ?? null;
-  };
-
-  const companySnaps = await db.collection("companies").get();
-  for (const companySnap of companySnaps.docs) {
-    const company = companySnap.data();
-    if (hasExplicitOwner(company)) continue;
-    const uid = nonEmpty(company.uid);
-    if (!uid || uid === companySnap.id) continue;
-    const role = await roleOf(companySnap.id);
-    if (!isVerifiedRole(role)) continue;
-    companies.push({
-      id: companySnap.id,
-      name: nonEmpty(company.name) || nonEmpty(company.companyName),
-      uidBefore: uid,
-      uidAfter: companySnap.id,
+    const data = snap.data() || {};
+    leftAlone.push({
+      id,
+      reason:
+        id.startsWith("F0bk")
+          ? "laisse_tel_quel_dernier_message_du_vendeur"
+          : "pas_USINE_super_admin_est_le_client",
     });
+    void data;
   }
 
-  const snap = await db.collection("conversations").get();
-  for (const docSnap of snap.docs as QueryDocumentSnapshot[]) {
+  // Société USINE : uid écrasé
+  const usineSnap = await db.collection("companies").doc(USINE).get();
+  if (usineSnap.exists) {
+    const company = usineSnap.data() || {};
+    const uid = nonEmpty(company.uid);
+    if (!hasExplicitOwner(company) && uid && uid !== USINE) {
+      const account = await db.collection("users").doc(USINE).get();
+      const role = nonEmpty(account.data()?.role);
+      if (role && SHOP_OWNER_ROLES.has(role)) {
+        changes.push({
+          type: "company_uid",
+          id: USINE,
+          before: { uid },
+          after: { uid: USINE },
+          note: "USINE A2EXPRESS",
+        });
+      }
+    }
+  }
+
+  // Fils USINE mal routés
+  const convs = await db.collection("conversations").get();
+  for (const docSnap of convs.docs) {
     const data = docSnap.data();
     const kind = nonEmpty(data.conversationKind);
-    if (kind !== "customer_to_store" && kind !== "seller_to_customer") {
-      continue;
-    }
-    const companyId = nonEmpty(data.companyId);
-    const sellerUid = nonEmpty(data.sellerUid);
-    const clientUid = nonEmpty(data.clientUid);
-    const participants = Array.isArray(data.participants)
-      ? data.participants.filter((id): id is string => typeof id === "string")
+    if (kind !== "customer_to_store" && kind !== "seller_to_customer") continue;
+    if (nonEmpty(data.companyId) !== USINE) continue;
+    const seller = nonEmpty(data.sellerUid);
+    const client = nonEmpty(data.clientUid);
+    const parts = Array.isArray(data.participants)
+      ? data.participants.filter((x): x is string => typeof x === "string")
       : [];
-    if (!companyId || !sellerUid || !clientUid) {
-      skipped.push({ id: docSnap.id, reason: "champs_incomplets" });
-      continue;
-    }
-    if (sellerUid === companyId) continue;
-
-    const companySnap = await db.collection("companies").doc(companyId).get();
-    if (!companySnap.exists) {
-      skipped.push({ id: docSnap.id, reason: "societe_absente" });
-      continue;
-    }
-    const company = companySnap.data() || {};
-    if (hasExplicitOwner(company)) {
-      skipped.push({ id: docSnap.id, reason: "proprietaire_explicite" });
-      continue;
-    }
-    const role = await roleOf(companyId);
-    if (!isVerifiedRole(role)) {
-      skipped.push({ id: docSnap.id, reason: "compte_pas_vendeur" });
-      continue;
-    }
-    const expected =
-      participants.length === 2 &&
-      participants.includes(clientUid) &&
-      participants.includes(sellerUid);
-    if (!expected || clientUid === companyId) {
-      skipped.push({ id: docSnap.id, reason: "participants_non_sûrs" });
-      continue;
-    }
-    plan.push({
+    if (!seller || !client || seller === USINE) continue;
+    if (!(parts.includes(client) && parts.includes(seller))) continue;
+    changes.push({
+      type: "thread_owner",
       id: docSnap.id,
-      companyId,
-      companyName: nonEmpty(company.name) || nonEmpty(company.companyName),
-      clientUid,
-      sellerBefore: sellerUid,
-      sellerAfter: companyId,
-      participantsBefore: participants,
-      participantsAfter: [clientUid, companyId],
+      before: { sellerUid: seller, participants: parts },
+      after: { sellerUid: USINE, participants: [client, USINE] },
+      note: "USINE A2EXPRESS",
     });
   }
 
-  for (const id of NOT_USINE_THREAD_IDS) {
-    const thread = await db.collection("conversations").doc(id).get();
-    if (!thread.exists) {
-      left.push({ id, reason: "introuvable", clientUid: null, otherUid: null, lastMessage: null });
+  // Zero Dollars ZcxP_dBEI : rattacher
+  const zeroThread = await db.collection("conversations").doc(ZERO_THREAD).get();
+  if (zeroThread.exists) {
+    const data = zeroThread.data() || {};
+    const parts = Array.isArray(data.participants)
+      ? data.participants.filter((x): x is string => typeof x === "string")
+      : [];
+    if (parts.includes(ZERO) && parts.includes(ZERO_CLIENT)) {
+      const needs =
+        nonEmpty(data.companyId) !== ZERO ||
+        nonEmpty(data.sellerUid) !== ZERO ||
+        nonEmpty(data.clientUid) !== ZERO_CLIENT ||
+        nonEmpty(data.conversationKind) !== "customer_to_store";
+      if (needs) {
+        changes.push({
+          type: "thread_attach",
+          id: ZERO_THREAD,
+          before: {
+            companyId: data.companyId ?? null,
+            sellerUid: data.sellerUid ?? null,
+            clientUid: data.clientUid ?? null,
+            conversationKind: data.conversationKind ?? null,
+            participants: parts,
+          },
+          after: {
+            companyId: ZERO,
+            companyName: "Zéro Dollars",
+            sellerUid: ZERO,
+            clientUid: ZERO_CLIENT,
+            conversationKind: "customer_to_store",
+            participants: parts,
+          },
+          note: "rattachement Zero Dollars, messages intacts",
+        });
+      }
+    }
+  } else {
+    leftAlone.push({ id: ZERO_THREAD, reason: "introuvable" });
+  }
+
+  // Archivage Guangzhou
+  for (const id of ARCHIVE_THREADS) {
+    const snap = await db.collection("conversations").doc(id).get();
+    if (!snap.exists) {
+      leftAlone.push({ id, reason: "introuvable" });
       continue;
     }
-    const data = thread.data() || {};
-    const companyId = nonEmpty(data.companyId);
-    const linked = companies.some((company) => company.id === companyId) || plan.some((row) => row.id === id);
-    if (linked) continue;
-    const participants = Array.isArray(data.participants)
-      ? data.participants.filter((item): item is string => typeof item === "string")
-      : [];
-    left.push({
+    const data = snap.data() || {};
+    if (data.archived === true) continue;
+    changes.push({
+      type: "thread_archive",
       id,
-      reason: "pas_la_boutique_USINE_le_super_admin_est_le_client",
-      clientUid: nonEmpty(data.clientUid),
-      otherUid: participants.find((item) => item !== data.clientUid) ?? null,
-      lastMessage: nonEmpty(data.lastMessage),
+      before: { archived: data.archived ?? null },
+      after: { archived: true },
+      note: "Guangzhou G-Packing — boutique absente",
     });
   }
 
-  return { plan, companies, left, skipped };
+  // Rôles visitor / absents pour owners companies/{uid}
+  const companies = await db.collection("companies").get();
+  for (const company of companies.docs) {
+    const userSnap = await db.collection("users").doc(company.id).get();
+    if (!userSnap.exists) continue;
+    const role = nonEmpty(userSnap.data()?.role);
+    if (role && role !== "visitor") continue;
+    changes.push({
+      type: "user_role",
+      id: company.id,
+      before: { role: role },
+      after: { role: "seller" },
+      note: nonEmpty(company.data()?.name) || "société",
+    });
+  }
+
+  return { changes, leftAlone };
 }
 
 type BackupFile = {
   at: string;
-  conversations: { id: string; sellerUid: unknown; participants: unknown }[];
-  companies: { id: string; uid: unknown }[];
+  changes: Change[];
+  docs: {
+    conversations: Record<string, unknown>;
+    companies: Record<string, unknown>;
+    users: Record<string, unknown>;
+  };
 };
 
-async function writeBackup(db: admin.firestore.Firestore, plan: PlanRow[], companies: CompanyRow[]) {
-  const conversations = [];
-  for (const row of plan) {
-    const snap = await db.collection("conversations").doc(row.id).get();
-    const data = snap.data() || {};
-    conversations.push({
-      id: row.id,
-      sellerUid: data.sellerUid ?? null,
-      participants: data.participants ?? null,
-    });
+async function writeBackup(db: admin.firestore.Firestore, changes: Change[]) {
+  const conversations: Record<string, unknown> = {};
+  const companies: Record<string, unknown> = {};
+  const users: Record<string, unknown> = {};
+  for (const change of changes) {
+    if (change.type.startsWith("thread")) {
+      const snap = await db.collection("conversations").doc(change.id).get();
+      conversations[change.id] = snap.data() ?? null;
+    } else if (change.type === "company_uid") {
+      const snap = await db.collection("companies").doc(change.id).get();
+      companies[change.id] = { uid: snap.data()?.uid ?? null };
+    } else if (change.type === "user_role") {
+      const snap = await db.collection("users").doc(change.id).get();
+      users[change.id] = { role: snap.data()?.role ?? null };
+    }
   }
-  const companyDocs = [];
-  for (const row of companies) {
-    const snap = await db.collection("companies").doc(row.id).get();
-    companyDocs.push({ id: row.id, uid: snap.data()?.uid ?? null });
-  }
-  const payload = {
+  const payload: BackupFile = {
     at: new Date().toISOString(),
-    conversations,
-    companies: companyDocs,
+    changes,
+    docs: { conversations, companies, users },
   };
   writeFileSync(BACKUP_FILE, JSON.stringify(payload, null, 2));
   return payload;
@@ -232,62 +254,85 @@ async function main() {
 
   if (mode === "--rollback") {
     if (!existsSync(BACKUP_FILE) || statSync(BACKUP_FILE).size < 20) {
-      console.error("Refus : aucune sauvegarde à restaurer.");
+      console.error("Refus : aucune sauvegarde.");
       process.exit(1);
     }
     const backup = JSON.parse(readFileSync(BACKUP_FILE, "utf8")) as BackupFile;
-    for (const row of backup.conversations || []) {
-      await db.collection("conversations").doc(row.id).update({
-        sellerUid: row.sellerUid,
-        participants: row.participants,
-      });
-      console.log(`Restauré fil : ${row.id}`);
+    for (const change of backup.changes || []) {
+      if (change.type.startsWith("thread")) {
+        const original = backup.docs.conversations[change.id] as Record<string, unknown> | null;
+        if (!original) continue;
+        const patch: Record<string, unknown> = {};
+        for (const key of Object.keys(change.after)) {
+          patch[key] =
+            original[key] === undefined ? admin.firestore.FieldValue.delete() : original[key];
+        }
+        await db.collection("conversations").doc(change.id).update(patch);
+        console.log(`Restauré fil ${change.id}`);
+      } else if (change.type === "company_uid") {
+        const original = backup.docs.companies[change.id] as { uid?: unknown } | undefined;
+        await db.collection("companies").doc(change.id).update({
+          uid: original?.uid ?? admin.firestore.FieldValue.delete(),
+        });
+        console.log(`Restauré société ${change.id}`);
+      } else if (change.type === "user_role") {
+        const original = backup.docs.users[change.id] as { role?: unknown } | undefined;
+        await db.collection("users").doc(change.id).update({
+          role:
+            original?.role == null
+              ? admin.firestore.FieldValue.delete()
+              : original.role,
+        });
+        console.log(`Restauré rôle ${change.id}`);
+      }
     }
-    for (const row of backup.companies || []) {
-      await db.collection("companies").doc(row.id).update({ uid: row.uid });
-      console.log(`Restauré société : ${row.id}`);
-    }
-    console.log("Annulation terminée d’après la sauvegarde.");
+    console.log("Annulation terminée.");
     return;
   }
 
-  const { plan, companies, left, skipped } = await findMisrouted(db);
-  const summary = {
-    mode,
-    at: new Date().toISOString(),
-    threads: plan.length,
-    companies: companies.length,
-    left: left.length,
-    skipped: skipped.length,
-    plan,
-    companyPlan: companies,
-    leftAlone: left,
-    skippedDetails: skipped,
-  };
+  const { changes, leftAlone } = await buildPlan(db);
+  const byType = changes.reduce<Record<string, number>>((acc, c) => {
+    acc[c.type] = (acc[c.type] || 0) + 1;
+    return acc;
+  }, {});
 
   if (mode === "--backup") {
-    const payload = await writeBackup(db, plan, companies);
-    console.log(
-      `Sauvegarde : ${payload.conversations.length} fil(s), ${payload.companies.length} société(s) → ${BACKUP_FILE}`,
-    );
+    await writeBackup(db, changes);
+    console.log(`Sauvegarde : ${changes.length} changement(s) → ${BACKUP_FILE}`);
+    console.log(JSON.stringify(byType));
     console.log("Aucune écriture Firestore.");
     return;
   }
 
+  const summary = {
+    mode,
+    at: new Date().toISOString(),
+    counts: byType,
+    total: changes.length,
+    changes,
+    leftAlone,
+  };
   writeFileSync(PLAN_FILE, JSON.stringify(summary, null, 2));
-  console.log(`Aperçu : ${plan.length} fil(s), ${companies.length} société(s).`);
-  for (const row of companies) {
-    console.log(`Société ${row.name ?? row.id} | uid ${row.uidBefore} → ${row.uidAfter}`);
-  }
-  for (const row of plan) {
+
+  console.log(`Aperçu : ${changes.length} élément(s)`);
+  console.log(JSON.stringify(byType));
+  for (const c of changes) {
     console.log(
-      `Fil ${row.id} | ${row.companyName ?? row.companyId} | vendeur ${row.sellerBefore} → ${row.sellerAfter}`,
+      `${c.type} | ${c.id} | ${JSON.stringify(c.before)} → ${JSON.stringify(c.after)}${c.note ? " | " + c.note : ""}`,
     );
   }
-  for (const row of left) {
-    console.log(`Laissé ${row.id} | ${row.reason}`);
+  for (const row of leftAlone) {
+    console.log(`laissé | ${row.id} | ${row.reason}`);
   }
   console.log(`Détail : ${PLAN_FILE}`);
+
+  const roleCount = byType.user_role || 0;
+  if (roleCount > 3) {
+    console.error(
+      `STOP : ${roleCount} comptes visitor/sans rôle avec société — trop pour continuer sans validation.`,
+    );
+    process.exit(2);
+  }
 
   if (mode !== "--execute") {
     console.log("Dry-run : aucune écriture Firestore.");
@@ -295,25 +340,19 @@ async function main() {
   }
 
   if (!existsSync(BACKUP_FILE) || statSync(BACKUP_FILE).size < 20) {
-    console.error("Refus : lance d’abord --backup et vérifie que le fichier n’est pas vide.");
-    process.exit(1);
-  }
-  const backup = JSON.parse(readFileSync(BACKUP_FILE, "utf8")) as BackupFile;
-  if ((backup.conversations || []).length < plan.length || (backup.companies || []).length < companies.length) {
-    console.error("Refus : la sauvegarde ne couvre pas l’aperçu. Relance --backup.");
+    console.error("Refus : lance --backup d’abord.");
     process.exit(1);
   }
 
-  for (const row of companies) {
-    await db.collection("companies").doc(row.id).update({ uid: row.uidAfter });
-    console.log(`Société corrigée : ${row.id}`);
-  }
-  for (const row of plan) {
-    await db.collection("conversations").doc(row.id).update({
-      sellerUid: row.sellerAfter,
-      participants: row.participantsAfter,
-    });
-    console.log(`Fil corrigé : ${row.id}`);
+  for (const change of changes) {
+    if (change.type.startsWith("thread")) {
+      await db.collection("conversations").doc(change.id).update(change.after);
+    } else if (change.type === "company_uid") {
+      await db.collection("companies").doc(change.id).update(change.after);
+    } else if (change.type === "user_role") {
+      await db.collection("users").doc(change.id).update(change.after);
+    }
+    console.log(`Corrigé ${change.type} ${change.id}`);
   }
 }
 
