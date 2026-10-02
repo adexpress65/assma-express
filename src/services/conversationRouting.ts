@@ -20,6 +20,7 @@ import {
   getDoc,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 
@@ -231,6 +232,62 @@ function readExistingThread(data: Record<string, unknown>, conversationId: strin
     );
   }
   return { id: conversationId, sellerUid, clientUid, participants };
+}
+
+function participantsMatch(actual: string[], expected: string[]): boolean {
+  if (actual.length !== expected.length) return false;
+  return expected.every((id) => actual.includes(id));
+}
+
+/**
+ * Ancien fil sans conversationKind : ajoute uniquement ce champ
+ * si le destinataire déjà enregistré est valide. Ne change ni sellerUid ni participants.
+ * Retourne false si le fil ne peut pas être réparé (l’envoi du message continue).
+ */
+export async function repairMissingConversationKind(input: {
+  conversationId: string;
+  viewerUid: string;
+}): Promise<boolean> {
+  const conversationId = nonEmptyId(input.conversationId);
+  const viewerUid = nonEmptyId(input.viewerUid);
+  if (!conversationId || !viewerUid) return false;
+
+  const ref = doc(db, "conversations", conversationId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return false;
+  const data = snap.data() as Record<string, unknown>;
+  if (nonEmptyId(data.conversationKind)) return false;
+
+  const sellerUid = nonEmptyId(data.sellerUid);
+  const clientUid = nonEmptyId(data.clientUid);
+  const companyId = nonEmptyId(data.companyId);
+  const participants = Array.isArray(data.participants)
+    ? data.participants.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+  if (!sellerUid || !clientUid || !participants.includes(viewerUid)) return false;
+  if (viewerUid !== clientUid && viewerUid !== sellerUid) return false;
+
+  let kind: ConversationKind | null = null;
+  if (sellerUid === SUPPORT_INBOX_UID && clientUid !== SUPPORT_INBOX_UID && !companyId) {
+    const expected = buildKindParticipants("customer_to_support", { clientUid });
+    if (!participantsMatch(participants, expected)) return false;
+    kind = "customer_to_support";
+  } else if (companyId && sellerUid !== SUPPORT_INBOX_UID) {
+    const companySnap = await getDoc(doc(db, "companies", companyId));
+    if (!companySnap.exists()) return false;
+    const candidates = companyOwnerCandidates(
+      companySnap.data() as Record<string, unknown>,
+    );
+    if (!candidates.includes(sellerUid)) return false;
+    const expected = buildKindParticipants("customer_to_store", { clientUid, sellerUid });
+    if (!participantsMatch(participants, expected)) return false;
+    kind = "customer_to_store";
+  } else {
+    return false;
+  }
+
+  await updateDoc(ref, { conversationKind: kind });
+  return true;
 }
 
 /** Crée le document seulement s’il n’existe pas. Jamais de merge qui réécrit le routage. */

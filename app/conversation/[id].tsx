@@ -215,6 +215,8 @@ type UiMessage = {
   senderId: string;
   senderName?: string;
   timestamp: Date;
+  /** Absent = confirmé par le serveur. sending/failed ne s’affichent pas comme un message normal. */
+  delivery?: "sending" | "failed";
   type?: string;
   imageUrl?: string;
   image?: string;
@@ -332,9 +334,11 @@ function mapDocToUiMessage(d: QueryDocumentSnapshot): UiMessage {
 const ChatBubbleRow = memo(function ChatBubbleRow({
   item,
   isMine,
+  onRetry,
 }: {
   item: UiMessage;
   isMine: boolean;
+  onRetry?: (item: UiMessage) => void;
 }) {
   const textSegments = useMemo(() => {
     const parts = item.text.split(URL_REGEX);
@@ -384,6 +388,7 @@ const ChatBubbleRow = memo(function ChatBubbleRow({
         style={[
           styles.bubble,
           isMine ? styles.bubbleMine : styles.bubbleTheirs,
+          item.delivery === "sending" ? styles.bubblePending : null,
         ]}
       >
         {isImageMessage && resolvedImageUri ? (
@@ -414,7 +419,15 @@ const ChatBubbleRow = memo(function ChatBubbleRow({
             )}
           </Text>
         )}
-        <Text style={styles.msgTime}>{timeStr}</Text>
+        {item.delivery === "failed" ? (
+          <Pressable onPress={() => onRetry?.(item)} hitSlop={8} disabled={!onRetry}>
+            <Text style={styles.msgUnsent}>Non envoyé · Réessayer</Text>
+          </Pressable>
+        ) : item.delivery === "sending" ? (
+          <Text style={styles.msgPending}>Envoi…</Text>
+        ) : (
+          <Text style={styles.msgTime}>{timeStr}</Text>
+        )}
       </View>
     </View>
   );
@@ -488,6 +501,7 @@ export default function ConversationScreen() {
   const [convData, setConvData] = useState<Record<string, unknown> | null>(null);
   const [convMissing, setConvMissing] = useState(false);
   const [liveMessages, setLiveMessages] = useState<UiMessage[]>([]);
+  const [outgoing, setOutgoing] = useState<UiMessage[]>([]);
   const [olderMessages, setOlderMessages] = useState<UiMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -867,15 +881,20 @@ useEffect(() => {
 
   // 3. Fusion des messages (inchangé)
   const displayMessages = useMemo(() => {
+    const outgoingById = new Map(outgoing.map((m) => [m.id, m]));
     const seen = new Set<string>();
     const out: UiMessage[] = [];
     for (const m of [...liveMessages, ...olderMessages]) {
       if (seen.has(m.id)) continue;
       seen.add(m.id);
-      out.push(m);
+      const local = outgoingById.get(m.id);
+      out.push(local?.delivery ? local : m);
     }
-    return out;
-  }, [liveMessages, olderMessages]);
+    const pending = outgoing.filter(
+      (m) => !seen.has(m.id) && (m.delivery === "sending" || m.delivery === "failed"),
+    );
+    return [...pending, ...out];
+  }, [liveMessages, olderMessages, outgoing]);
 
   // 4. Chargement de l'historique (inchangé)
   const loadOlderMessages = useCallback(async () => {
@@ -1227,32 +1246,60 @@ useEffect(() => {
     setPreviewDismissed(false);
   }, [conversationId, normalizedProductId]);
 
+const confirmOutgoing = useCallback(
+  async (textToSend: string, existingId?: string) => {
+    if (!user?.uid || !conversationId) return;
+    const messageId =
+      existingId ||
+      `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const local: UiMessage = {
+      id: messageId,
+      text: textToSend,
+      senderId: user.uid,
+      senderName: user.displayName || "Vous",
+      timestamp: new Date(),
+      type: "text",
+      delivery: "sending",
+    };
+    setOutgoing((prev) => [local, ...prev.filter((m) => m.id !== messageId)]);
+    setSending(true);
+    try {
+      await sendMessage(conversationId, textToSend, { type: "text", messageId });
+      setOutgoing((prev) => prev.filter((m) => m.id !== messageId));
+      setInputText((current) => (current.trim() === textToSend ? "" : current));
+    } catch (e) {
+      console.error(e);
+      setOutgoing((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, delivery: "failed" } : m)),
+      );
+      Alert.alert("Erreur", "Impossible d’envoyer le message.");
+    } finally {
+      setSending(false);
+    }
+  },
+  [user, conversationId, sendMessage],
+);
+
 const handleSend = useCallback(
   async (customText?: string) => {
     const textToSend = (customText ?? inputText).trim();
-
-    // 🐞 Log de débogage pour voir exactement ce qui bloque
-    console.log("🔍 DEBUG SEND:", { textToSend, user, conversationId });
-
     if (!textToSend) return;
     if (!user?.uid) {
       Alert.alert("Erreur", "Votre session utilisateur n'est pas chargée.");
       return;
     }
     if (!conversationId) return;
-
-    try {
-      setSending(true);
-      await sendMessage(conversationId, textToSend, { type: "text" });
-      setInputText("");
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Erreur", "Impossible d’envoyer le message.");
-    } finally {
-      setSending(false);
-    }
+    await confirmOutgoing(textToSend);
   },
-  [inputText, user, conversationId, sendMessage],
+  [inputText, user, conversationId, confirmOutgoing],
+);
+
+const retryOutgoing = useCallback(
+  (item: UiMessage) => {
+    if (item.delivery !== "failed" || sending) return;
+    void confirmOutgoing(item.text, item.id);
+  },
+  [confirmOutgoing, sending],
 );
 
 const handleAttachImage = useCallback(
@@ -1629,9 +1676,9 @@ const handleAttachImage = useCallback(
       if (item.type === "product_payment") {
         return <ProductMessageCard message={item} isMine={isMine} />;
       }
-      return <ChatBubbleRow item={item} isMine={isMine} />;
+      return <ChatBubbleRow item={item} isMine={isMine} onRetry={retryOutgoing} />;
     },
-    [user?.uid],
+    [user?.uid, retryOutgoing],
   );
 
   const handleListEndReached = useCallback(() => {
@@ -2167,6 +2214,22 @@ const styles = StyleSheet.create({
   msgTime: {
     fontSize: 11,
     color: "#9CA3AF",
+    alignSelf: "flex-end",
+    marginTop: 6,
+  },
+  bubblePending: {
+    opacity: 0.55,
+  },
+  msgPending: {
+    fontSize: 11,
+    color: "#6B7280",
+    alignSelf: "flex-end",
+    marginTop: 6,
+  },
+  msgUnsent: {
+    fontSize: 11,
+    color: "#B91C1C",
+    fontWeight: "700",
     alignSelf: "flex-end",
     marginTop: 6,
   },

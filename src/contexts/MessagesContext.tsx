@@ -11,6 +11,7 @@ import {
   bootstrapSupportConversation,
   canonicalStoreConversationId,
   MessagingRoutingError,
+  repairMissingConversationKind,
 } from '../services/conversationRouting';
 
 // ================================
@@ -463,6 +464,8 @@ export const MessagesProvider: React.FC<{
     try {
       const type = options.type || 'text';
       const safeText = text.trim() || (type === 'product_payment' ? `Paiement: ${options.product?.name || 'Produit'}` : '');
+      const requestedId = typeof options.messageId === 'string' ? options.messageId.trim() : '';
+      const { messageId: _ignoredMessageId, ...messageOptions } = options;
       
       const messageData = {
         text: safeText,
@@ -472,7 +475,7 @@ export const MessagesProvider: React.FC<{
         createdAt: serverTimestamp(),
         readBy: [user.uid],
         type,
-        ...options
+        ...messageOptions
       };
 
       const { increment } = await import('firebase/firestore');
@@ -523,7 +526,26 @@ export const MessagesProvider: React.FC<{
         convSnap = await getDoc(convRef);
       }
 
-      await addDoc(collection(db, 'conversations', conversationId, 'messages'), messageData);
+      const messageRef = requestedId
+        ? doc(db, 'conversations', conversationId, 'messages', requestedId)
+        : doc(collection(db, 'conversations', conversationId, 'messages'));
+      await setDoc(messageRef, messageData);
+
+      if (!convSnap.data()?.conversationKind) {
+        try {
+          const repaired = await repairMissingConversationKind({
+            conversationId,
+            viewerUid: user.uid,
+          });
+          if (repaired) convSnap = await getDoc(convRef);
+        } catch (repairError) {
+          const repairCode =
+            repairError && typeof repairError === 'object' && 'code' in repairError
+              ? String((repairError as { code?: string }).code)
+              : '';
+          console.warn('Réparation du fil ignorée:', repairCode || repairError);
+        }
+      }
 
       const participants = Array.isArray(convSnap.data()?.participants)
         ? (convSnap.data()?.participants as string[])
@@ -542,9 +564,22 @@ export const MessagesProvider: React.FC<{
           updateData[`unreadCount.${id}`] = increment(1);
         });
 
-      await updateDoc(convRef, updateData);
+      try {
+        await updateDoc(convRef, updateData);
+      } catch (updateError) {
+        try {
+          await deleteDoc(messageRef);
+        } catch (rollbackError) {
+          console.warn('Message non confirmé, suppression impossible:', rollbackError);
+        }
+        throw updateError;
+      }
     } catch (error) {
-      console.error('❌ Erreur envoi message:', error);
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: string }).code)
+          : '';
+      console.error('❌ Erreur envoi message:', code || error);
       throw error;
     }
   };
