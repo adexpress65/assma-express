@@ -1,0 +1,51 @@
+{
+  "cli": {
+    "version": ">= 7.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "resourceClass": "default",
+      "channel": "development",
+      "environment": "development",
+      "env": {
+        "EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL": "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "preview",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL": "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "channel": "production",
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_VISUAL_IMAGE_SEARCH_URL": "https://europe-west1-assma-expresse.cloudfunctions.net/visualImageSearch",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./play-service-account.json",
+        "track": "production"
+      },
+      "ios": {
+        "ascAppId": "6769479048"
+      }
+    }
+  }
+}
