@@ -1,0 +1,472 @@
+{
+  "backup": {
+    "path": "C:\\Dev\\assma\\scripts\\repair-store-account-owner.backup.json",
+    "exists": true,
+    "sizeBytes": 41437,
+    "changesInBackup": 15,
+    "docs": {
+      "conversations": 14,
+      "companies": 1,
+      "users": 0
+    }
+  },
+  "planCounts": {
+    "company_uid": 1,
+    "thread_owner": 11,
+    "thread_attach": 1,
+    "thread_archive": 2
+  },
+  "planTotal": 15,
+  "planRows": [
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "type": "company_uid",
+      "before": {
+        "uid": "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+      },
+      "after": {
+        "uid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_DHal7wn2pbWfEE5LOtQoCIiMZI43",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "DHal7wn2pbWfEE5LOtQoCIiMZI43",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "DHal7wn2pbWfEE5LOtQoCIiMZI43",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "F0bkRlYMPUVBauzV7m0XVQmYIt83",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "F0bkRlYMPUVBauzV7m0XVQmYIt83",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_boM3u1kj2NQHowGruEWX5unpiUi2",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "boM3u1kj2NQHowGruEWX5unpiUi2",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "boM3u1kj2NQHowGruEWX5unpiUi2",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_oBmtO2ateMb96HYi9nA8wwsFQv52",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "oBmtO2ateMb96HYi9nA8wwsFQv52",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "oBmtO2ateMb96HYi9nA8wwsFQv52",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "udOXO3myFUWdYOJw6PmzLMGoNM42",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "udOXO3myFUWdYOJw6PmzLMGoNM42",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_wnXLFWCrF6OgoEtsgmGZplEVbj43",
+      "type": "thread_owner",
+      "before": {
+        "sellerUid": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+        "participants": [
+          "wnXLFWCrF6OgoEtsgmGZplEVbj43",
+          "EHhsm0tVmxOjLpX3ejKivuBjoT62"
+        ]
+      },
+      "after": {
+        "sellerUid": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+        "participants": [
+          "wnXLFWCrF6OgoEtsgmGZplEVbj43",
+          "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+        ]
+      },
+      "note": "USINE A2EXPRESS"
+    },
+    {
+      "id": "ZcxPuoYOjZVsTX634Cyr2jkt59A3_dBEI7KtAboQP1UsKEgNfx2hoTGn1",
+      "type": "thread_attach",
+      "before": {
+        "companyId": null,
+        "sellerUid": null,
+        "clientUid": null,
+        "conversationKind": null,
+        "participants": [
+          "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+          "dBEI7KtAboQP1UsKEgNfx2hoTGn1"
+        ]
+      },
+      "after": {
+        "companyId": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+        "companyName": "Zéro Dollars",
+        "sellerUid": "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+        "clientUid": "dBEI7KtAboQP1UsKEgNfx2hoTGn1",
+        "conversationKind": "customer_to_store",
+        "participants": [
+          "ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+          "dBEI7KtAboQP1UsKEgNfx2hoTGn1"
+        ]
+      },
+      "note": "rattachement Zero Dollars, messages intacts"
+    },
+    {
+      "id": "IdwDQQOSjdMRL4YiClg0hiHlfkF2_ZcxPuoYOjZVsTX634Cyr2jkt59A3",
+      "type": "thread_archive",
+      "before": {
+        "archived": null
+      },
+      "after": {
+        "archived": true
+      },
+      "note": "Guangzhou G-Packing — boutique absente"
+    },
+    {
+      "id": "IdwDQQOSjdMRL4YiClg0hiHlfkF2_tL2VAkCxqhZUU01qazUN6YOMMFh2",
+      "type": "thread_archive",
+      "before": {
+        "archived": null
+      },
+      "after": {
+        "archived": true
+      },
+      "note": "Guangzhou G-Packing — boutique absente"
+    }
+  ],
+  "usineThreads": [
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+      "client": "0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+      "clientName": null,
+      "messageCount": 4,
+      "lastAt": "2026-08-24T16:26:10.882Z",
+      "lastAuthor": "0aoLrsoL8NZSBWFDP07QgcAoJZk2",
+      "lastText": "Cv",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_DHal7wn2pbWfEE5LOtQoCIiMZI43",
+      "client": "DHal7wn2pbWfEE5LOtQoCIiMZI43",
+      "clientName": "thanatos7696",
+      "messageCount": 0,
+      "lastAt": "2026-08-26T16:13:11.387Z",
+      "lastAuthor": null,
+      "lastText": null,
+      "waitingForReply": false,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "client": "F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "clientName": "Serimandoumbia56",
+      "messageCount": 9,
+      "lastAt": "2026-08-26T17:02:29.361Z",
+      "lastAuthor": "F0bkRlYMPUVBauzV7m0XVQmYIt83",
+      "lastText": "C’est disponible ?",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "client": "FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "clientName": "Aski Moh",
+      "messageCount": 16,
+      "lastAt": "2026-10-02T02:11:19.878Z",
+      "lastAuthor": "FRqFg7E7qYZxFPvbtH9Ir5XcImu1",
+      "lastText": "Bonsoir",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+      "client": "R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+      "clientName": "lassinapanamafoungokone",
+      "messageCount": 4,
+      "lastAt": "2026-08-26T12:16:05.636Z",
+      "lastAuthor": "R0EQwPBt2DYmGv2ztWMmrGqdZVR2",
+      "lastText": "Dernier prix ?",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_boM3u1kj2NQHowGruEWX5unpiUi2",
+      "client": "boM3u1kj2NQHowGruEWX5unpiUi2",
+      "clientName": "dembelewahab90",
+      "messageCount": 2,
+      "lastAt": "2026-08-18T23:59:57.710Z",
+      "lastAuthor": "boM3u1kj2NQHowGruEWX5unpiUi2",
+      "lastText": "Dernier prix ?",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "client": "mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "clientName": "kalik9416",
+      "messageCount": 2,
+      "lastAt": "2026-09-17T12:25:28.672Z",
+      "lastAuthor": "mzA8NmbNqRRTUixE6Bo2G8h6Qvl2",
+      "lastText": "Livraison ?",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_oBmtO2ateMb96HYi9nA8wwsFQv52",
+      "client": "oBmtO2ateMb96HYi9nA8wwsFQv52",
+      "clientName": "alain",
+      "messageCount": 6,
+      "lastAt": "2026-08-19T15:01:40.064Z",
+      "lastAuthor": "oBmtO2ateMb96HYi9nA8wwsFQv52",
+      "lastText": "Hello,how much your price?",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+      "client": "q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+      "clientName": "diakitemahomet",
+      "messageCount": 2,
+      "lastAt": "2026-08-27T20:08:39.838Z",
+      "lastAuthor": "q647Q3Wzv0g5iNHcCCigwDNZdfk2",
+      "lastText": "Demande sur le produit: Écouteurs",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "client": "udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "clientName": "harounabagayoko80",
+      "messageCount": 1,
+      "lastAt": "2026-09-02T20:27:50.202Z",
+      "lastAuthor": "udOXO3myFUWdYOJw6PmzLMGoNM42",
+      "lastText": "Cv",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    },
+    {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2_wnXLFWCrF6OgoEtsgmGZplEVbj43",
+      "client": "wnXLFWCrF6OgoEtsgmGZplEVbj43",
+      "clientName": "bigmaurade",
+      "messageCount": 1,
+      "lastAt": "2026-09-18T20:52:34.666Z",
+      "lastAuthor": "wnXLFWCrF6OgoEtsgmGZplEVbj43",
+      "lastText": "C’est disponible ?",
+      "waitingForReply": true,
+      "sellerNow": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "tidioIsClient": false,
+      "tidioIsSeller": true,
+      "tidioLegitimateAsPeer": false
+    }
+  ],
+  "tidioLegitimateAnywhere": false,
+  "identities": {
+    "sameAccount": false,
+    "support": {
+      "id": "biU1QvlrGtZeqTLdbLONLGbyVQ92",
+      "role": "customer",
+      "name": null
+    },
+    "usineOwner": {
+      "id": "yxlcK76I8KWWl3aZjIiZPxGDbdH2",
+      "role": "super-admin",
+      "name": "superadmin"
+    },
+    "tidio": {
+      "id": "EHhsm0tVmxOjLpX3ejKivuBjoT62",
+      "role": "customer",
+      "name": "Tidio ",
+      "companyId": "yxlcK76I8KWWl3aZjIiZPxGDbdH2"
+    }
+  },
+  "rollbackTest": {
+    "total": 15,
+    "passed": 15,
+    "failed": 0,
+    "failedDetails": []
+  }
+}
