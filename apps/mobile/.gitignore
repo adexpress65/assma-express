@@ -63,9 +63,15 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
-# generated native folders
+# iOS généré par Expo prebuild (absent en local)
 /ios
-/android
+
+# Android : on versionne le code source, pas les builds
+android/app/build/
+android/.cxx/
+android/.kotlin/
+android/local.properties
+
 # === PROTECTION SUPPLÉMENTAIRE ===
 
 # Tous les fichiers .env
@@ -81,10 +87,12 @@ firebase-config.json
 # Clés API
 api-keys.json
 secrets.json
+serviceAccount.json
 play-service-account.json
 pc service account.json
 keys/
 credentials/
+credentials.json
 
 # Fichiers IDE spécifiques
 .vscode/

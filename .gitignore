@@ -68,6 +68,21 @@ node_modules/
 
 # dotenv environment variables file
 .env
+**/.env
+!.env.example
+!**/.env.example
+
+# Clés privées / comptes de service / keystores (ne jamais commiter)
+serviceAccount.json
+**/serviceAccount.json
+credentials.json
+**/credentials.json
+*.jks
+*.keystore
+play-service-account.json
+**/play-service-account.json
+upload_certificate.pem
+**/.git.bak-nested/
 
 # Journaux de migration messagerie (données réelles, ne pas commiter)
 scripts/migrate-conversation-routing.backup.json
@@ -84,11 +99,4 @@ sentry.properties
 
 # dataconnect generated files
 .dataconnect
-node_modules
-node_modules
-node_modules
-node_modules
-node_modules
-node_modules
-node_modules
-node_modules
+node_modules/
