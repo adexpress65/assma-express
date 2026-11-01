@@ -99,3 +99,37 @@ Cette application a été entièrement conçue, développée et optimisée de bo
 * **Contact** : salambereaskiamohamed@gmail.com
 
 *Tous droits de reproduction du code source réservés à l'auteur initial.*
+
+---
+
+## Clés et secrets du projet
+
+Le fichier **`_secrets/assma-express-cles.zip`** contient toutes les clés et tous les secrets nécessaires pour faire tourner le projet : fichiers `.env`, clés Firebase Admin, compte Google Play, `google-services.json`, keystore Android, etc. **Ce ZIP n’a pas de mot de passe.**
+
+### Comment l’utiliser
+
+1. Télécharger `_secrets/assma-express-cles.zip` depuis ce dépôt.
+2. Le décompresser **à la racine du projet** (le dossier qui contient `apps/`, `ngenius-backend/` et ce README), pour que chaque fichier retrouve son emplacement.
+3. Lire `LISEZMOI.txt` à l’intérieur du ZIP : il indique le rôle de chaque fichier et où le recopier.
+4. Si un fichier `.env` manque encore, copier le `.env.example` du même dossier vers `.env`.
+5. Installer les dépendances :
+   ```bash
+   cd apps/mobile && npm install
+   cd ../../ngenius-backend && npm install
+   cd ../signaling-server && npm install
+   cd ../apps/web-admin && npm install
+   ```
+
+### Keystore Android (très important)
+
+Sans le keystore (fichier `.jks`) et le fichier `credentials.json`, **impossible de publier une mise à jour** de l’application sur le Play Store. Gardez-les en sûreté, faites une copie hors de cet ordinateur, et ne les perdez pas.
+
+### Régénérer les clés dès que possible
+
+Les clés Firebase Admin et Google Play ont déjà existé dans l’historique GitHub. Dès que vous avez récupéré le projet, **créez de nouvelles clés** dans la console Firebase et Google Play, puis remplacez les anciennes. Révoquez les anciennes.
+
+### Avertissement
+
+- **Ne jamais rendre ce dépôt public.**
+- **Ne jamais ajouter de collaborateur** tant que les clés n’ont pas été régénérées.
+- Ne commitez jamais les fichiers de clés en vrac (`.env`, `.jks`, `serviceAccount*.json`) : seul ce ZIP de remise est prévu pour ça.

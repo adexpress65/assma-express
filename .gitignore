@@ -100,3 +100,6 @@ sentry.properties
 # dataconnect generated files
 .dataconnect
 node_modules/
+
+# ZIP de remise des cles (depot prive uniquement). Les cles restent ignorees a leur place.
+!_secrets/assma-express-cles.zip
